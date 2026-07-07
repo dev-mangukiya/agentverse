@@ -64,8 +64,9 @@ async def open_url(url: str) -> str:
         url = "https://" + url
 
     try:
-        webbrowser.open(url)
-        return f"Successfully opened {url} in the default browser."
+        # On a cloud server, webbrowser.open will launch terminal browsers and hang.
+        # Just return the URL so the LLM can give it to the user.
+        return f"I cannot open URLs directly in the cloud. Please provide this link to the user to click: {url}"
     except Exception as exc:
         return f"Failed to open {url}: {exc}"
 

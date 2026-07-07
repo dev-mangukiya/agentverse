@@ -42,8 +42,6 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const scrollRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Flag to distinguish intentional close (new chat / navigation) from unexpected disconnect
-  const intentionalCloseRef = useRef(false);
   // Queue: if user sends a message before WS is open, buffer it here
   const pendingMessageRef = useRef<string | null>(null);
   // Skip the next loadMessages when we just created a new conversation
@@ -96,21 +94,22 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       reconnectTimeoutRef.current = null;
     }
 
-    // Close existing connection intentionally
+    // Close existing connection
     if (wsRef.current) {
-      intentionalCloseRef.current = true;
       wsRef.current.close();
       wsRef.current = null;
     }
 
-    intentionalCloseRef.current = false;
-
     const ws = new WebSocket(`${WS_BASE}/api/v1/chat/ws/${convId}`);
+    wsRef.current = ws; // Set ref IMMEDIATELY so stale checks work
 
     // Keep-alive ping to prevent Render load balancer from dropping idle connections (55s limit)
     let pingInterval: ReturnType<typeof setInterval> | null = null;
 
     ws.onopen = () => {
+      // Ignore if this WS is already stale (user switched conversations)
+      if (wsRef.current !== ws) return;
+
       setWsConnected(true);
       setError(null);
       pingInterval = setInterval(() => {
@@ -127,6 +126,9 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     };
 
     ws.onmessage = (event) => {
+      // Ignore messages from a stale WS
+      if (wsRef.current !== ws) return;
+
       const data = JSON.parse(event.data);
 
       switch (data.type) {
@@ -198,24 +200,25 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
     ws.onclose = () => {
       if (pingInterval) clearInterval(pingInterval);
+
+      // If this WS is stale (we already moved to a different connection), ignore
+      if (wsRef.current !== ws) return;
+
       setWsConnected(false);
       setIsThinking(false);
       setToolActivity(null);
 
-      // Only reconnect if this was NOT an intentional close (e.g. user pressed New Chat)
-      if (!intentionalCloseRef.current) {
-        reconnectTimeoutRef.current = setTimeout(() => {
-          if (convId) connectWs(convId);
-        }, 3000);
-      }
+      // Reconnect after 3s (only for unexpected disconnects)
+      reconnectTimeoutRef.current = setTimeout(() => {
+        if (convId) connectWs(convId);
+      }, 3000);
     };
 
     ws.onerror = () => {
-      // onerror is always followed by onclose, so just clear UI state here
+      // Ignore errors from stale WS; onerror is always followed by onclose
+      if (wsRef.current !== ws) return;
       setWsConnected(false);
     };
-
-    wsRef.current = ws;
   }, [onMessageSent]);
 
   // Connect/disconnect WS when conversation changes
@@ -223,15 +226,15 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     if (conversationId) {
       connectWs(conversationId);
     } else {
-      // conversationId is null (New Chat) — clean up intentionally
+      // conversationId is null (New Chat) — clean up
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
       if (wsRef.current) {
-        intentionalCloseRef.current = true;
-        wsRef.current.close();
-        wsRef.current = null;
+        const oldWs = wsRef.current;
+        wsRef.current = null; // Null ref BEFORE close so onclose sees it as stale
+        oldWs.close();
       }
       setWsConnected(false);
     }
@@ -243,9 +246,9 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         reconnectTimeoutRef.current = null;
       }
       if (wsRef.current) {
-        intentionalCloseRef.current = true;
-        wsRef.current.close();
-        wsRef.current = null;
+        const oldWs = wsRef.current;
+        wsRef.current = null; // Null ref BEFORE close so onclose sees it as stale
+        oldWs.close();
       }
     };
   }, [conversationId, connectWs]);

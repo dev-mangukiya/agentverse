@@ -77,9 +77,17 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
     const ws = new WebSocket(`${WS_BASE}/api/v1/chat/ws/${convId}`);
 
+    // Keep-alive ping to prevent Render load balancer from dropping idle connections (55s limit)
+    let pingInterval: ReturnType<typeof setInterval> | null = null;
+
     ws.onopen = () => {
       setWsConnected(true);
       setError(null);
+      pingInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "ping" }));
+        }
+      }, 30000);
     };
 
     ws.onmessage = (event) => {
@@ -130,7 +138,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
           break;
 
         case "message_saved":
-          // User message confirmed saved
+          // Backend echo of saved user message — already shown via optimistic UI, skip
           break;
 
         case "error":
@@ -153,6 +161,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     };
 
     ws.onclose = () => {
+      if (pingInterval) clearInterval(pingInterval);
       setWsConnected(false);
       setIsThinking(false);
       setToolActivity(null);
@@ -169,20 +178,6 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     };
 
     wsRef.current = ws;
-
-    // Keep-alive ping to prevent Render load balancer from dropping idle connections (55s limit)
-    const pingInterval = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "ping" }));
-      }
-    }, 30000);
-
-    const originalOnClose = ws.onclose;
-    ws.onclose = (event) => {
-      clearInterval(pingInterval);
-      if (originalOnClose) originalOnClose.call(ws, event);
-    };
-
   }, [onMessageSent]);
 
   // Connect/disconnect WS when conversation changes
@@ -253,7 +248,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   };
 
   return (
-    <div className="glass-panel flex flex-col h-full max-h-[calc(100vh-140px)]">
+    <div className="glass-panel flex flex-col h-full">
       {/* Chat Header */}
       <div className="flex items-center gap-3 px-5 py-3 border-b border-white/[0.06]">
         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
@@ -301,12 +296,13 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
           </div>
         )}
 
-        <AnimatePresence>
+        <AnimatePresence initial={false}>
           {messages.map((msg, idx) => (
             <motion.div
               key={`${msg.id}-${idx}`}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
               transition={{ duration: 0.2 }}
               className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
             >
@@ -340,7 +336,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
           <motion.div
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-surface-3/50 border border-white/[0.04] w-fit"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[rgba(34,34,51,0.5)] border border-white/[0.04] w-fit"
           >
             <span className="text-base">{toolIcons[toolActivity.tool] || "🔧"}</span>
             <div>

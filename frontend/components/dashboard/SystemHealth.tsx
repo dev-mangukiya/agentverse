@@ -8,15 +8,20 @@ interface HealthService {
   status: "ok" | "unreachable" | "loading";
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
+
+const serviceDisplayNames: Record<string, string> = {
+  postgres: "PostgreSQL",
+  sqlite: "SQLite",
+  redis: "Redis",
+  qdrant: "Qdrant",
+  llm: "LLM Provider",
+};
 
 export function SystemHealth() {
-  const [services, setServices] = useState<HealthService[]>([
-    { name: "PostgreSQL", status: "loading" },
-    { name: "Redis", status: "loading" },
-    { name: "Qdrant", status: "loading" },
-  ]);
+  const [services, setServices] = useState<HealthService[]>([]);
   const [overall, setOverall] = useState<string>("checking");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const checkHealth = async () => {
@@ -24,18 +29,18 @@ export function SystemHealth() {
         const res = await fetch(`${API_URL}/health`);
         const data = await res.json();
         setOverall(data.status);
-        setServices([
-          { name: "PostgreSQL", status: data.services.postgres },
-          { name: "Redis", status: data.services.redis },
-          { name: "Qdrant", status: data.services.qdrant },
-        ]);
+        if (data.services && typeof data.services === "object") {
+          const mapped = Object.entries(data.services).map(([key, value]) => ({
+            name: serviceDisplayNames[key] || key,
+            status: (value as string) === "ok" || (value as string) === "configured" ? "ok" : "unreachable",
+          })) as HealthService[];
+          setServices(mapped);
+        }
       } catch {
         setOverall("offline");
-        setServices([
-          { name: "PostgreSQL", status: "unreachable" },
-          { name: "Redis", status: "unreachable" },
-          { name: "Qdrant", status: "unreachable" },
-        ]);
+        setServices([{ name: "Backend", status: "unreachable" }]);
+      } finally {
+        setLoading(false);
       }
     };
 

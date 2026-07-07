@@ -9,6 +9,13 @@
   --gradient-surface: linear-gradient(180deg, rgba(18, 18, 26, 0.8) 0%, rgba(10, 10, 15, 0.95) 100%);
   --glow-brand: 0 0 30px rgba(76, 110, 245, 0.3);
   --glow-accent: 0 0 30px rgba(124, 58, 237, 0.2);
+
+  /* Surface colors as RGB channels for Tailwind alpha-value support */
+  --surface-0: 10 10 15;
+  --surface-1: 18 18 26;
+  --surface-2: 26 26 37;
+  --surface-3: 34 34 51;
+  --surface-4: 42 42 61;
 }
 
 @layer base {

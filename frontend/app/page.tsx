@@ -16,6 +16,7 @@ type View = "dashboard" | "agents" | "chat";
 export default function Home() {
   const [currentView, setCurrentView] = useState<View>("chat");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [historyRefresh, setHistoryRefresh] = useState(0);
 
@@ -32,6 +33,12 @@ export default function Home() {
     setHistoryRefresh((n) => n + 1);
   }, []);
 
+  // Close mobile sidebar when navigating
+  const handleNavigate = useCallback((view: View) => {
+    setCurrentView(view);
+    setMobileSidebarOpen(false);
+  }, []);
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-surface-0">
       {/* Ambient background effects */}
@@ -41,17 +48,36 @@ export default function Home() {
         <div className="absolute top-[40%] left-[50%] w-[400px] h-[400px] rounded-full bg-pink-600/[0.02] blur-[100px]" />
       </div>
 
-      <Sidebar
-        currentView={currentView}
-        onNavigate={setCurrentView}
-        collapsed={sidebarCollapsed}
-        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-      />
+      {/* Mobile sidebar overlay */}
+      {mobileSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar — hidden on mobile by default, shown via overlay */}
+      <div className={`
+        fixed inset-y-0 left-0 z-50 lg:relative lg:z-10
+        transform transition-transform duration-300 ease-in-out
+        ${mobileSidebarOpen ? "translate-x-0" : "-translate-x-full"}
+        lg:translate-x-0
+      `}>
+        <Sidebar
+          currentView={currentView}
+          onNavigate={handleNavigate}
+          collapsed={sidebarCollapsed}
+          onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        />
+      </div>
 
       <main className="flex-1 flex flex-col min-w-0 relative">
-        <Header currentView={currentView} />
+        <Header
+          currentView={currentView}
+          onMobileMenuToggle={() => setMobileSidebarOpen(!mobileSidebarOpen)}
+        />
 
-        <div className="flex-1 overflow-auto p-6">
+        <div className="flex-1 flex flex-col overflow-hidden p-4 md:p-6">
           <AnimatePresence mode="wait">
             {currentView === "dashboard" && (
               <motion.div
@@ -60,7 +86,7 @@ export default function Home() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -12 }}
                 transition={{ duration: 0.3 }}
-                className="space-y-6"
+                className="flex-1 overflow-y-auto space-y-6"
               >
                 <KPICards />
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -82,7 +108,7 @@ export default function Home() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -12 }}
                 transition={{ duration: 0.3 }}
-                className="h-full"
+                className="flex-1 overflow-hidden"
               >
                 <AgentNetworkGraph fullscreen />
               </motion.div>
@@ -95,10 +121,10 @@ export default function Home() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -12 }}
                 transition={{ duration: 0.3 }}
-                className="h-full flex gap-4"
+                className="flex-1 flex gap-4 overflow-hidden min-h-0"
               >
                 {/* Chat History Sidebar */}
-                <div className="w-64 flex-shrink-0 glass-panel hidden lg:block">
+                <div className="w-64 flex-shrink-0 glass-panel hidden lg:flex lg:flex-col overflow-hidden">
                   <ChatHistory
                     activeId={activeConversationId}
                     onSelect={setActiveConversationId}
@@ -108,7 +134,7 @@ export default function Home() {
                 </div>
 
                 {/* Chat Panel */}
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 min-h-0">
                   <ChatPanel
                     conversationId={activeConversationId}
                     onConversationCreated={handleConversationCreated}

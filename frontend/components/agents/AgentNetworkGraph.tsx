@@ -20,12 +20,12 @@ interface AgentEdge {
 
 const agents: AgentNode[] = [
   { id: "orchestrator", label: "Chief Orchestrator", role: "Planning & Delegation", status: "active", color: "#4c6ef5", x: 50, y: 50 },
-  { id: "research", label: "Research Agent", role: "Web Search & Analysis", status: "working", color: "#22c55e", x: 20, y: 25 },
-  { id: "data", label: "Data Analyst", role: "Data Processing & Viz", status: "idle", color: "#a855f7", x: 80, y: 25 },
-  { id: "coding", label: "Coding Agent", role: "Code Generation & Debug", status: "working", color: "#ec4899", x: 15, y: 75 },
-  { id: "writer", label: "Writer Agent", role: "Content & Reports", status: "idle", color: "#f59e0b", x: 85, y: 75 },
-  { id: "critic", label: "Critic Agent", role: "Quality & Evaluation", status: "active", color: "#06b6d4", x: 50, y: 90 },
-  { id: "memory", label: "Memory Agent", role: "RAG & Vector Storage", status: "active", color: "#8b5cf6", x: 50, y: 15 },
+  { id: "research", label: "Research Agent", role: "Web Search & Analysis", status: "working", color: "#22c55e", x: 22, y: 28 },
+  { id: "data", label: "Data Analyst", role: "Data Processing & Viz", status: "idle", color: "#a855f7", x: 78, y: 28 },
+  { id: "coding", label: "Coding Agent", role: "Code Generation & Debug", status: "working", color: "#ec4899", x: 18, y: 72 },
+  { id: "writer", label: "Writer Agent", role: "Content & Reports", status: "idle", color: "#f59e0b", x: 82, y: 72 },
+  { id: "critic", label: "Critic Agent", role: "Quality & Evaluation", status: "active", color: "#06b6d4", x: 50, y: 85 },
+  { id: "memory", label: "Memory Agent", role: "RAG & Vector Storage", status: "active", color: "#8b5cf6", x: 50, y: 18 },
 ];
 
 const edges: AgentEdge[] = [
@@ -56,7 +56,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
         Real-time visualization of agent status and communication
       </p>
 
-      <div className="relative w-full h-[calc(100%-60px)]">
+      <div className="relative w-full h-[calc(100%-60px)] p-4">
         {/* SVG Edges */}
         <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 0 }}>
           {edges.map((edge, i) => {

@@ -22,11 +22,11 @@ const config: Config = {
           900: "#364fc7",
         },
         surface: {
-          0: "#0a0a0f",
-          1: "#12121a",
-          2: "#1a1a25",
-          3: "#222233",
-          4: "#2a2a3d",
+          0: "rgb(var(--surface-0) / <alpha-value>)",
+          1: "rgb(var(--surface-1) / <alpha-value>)",
+          2: "rgb(var(--surface-2) / <alpha-value>)",
+          3: "rgb(var(--surface-3) / <alpha-value>)",
+          4: "rgb(var(--surface-4) / <alpha-value>)",
         },
       },
       fontFamily: {

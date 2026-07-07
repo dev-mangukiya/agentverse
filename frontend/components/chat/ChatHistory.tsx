@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
 interface ConversationItem {
   id: string;
@@ -23,16 +23,21 @@ interface ChatHistoryProps {
 export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: ChatHistoryProps) {
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
 
   const fetchConversations = useCallback(async () => {
     try {
+      setFetchError(false);
       const res = await fetch(`${API_URL}/api/v1/chat/conversations`);
       if (res.ok) {
         const data = await res.json();
         setConversations(data);
+      } else {
+        setFetchError(true);
       }
     } catch (err) {
       console.error("Failed to fetch conversations:", err);
+      setFetchError(true);
     } finally {
       setLoading(false);
     }
@@ -88,7 +93,19 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
           <div className="text-center text-xs text-zinc-500 py-4">Loading...</div>
         )}
 
-        {!loading && conversations.length === 0 && (
+        {!loading && fetchError && (
+          <div className="text-center py-8 px-3">
+            <div className="text-xs text-red-400 mb-2">Failed to load conversations</div>
+            <button
+              onClick={() => { setLoading(true); fetchConversations(); }}
+              className="px-3 py-1.5 rounded-lg text-xs text-zinc-400 bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] hover:text-zinc-300 transition-all"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {!loading && !fetchError && conversations.length === 0 && (
           <div className="text-center text-xs text-zinc-600 py-8 px-3">
             No conversations yet. Start a new chat!
           </div>

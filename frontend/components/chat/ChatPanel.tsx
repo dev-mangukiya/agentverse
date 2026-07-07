@@ -46,6 +46,9 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const intentionalCloseRef = useRef(false);
   // Queue: if user sends a message before WS is open, buffer it here
   const pendingMessageRef = useRef<string | null>(null);
+  // Skip the next loadMessages when we just created a new conversation
+  // (prevents the effect from clearing optimistic UI with an empty DB fetch)
+  const skipNextLoadRef = useRef(false);
 
   // Auto-scroll
   useEffect(() => {
@@ -58,6 +61,14 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   useEffect(() => {
     if (!conversationId) {
       setMessages([]);
+      return;
+    }
+
+    // Skip loading if we just created this conversation in handleSend.
+    // The optimistic UI already has the user's message, and loading from
+    // DB would return empty (the WS message hasn't been processed yet).
+    if (skipNextLoadRef.current) {
+      skipNextLoadRef.current = false;
       return;
     }
 
@@ -263,6 +274,9 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
         // Queue the message so it gets sent as soon as WS opens
         pendingMessageRef.current = content;
+
+        // Prevent the loadMessages effect from wiping our optimistic UI
+        skipNextLoadRef.current = true;
 
         // This triggers the useEffect which calls connectWs
         onConversationCreated(conv.id);

@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     google_api_key: str | None = None
     default_model_provider: str = "google"
-    default_model: str = "gemini-2.0-flash"
+    default_model: str = "gemini-1.5-flash"
 
     # ── PostgreSQL ───────────────────────────────────────
     database_url: str = ""

@@ -173,12 +173,7 @@ async def _process_user_message(
                 content=content,
             )
             db.add(user_msg)
-
-            # Auto-title from first user message
-            msg_count = len(conv.messages) if conv.messages else 0
-            if msg_count == 0:
-                conv.title = content[:80] + ("..." if len(content) > 80 else "")
-
+            
             await db.commit()
 
             await websocket.send_json({

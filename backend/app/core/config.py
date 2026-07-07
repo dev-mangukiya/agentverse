@@ -78,11 +78,15 @@ class Settings(BaseSettings):
     def effective_database_url(self) -> str:
         """Return configured DB URL or fallback to SQLite in the backend dir."""
         if self.database_url:
-            if self.database_url.startswith("postgres://"):
-                return self.database_url.replace("postgres://", "postgresql+asyncpg://", 1)
-            if self.database_url.startswith("postgresql://"):
-                return self.database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-            return self.database_url
+            url = self.database_url
+            if url.startswith("postgres://"):
+                url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+            elif url.startswith("postgresql://"):
+                url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+            
+            if "sslmode=" in url:
+                url = url.replace("sslmode=", "ssl=")
+            return url
         db_path = Path(__file__).resolve().parent.parent.parent / "agentverse.db"
         return f"sqlite+aiosqlite:///{db_path}"
 

@@ -40,6 +40,10 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const scrollRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Flag to distinguish intentional close (new chat / navigation) from unexpected disconnect
+  const intentionalCloseRef = useRef(false);
+  // Queue: if user sends a message before WS is open, buffer it here
+  const pendingMessageRef = useRef<string | null>(null);
 
   // Auto-scroll
   useEffect(() => {
@@ -71,9 +75,20 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
   // WebSocket connection
   const connectWs = useCallback((convId: string) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.close();
+    // Clear any pending reconnect
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
     }
+
+    // Close existing connection intentionally
+    if (wsRef.current) {
+      intentionalCloseRef.current = true;
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
+    intentionalCloseRef.current = false;
 
     const ws = new WebSocket(`${WS_BASE}/api/v1/chat/ws/${convId}`);
 
@@ -88,6 +103,12 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
           ws.send(JSON.stringify({ type: "ping" }));
         }
       }, 30000);
+
+      // Flush any message that was queued while WS was connecting
+      if (pendingMessageRef.current) {
+        ws.send(JSON.stringify({ type: "message", content: pendingMessageRef.current }));
+        pendingMessageRef.current = null;
+      }
     };
 
     ws.onmessage = (event) => {
@@ -165,16 +186,18 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       setWsConnected(false);
       setIsThinking(false);
       setToolActivity(null);
-      // Reconnect after 3s
-      reconnectTimeoutRef.current = setTimeout(() => {
-        if (convId) connectWs(convId);
-      }, 3000);
+
+      // Only reconnect if this was NOT an intentional close (e.g. user pressed New Chat)
+      if (!intentionalCloseRef.current) {
+        reconnectTimeoutRef.current = setTimeout(() => {
+          if (convId) connectWs(convId);
+        }, 3000);
+      }
     };
 
     ws.onerror = () => {
+      // onerror is always followed by onclose, so just clear UI state here
       setWsConnected(false);
-      setIsThinking(false);
-      setToolActivity(null);
     };
 
     wsRef.current = ws;
@@ -184,10 +207,31 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   useEffect(() => {
     if (conversationId) {
       connectWs(conversationId);
+    } else {
+      // conversationId is null (New Chat) — clean up intentionally
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      if (wsRef.current) {
+        intentionalCloseRef.current = true;
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      setWsConnected(false);
     }
+
     return () => {
-      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
-      wsRef.current?.close();
+      // Cleanup on unmount or before re-running effect
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      if (wsRef.current) {
+        intentionalCloseRef.current = true;
+        wsRef.current.close();
+        wsRef.current = null;
+      }
     };
   }, [conversationId, connectWs]);
 
@@ -209,10 +253,12 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         });
         const conv = await res.json();
         activeConvId = conv.id;
-        onConversationCreated(conv.id);
 
-        // Small delay so the WS can connect
-        await new Promise((r) => setTimeout(r, 500));
+        // Queue the message so it gets sent as soon as WS opens
+        pendingMessageRef.current = content;
+
+        // This triggers the useEffect which calls connectWs
+        onConversationCreated(conv.id);
       } catch (err) {
         setError("Failed to create conversation");
         return;
@@ -228,12 +274,20 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     };
     setMessages((prev) => [...prev, userMsg]);
 
-    // Send via WebSocket
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
+    // If WS is already open (existing conversation), send immediately
+    // If WS is connecting (new conversation), the message is queued in pendingMessageRef
+    if (!pendingMessageRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: "message", content }));
-    } else {
+    } else if (!pendingMessageRef.current && wsRef.current?.readyState === WebSocket.CONNECTING) {
+      // WS is still connecting, queue the message
+      pendingMessageRef.current = content;
+    } else if (!pendingMessageRef.current) {
+      // WS is not connected and no pending message — try to reconnect
       setError("Not connected to server. Reconnecting...");
-      if (activeConvId) connectWs(activeConvId);
+      if (activeConvId) {
+        pendingMessageRef.current = content;
+        connectWs(activeConvId);
+      }
     }
   };
 

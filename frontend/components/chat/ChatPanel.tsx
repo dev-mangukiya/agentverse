@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MarkdownRenderer } from "./MarkdownRenderer";
+import { getSessionId } from "@/lib/session";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 const WS_BASE = API_URL.replace("http", "ws");
@@ -62,7 +63,9 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
     const loadMessages = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/v1/chat/conversations/${conversationId}`);
+        const res = await fetch(`${API_URL}/api/v1/chat/conversations/${conversationId}`, {
+          headers: { "X-Session-ID": getSessionId() },
+        });
         if (res.ok) {
           const data = await res.json();
           setMessages(data.messages || []);
@@ -249,7 +252,10 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       try {
         const res = await fetch(`${API_URL}/api/v1/chat/conversations`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "X-Session-ID": getSessionId(),
+          },
           body: JSON.stringify({ title: content.slice(0, 80) }),
         });
         const conv = await res.json();

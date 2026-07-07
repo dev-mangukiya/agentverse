@@ -5,7 +5,7 @@ import json
 import traceback
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,9 +29,17 @@ class ConversationCreate(BaseModel):
 # ── REST endpoints ────────────────────────────────────────
 
 @router.get("/conversations")
-async def list_conversations(db: AsyncSession = Depends(get_db)) -> list[dict]:
-    """List all conversations, most recent first."""
+async def list_conversations(
+    db: AsyncSession = Depends(get_db),
+    x_session_id: str | None = Header(None),
+) -> list[dict]:
+    """List conversations for a session, most recent first."""
     stmt = select(Conversation).order_by(Conversation.updated_at.desc())
+    if x_session_id:
+        stmt = stmt.where(Conversation.session_id == x_session_id)
+    else:
+        # No session ID = show nothing (don't leak other users' chats)
+        return []
     result = await db.execute(stmt)
     conversations = result.scalars().all()
     return [c.to_dict() for c in conversations]
@@ -41,14 +49,15 @@ async def list_conversations(db: AsyncSession = Depends(get_db)) -> list[dict]:
 async def create_conversation(
     body: ConversationCreate | None = None,
     db: AsyncSession = Depends(get_db),
+    x_session_id: str | None = Header(None),
 ) -> dict:
-    """Create a new conversation."""
+    """Create a new conversation scoped to a session."""
     title = (body.title if body and body.title else "New conversation")
-    conv = Conversation(title=title)
+    conv = Conversation(title=title, session_id=x_session_id)
     db.add(conv)
     await db.commit()
     await db.refresh(conv)
-    logger.info("chat.conversation.created", id=conv.id)
+    logger.info("chat.conversation.created", id=conv.id, session=x_session_id)
     return conv.to_dict()
 
 
@@ -56,9 +65,12 @@ async def create_conversation(
 async def get_conversation(
     conversation_id: str,
     db: AsyncSession = Depends(get_db),
+    x_session_id: str | None = Header(None),
 ) -> dict:
-    """Get a conversation with all its messages."""
+    """Get a conversation with all its messages (session-scoped)."""
     stmt = select(Conversation).where(Conversation.id == conversation_id)
+    if x_session_id:
+        stmt = stmt.where(Conversation.session_id == x_session_id)
     result = await db.execute(stmt)
     conv = result.scalar_one_or_none()
     if not conv:
@@ -70,9 +82,12 @@ async def get_conversation(
 async def delete_conversation(
     conversation_id: str,
     db: AsyncSession = Depends(get_db),
+    x_session_id: str | None = Header(None),
 ) -> dict:
-    """Delete a conversation and all its messages."""
+    """Delete a conversation and all its messages (session-scoped)."""
     stmt = select(Conversation).where(Conversation.id == conversation_id)
+    if x_session_id:
+        stmt = stmt.where(Conversation.session_id == x_session_id)
     result = await db.execute(stmt)
     conv = result.scalar_one_or_none()
     if not conv:

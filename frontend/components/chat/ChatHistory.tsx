@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { getSessionId } from "@/lib/session";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -28,7 +29,9 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
   const fetchConversations = useCallback(async () => {
     try {
       setFetchError(false);
-      const res = await fetch(`${API_URL}/api/v1/chat/conversations`);
+      const res = await fetch(`${API_URL}/api/v1/chat/conversations`, {
+        headers: { "X-Session-ID": getSessionId() },
+      });
       if (res.ok) {
         const data = await res.json();
         setConversations(data);
@@ -52,7 +55,10 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
     if (!confirm("Delete this conversation?")) return;
 
     try {
-      await fetch(`${API_URL}/api/v1/chat/conversations/${id}`, { method: "DELETE" });
+      await fetch(`${API_URL}/api/v1/chat/conversations/${id}`, {
+        method: "DELETE",
+        headers: { "X-Session-ID": getSessionId() },
+      });
       setConversations((prev) => prev.filter((c) => c.id !== id));
       if (activeId === id) {
         onNewChat();

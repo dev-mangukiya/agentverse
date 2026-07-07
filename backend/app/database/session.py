@@ -39,6 +39,22 @@ async def init_db() -> None:
     """Create all tables. Called once at startup."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Lightweight migration: add session_id column if it doesn't exist
+        # (for databases created before this column was added)
+        try:
+            from sqlalchemy import text, inspect as sa_inspect
+
+            def _check_and_add_column(sync_conn):
+                inspector = sa_inspect(sync_conn)
+                columns = [c["name"] for c in inspector.get_columns("conversations")]
+                if "session_id" not in columns:
+                    sync_conn.execute(text(
+                        "ALTER TABLE conversations ADD COLUMN session_id VARCHAR(64)"
+                    ))
+
+            await conn.run_sync(_check_and_add_column)
+        except Exception:
+            pass  # Column already exists or DB doesn't support inspection
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

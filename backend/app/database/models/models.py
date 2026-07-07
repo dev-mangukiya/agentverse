@@ -21,6 +21,7 @@ class Conversation(Base):
     __tablename__ = "conversations"
 
     id = Column(String(12), primary_key=True, default=_new_id)
+    session_id = Column(String(64), nullable=True, index=True)
     title = Column(String(200), nullable=False, default="New conversation")
     created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)

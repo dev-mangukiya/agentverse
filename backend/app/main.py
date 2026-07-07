@@ -1,0 +1,55 @@
+"""AgentVerse FastAPI application entrypoint.
+
+Run with: uvicorn app.main:app --reload
+"""
+
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.api.routes.health import router as health_router
+from app.api.routes.chat import router as chat_router
+from app.core.config import get_settings
+from app.core.logging import configure_logging, get_logger
+from app.database.session import init_db
+
+configure_logging()
+logger = get_logger(__name__)
+settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("agentverse.startup", env=settings.app_env)
+    # Import models so Base.metadata knows about them, then create tables
+    import app.database.models.models  # noqa: F401
+    await init_db()
+    logger.info("agentverse.db_initialized", url=settings.effective_database_url[:50])
+    yield
+    logger.info("agentverse.shutdown")
+
+
+def create_app() -> FastAPI:
+    application = FastAPI(
+        title=settings.app_name,
+        description="Autonomous Multi-Agent AI Workforce Platform",
+        version="0.1.0",
+        lifespan=lifespan,
+    )
+
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    application.include_router(health_router)
+    application.include_router(chat_router, prefix=settings.api_v1_prefix)
+
+    return application
+
+
+app = create_app()

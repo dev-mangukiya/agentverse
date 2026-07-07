@@ -38,6 +38,16 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    @application.get("/logs")
+    def get_logs():
+        try:
+            if os.path.exists("/tmp/render_app.log"):
+                with open("/tmp/render_app.log", "r") as f:
+                    return {"logs": f.read()[-50000:]}  # Last 50k chars
+            return {"logs": "Log file not found"}
+        except Exception as e:
+            return {"error": str(e)}
+
     application.add_middleware(
         CORSMiddleware,
         allow_origins=[

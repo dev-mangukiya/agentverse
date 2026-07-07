@@ -43,5 +43,20 @@ def configure_logging() -> None:
     )
 
 
-def get_logger(name: str) -> structlog.BoundLogger:
-    return structlog.get_logger(name)
+def get_logger(name: str) -> logging.Logger:
+    """Get a structlog-wrapped logger."""
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.INFO)
+    
+    # Ensure logs go to stdout
+    if not logger.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(handler)
+        
+        # Add file handler for debugging on Render
+        file_handler = logging.FileHandler("/tmp/render_app.log")
+        file_handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(file_handler)
+
+    return structlog.wrap_logger(logger)

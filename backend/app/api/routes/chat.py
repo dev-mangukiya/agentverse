@@ -123,6 +123,7 @@ async def chat_websocket(websocket: WebSocket, conversation_id: str):
     active_connections.append(websocket)
     logger.info("ws.connected", conversation_id=conversation_id)
 
+    task = None
     try:
         while True:
             data = await websocket.receive_json()
@@ -131,7 +132,7 @@ async def chat_websocket(websocket: WebSocket, conversation_id: str):
                 content = data.get("content", "").strip()
                 if not content:
                     continue
-                asyncio.create_task(
+                task = asyncio.create_task(
                     _process_user_message(websocket, conversation_id, content)
                 )
 
@@ -140,6 +141,9 @@ async def chat_websocket(websocket: WebSocket, conversation_id: str):
 
     except WebSocketDisconnect:
         logger.info("ws.disconnected", conversation_id=conversation_id)
+        if task and not task.done():
+            logger.info("ws.cancelling_task", conversation_id=conversation_id)
+            task.cancel()
     except Exception as exc:
         logger.error("ws.error", error=str(exc))
     finally:

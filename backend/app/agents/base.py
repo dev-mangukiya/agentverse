@@ -80,20 +80,8 @@ def get_llm(
     )
 
 
-async def _invoke_with_retry(llm, messages, max_retries=3):
-    """Invoke LLM with retry on rate limit (429) errors."""
-    for attempt in range(max_retries):
-        try:
-            return await llm.ainvoke(messages)
-        except Exception as exc:
-            err_str = str(exc)
-            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "rate" in err_str.lower():
-                wait = (attempt + 1) * 15  # 15s, 30s, 45s
-                logger.warning(f"llm.rate_limited", attempt=attempt + 1, wait=wait)
-                await asyncio.sleep(wait)
-            else:
-                raise
-    # Final attempt without catch
+async def _invoke_with_retry(llm, messages, max_retries=0):
+    """Invoke LLM without retries so rate limits surface to the user immediately."""
     return await llm.ainvoke(messages)
 
 

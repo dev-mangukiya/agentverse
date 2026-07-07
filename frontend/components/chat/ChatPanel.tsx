@@ -382,7 +382,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
               className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
             >
               <div
-                className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${
+                className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed overflow-hidden ${
                   msg.role === "user"
                     ? "bg-brand-600/30 text-brand-100 rounded-br-md"
                     : msg.role === "system"
@@ -395,7 +395,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                     {msg.agent_name}
                   </div>
                 )}
-                <div className="whitespace-pre-wrap break-words">
+                <div className="break-words overflow-hidden" style={{ overflowWrap: "anywhere" }}>
                   {msg.role === "user" ? msg.content : <MarkdownRenderer content={msg.content} />}
                 </div>
                 {msg.created_at && (

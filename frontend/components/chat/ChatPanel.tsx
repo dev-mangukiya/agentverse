@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { MarkdownRenderer } from "./MarkdownRenderer";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 const WS_BASE = API_URL.replace("http", "ws");
@@ -374,7 +375,9 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                     {msg.agent_name}
                   </div>
                 )}
-                <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+                <div className="whitespace-pre-wrap break-words">
+                  {msg.role === "user" ? msg.content : <MarkdownRenderer content={msg.content} />}
+                </div>
                 {msg.created_at && (
                   <div className="text-[10px] text-zinc-600 mt-1.5">
                     {new Date(msg.created_at).toLocaleTimeString()}

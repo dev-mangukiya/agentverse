@@ -35,7 +35,7 @@ def get_llm(
     if provider == "google" and settings.google_api_key:
         from langchain_google_genai import ChatGoogleGenerativeAI
         return ChatGoogleGenerativeAI(
-            model=model if "gemini" in model else "gemini-1.5-flash-latest",
+            model=model if "gemini" in model else "gemini-2.5-flash",
             google_api_key=settings.google_api_key,
             temperature=temperature,
             max_retries=3,
@@ -61,7 +61,7 @@ def get_llm(
     if settings.google_api_key:
         from langchain_google_genai import ChatGoogleGenerativeAI
         return ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash-latest",
+            model="gemini-2.5-flash",
             google_api_key=settings.google_api_key,
             temperature=temperature,
             max_retries=3,

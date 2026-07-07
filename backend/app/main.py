@@ -3,6 +3,7 @@
 Run with: uvicorn app.main:app --reload
 """
 
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI

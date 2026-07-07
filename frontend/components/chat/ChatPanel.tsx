@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 const WS_BASE = API_URL.replace("http", "ws");
 
 interface Message {
@@ -169,6 +169,20 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     };
 
     wsRef.current = ws;
+
+    // Keep-alive ping to prevent Render load balancer from dropping idle connections (55s limit)
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "ping" }));
+      }
+    }, 30000);
+
+    const originalOnClose = ws.onclose;
+    ws.onclose = (event) => {
+      clearInterval(pingInterval);
+      if (originalOnClose) originalOnClose.call(ws, event);
+    };
+
   }, [onMessageSent]);
 
   // Connect/disconnect WS when conversation changes

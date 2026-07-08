@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     google_api_key: str | None = None
     huggingface_api_key: str | None = None  # HuggingFace token (HUGGINGFACEHUB_API_TOKEN)
     default_model_provider: str = "google"
-    default_model: str = "gemini-1.5-flash"
+    default_model: str = "gemini-3.5-flash"
 
     # ── PostgreSQL ───────────────────────────────────────
     database_url: str = ""

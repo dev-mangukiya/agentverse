@@ -141,9 +141,9 @@ export default function Home() {
                 transition={{ duration: 0.2 }}
                 className="h-full flex overflow-hidden"
               >
-                {/* Chat history sidebar */}
+                {/* Chat history sidebar — only on xl+ screens to give chat area room */}
                 <div
-                  className="w-56 flex-shrink-0 hidden lg:flex lg:flex-col overflow-hidden"
+                  className="w-52 flex-shrink-0 hidden xl:flex xl:flex-col overflow-hidden"
                   style={{ borderRight: "1px solid var(--border-subtle)" }}
                 >
                   <ChatHistory
@@ -164,9 +164,9 @@ export default function Home() {
                   />
                 </div>
 
-                {/* Agent Pipeline panel — right side */}
+                {/* Agent Pipeline panel — only on xl+ screens */}
                 <div
-                  className="w-80 xl:w-96 flex-shrink-0 hidden lg:flex lg:flex-col overflow-hidden"
+                  className="w-72 xl:w-80 flex-shrink-0 hidden xl:flex xl:flex-col overflow-hidden"
                 >
                   <AgentPipeline
                     agents={pipelineAgents}

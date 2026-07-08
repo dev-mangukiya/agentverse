@@ -488,7 +488,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             </p>
 
             {/* Suggestion cards with agent badges */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg w-full">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-md w-full px-2">
               {SUGGESTIONS.map((s) => {
                 const meta = agentMeta[s.agent];
                 return (
@@ -523,7 +523,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
           </div>
         ) : (
           /* Message list */
-          <div className="max-w-3xl mx-auto px-4 md:px-6 py-6 space-y-6">
+          <div className="w-full max-w-3xl mx-auto px-3 md:px-6 py-6 space-y-6">
             <AnimatePresence initial={false}>
               {messages.map((msg, idx) => {
                 const meta = msg.agent_name ? agentMeta[msg.agent_name.toLowerCase()] : null;
@@ -702,8 +702,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       )}
 
       {/* Input bar */}
-      <div className="px-4 pb-5 pt-2 flex-shrink-0">
-        <div className="max-w-3xl mx-auto">
+      <div className="px-3 md:px-4 pb-4 md:pb-5 pt-2 flex-shrink-0">
+        <div className="w-full max-w-3xl mx-auto">
           <div
             className="relative flex items-end gap-2 rounded-2xl px-4 py-3 transition-all duration-200"
             style={{

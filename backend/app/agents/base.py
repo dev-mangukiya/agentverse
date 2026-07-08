@@ -32,6 +32,25 @@ def get_llm(
     provider = provider or settings.default_model_provider
     model = model or settings.default_model
 
+    # ── HuggingFace (free tier via Serverless Inference API) ──────────────
+    if provider == "huggingface" and settings.huggingface_api_key:
+        try:
+            from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
+            import os
+            os.environ.setdefault("HUGGINGFACEHUB_API_TOKEN", settings.huggingface_api_key)
+            endpoint = HuggingFaceEndpoint(
+                repo_id=model if "/" in model else "Qwen/Qwen2.5-72B-Instruct",
+                temperature=temperature,
+                max_new_tokens=2048,
+                huggingfacehub_api_token=settings.huggingface_api_key,
+                timeout=120,
+            )
+            return ChatHuggingFace(llm=endpoint, verbose=False)
+        except ImportError:
+            raise RuntimeError(
+                "langchain-huggingface not installed. Run: pip install langchain-huggingface"
+            )
+
     if provider == "google" and settings.google_api_key:
         from langchain_google_genai import ChatGoogleGenerativeAI
         return ChatGoogleGenerativeAI(
@@ -57,7 +76,23 @@ def get_llm(
             temperature=temperature,
         )
 
-    # Fallback: try any configured provider
+    # ── Fallback: try any configured provider in order of preference ──────
+    if settings.huggingface_api_key:
+        try:
+            from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
+            import os
+            os.environ.setdefault("HUGGINGFACEHUB_API_TOKEN", settings.huggingface_api_key)
+            endpoint = HuggingFaceEndpoint(
+                repo_id="Qwen/Qwen2.5-72B-Instruct",
+                temperature=temperature,
+                max_new_tokens=2048,
+                huggingfacehub_api_token=settings.huggingface_api_key,
+                timeout=120,
+            )
+            return ChatHuggingFace(llm=endpoint, verbose=False)
+        except Exception:
+            pass  # fall through to other providers
+
     if settings.google_api_key:
         from langchain_google_genai import ChatGoogleGenerativeAI
         return ChatGoogleGenerativeAI(
@@ -76,7 +111,7 @@ def get_llm(
         return ChatAnthropic(model="claude-sonnet-4-20250514", api_key=settings.anthropic_api_key, temperature=temperature)
 
     raise RuntimeError(
-        "No LLM API key configured. Set GOOGLE_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY in .env"
+        "No LLM API key configured. Set HUGGINGFACE_API_KEY, GOOGLE_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY in .env"
     )
 
 

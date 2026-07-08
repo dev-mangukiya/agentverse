@@ -108,6 +108,7 @@ async def llm_status() -> dict:
         "has_openai": bool(settings.openai_api_key),
         "has_anthropic": bool(settings.anthropic_api_key),
         "has_google": bool(settings.google_api_key),
+        "has_huggingface": bool(settings.huggingface_api_key),
     }
 
 

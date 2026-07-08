@@ -45,8 +45,9 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
     google_api_key: str | None = None
-    default_model_provider: str = "google"
-    default_model: str = "gemini-2.5-flash"
+    huggingface_api_key: str | None = None  # HuggingFace token (HUGGINGFACEHUB_API_TOKEN)
+    default_model_provider: str = "huggingface"
+    default_model: str = "Qwen/Qwen2.5-72B-Instruct"
 
     # ── PostgreSQL ───────────────────────────────────────
     database_url: str = ""
@@ -93,7 +94,12 @@ class Settings(BaseSettings):
     @property
     def llm_configured(self) -> bool:
         """Check if at least one LLM provider has a key."""
-        return bool(self.openai_api_key or self.anthropic_api_key or self.google_api_key)
+        return bool(
+            self.openai_api_key
+            or self.anthropic_api_key
+            or self.google_api_key
+            or self.huggingface_api_key
+        )
 
 
 @lru_cache

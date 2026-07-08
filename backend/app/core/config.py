@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     google_api_key: str | None = None
     huggingface_api_key: str | None = None  # HuggingFace token (HUGGINGFACEHUB_API_TOKEN)
     default_model_provider: str = "huggingface"
-    default_model: str = "Qwen/Qwen2.5-72B-Instruct"
+    default_model: str = "Qwen/Qwen2.5-Coder-32B-Instruct"
 
     # ── PostgreSQL ───────────────────────────────────────
     database_url: str = ""

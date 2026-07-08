@@ -53,7 +53,7 @@ def get_llm(
             import os
             os.environ.setdefault("HUGGINGFACEHUB_API_TOKEN", settings.huggingface_api_key)
             endpoint = HuggingFaceEndpoint(
-                repo_id=model if "/" in model else "Qwen/Qwen2.5-72B-Instruct",
+                repo_id=model if "/" in model else "Qwen/Qwen2.5-Coder-32B-Instruct",
                 temperature=temperature,
                 max_new_tokens=2048,
                 huggingfacehub_api_token=settings.huggingface_api_key,
@@ -97,7 +97,7 @@ def get_llm(
             import os
             os.environ.setdefault("HUGGINGFACEHUB_API_TOKEN", settings.huggingface_api_key)
             endpoint = HuggingFaceEndpoint(
-                repo_id="Qwen/Qwen2.5-72B-Instruct",
+                repo_id="Qwen/Qwen2.5-Coder-32B-Instruct",
                 temperature=temperature,
                 max_new_tokens=2048,
                 huggingfacehub_api_token=settings.huggingface_api_key,
@@ -136,8 +136,12 @@ def get_llm(
 
 
 async def _invoke_with_retry(llm, messages, max_retries=0):
-    """Invoke LLM without retries so rate limits surface to the user immediately."""
-    return await llm.ainvoke(messages)
+    """Invoke LLM with a timeout so requests don't hang indefinitely."""
+    import asyncio
+    try:
+        return await asyncio.wait_for(llm.ainvoke(messages), timeout=90)
+    except asyncio.TimeoutError:
+        raise RuntimeError("LLM request timed out after 90 seconds. The model may be loading (cold start). Try again in a moment.")
 
 
 class BaseAgent:

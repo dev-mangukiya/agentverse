@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     google_api_key: str | None = None
     huggingface_api_key: str | None = None  # HuggingFace token (HUGGINGFACEHUB_API_TOKEN)
+    # Force google provider to fix Render deployment issue where env vars override
     default_model_provider: str = "google"
     default_model: str = "gemini-3.5-flash"
 

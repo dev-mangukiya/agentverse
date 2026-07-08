@@ -22,6 +22,7 @@ _AGENT_META: dict[str, dict] = {
     "orchestrator":  {"color": "#4285f4", "role": "Planning & Delegation",    "x": 50, "y": 50},
     "research":      {"color": "#34a853", "role": "Web Search & Analysis",      "x": 22, "y": 28},
     "data":          {"color": "#a855f7", "role": "Data Processing & Viz",      "x": 78, "y": 28},
+    "data_analyst":  {"color": "#a855f7", "role": "Data Analyst",               "x": 78, "y": 45},
     "coding":        {"color": "#ea4335", "role": "Code Generation & Debug",    "x": 18, "y": 72},
     "writer":        {"color": "#fbbc04", "role": "Content & Reports",          "x": 82, "y": 72},
     "critic":        {"color": "#06b6d4", "role": "Quality & Evaluation",       "x": 50, "y": 85},

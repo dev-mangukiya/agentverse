@@ -171,11 +171,10 @@ async def _process_user_message(
     conversation_id: str,
     content: str,
 ) -> None:
-    """Process a user message: save to DB, run agent, stream responses."""
+    """Process a user message: save to DB, run orchestrator, delegate to sub-agents if needed."""
     try:
         # Save user message to DB
         async with async_session_factory() as db:
-            # Ensure conversation exists
             stmt = select(Conversation).where(Conversation.id == conversation_id)
             result = await db.execute(stmt)
             conv = result.scalar_one_or_none()
@@ -185,14 +184,12 @@ async def _process_user_message(
                 db.add(conv)
                 await db.flush()
 
-            # Save user message
             user_msg = Message(
                 conversation_id=conversation_id,
                 role="user",
                 content=content,
             )
             db.add(user_msg)
-            
             await db.commit()
 
             await websocket.send_json({
@@ -208,34 +205,60 @@ async def _process_user_message(
             })
             return
 
-        # Send thinking indicator
-        await websocket.send_json({
-            "type": "thinking",
-            "agent": "orchestrator",
-            "content": "Analyzing your request...",
-        })
+        # ── Step 1: Run orchestrator ──────────────────────────────
+        await websocket.send_json({"type": "thinking", "agent": "orchestrator", "content": "Analyzing your request..."})
+        await broadcast_event({"type": "activity", "agent": "Orchestrator", "action": f'Processing: "{content[:50]}"', "time": "now"})
 
-        await broadcast_event({
-            "type": "activity",
-            "agent": "Orchestrator",
-            "action": f'Processing: "{content[:50]}"',
-            "time": "now",
-        })
-
-        # Run agent with streaming
         from app.agents.orchestrator import OrchestratorAgent
-
-        agent = OrchestratorAgent()
+        orchestrator = OrchestratorAgent()
         history = await _get_conversation_context(conversation_id)
-        response = await _run_agent_with_streaming(agent, content, history, websocket)
+        orch_response = await _run_agent_with_streaming(orchestrator, content, history, websocket)
 
-        # Save agent response
+        # ── Step 2: Check for DELEGATE directive or intent ───────
+        import re
+        delegate_match = re.match(r"^\s*DELEGATE:\s*(\w+)\s*\|\s*(.+)", orch_response.strip(), re.IGNORECASE | re.DOTALL)
+
+        if delegate_match:
+            # LLM explicitly said DELEGATE: <agent> | <task>
+            sub_agent_name = delegate_match.group(1).strip().lower()
+            sub_task = delegate_match.group(2).strip()
+        else:
+            # Fallback: keyword-based intent detection on original user input
+            sub_agent_name = _detect_intent(content) or ""
+            sub_task = content  # send original user request to sub-agent
+
+        sub_agent = _get_sub_agent(sub_agent_name) if sub_agent_name else None
+
+        if sub_agent:
+            # Notify client — delegation happening
+            await websocket.send_json({
+                "type": "thinking",
+                "agent": sub_agent_name,
+                "content": f"{sub_agent_name.title()} agent is working...",
+            })
+            await broadcast_event({
+                "type": "activity",
+                "agent": sub_agent_name.capitalize(),
+                "action": f"Working on: {sub_task[:60]}",
+                "time": "now",
+            })
+
+            # Run sub-agent with original user task + conversation context
+            sub_response = await _run_agent_with_streaming(sub_agent, sub_task, history, websocket)
+            final_agent_name = sub_agent_name
+            final_response = sub_response
+        else:
+            # Orchestrator handled it directly
+            final_agent_name = "orchestrator"
+            final_response = orch_response
+
+        # ── Step 3: Save and send final response ─────────────────
         async with async_session_factory() as db:
             agent_msg = Message(
                 conversation_id=conversation_id,
                 role="agent",
-                agent_name="orchestrator",
-                content=response,
+                agent_name=final_agent_name,
+                content=final_response,
             )
             db.add(agent_msg)
 
@@ -249,14 +272,14 @@ async def _process_user_message(
 
             await websocket.send_json({
                 "type": "response",
-                "agent": "orchestrator",
-                "content": response,
+                "agent": final_agent_name,
+                "content": final_response,
                 "message": agent_msg.to_dict(),
             })
 
         await broadcast_event({
             "type": "activity",
-            "agent": "Orchestrator",
+            "agent": final_agent_name.capitalize(),
             "action": "Completed task",
             "time": "now",
         })
@@ -282,6 +305,67 @@ async def _process_user_message(
                 })
         except Exception:
             pass
+
+
+# ── Sub-agent loader ──────────────────────────────────────
+
+def _get_sub_agent(name: str):
+    """Return a sub-agent instance by name. Returns None if unknown."""
+    name = name.lower().strip()
+    try:
+        if name == "research":
+            from app.agents.research import ResearchAgent
+            return ResearchAgent()
+        if name in ("coding", "code", "coder"):
+            from app.agents.coding import CodingAgent
+            return CodingAgent()
+        if name in ("writer", "write", "writing"):
+            from app.agents.writer import WriterAgent
+            return WriterAgent()
+        if name in ("critic", "review", "reviewer"):
+            from app.agents.critic import CriticAgent
+            return CriticAgent()
+        if name in ("data", "analyst", "data_analyst"):
+            from app.agents.data_analyst import DataAnalystAgent
+            return DataAnalystAgent()
+    except ImportError as e:
+        logger.warning("sub_agent.import_failed", name=name, error=str(e))
+    return None
+
+
+def _detect_intent(user_input: str) -> str | None:
+    """Keyword-based intent detection — fallback when LLM doesn't emit DELEGATE format."""
+    text = user_input.lower()
+
+    research_kw = ["search for", "find information", "look up", "what is", "who is", "news about",
+                   "latest on", "tell me about", "research", "find out", "current events"]
+    coding_kw = ["write a script", "write code", "code that", "python script", "implement",
+                 "debug", "fix this code", "execute", "run this", "write a program",
+                 "create a function", "build a", "develop a"]
+    writer_kw = ["write an essay", "draft an email", "write a report", "compose", "write a story",
+                 "write a blog", "write a poem", "write a letter", "summarize this", "paraphrase",
+                 "write a summary", "create content"]
+    data_kw = ["analyze data", "data analysis", "statistics", "calculate statistics",
+               "analyze this dataset", "plot", "graph", "chart", "distribution"]
+    critic_kw = ["review this", "critique this", "evaluate this", "give feedback on",
+                 "check my", "what do you think of", "rate this", "score this"]
+
+    for kw in coding_kw:
+        if kw in text:
+            return "coding"
+    for kw in writer_kw:
+        if kw in text:
+            return "writer"
+    for kw in research_kw:
+        if kw in text:
+            return "research"
+    for kw in data_kw:
+        if kw in text:
+            return "data"
+    for kw in critic_kw:
+        if kw in text:
+            return "critic"
+    return None
 
 
 async def _get_conversation_context(conversation_id: str) -> str:

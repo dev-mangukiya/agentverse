@@ -68,7 +68,7 @@ def get_llm(
     if llm is None and provider == "google" and settings.google_api_key:
         from langchain_google_genai import ChatGoogleGenerativeAI
         llm = ChatGoogleGenerativeAI(
-            model=model if "gemini" in model else "gemini-3.5-flash",
+            model=model if "gemini" in model else "gemini-2.5-flash",
             google_api_key=settings.google_api_key,
             temperature=temperature,
             max_retries=3,
@@ -91,6 +91,15 @@ def get_llm(
         )
 
     # ── Fallback: try any configured provider in order of preference ──────
+    if llm is None and settings.google_api_key:
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash",
+            google_api_key=settings.google_api_key,
+            temperature=temperature,
+            max_retries=3,
+        )
+
     if llm is None and settings.huggingface_api_key:
         try:
             from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
@@ -106,15 +115,6 @@ def get_llm(
             llm = ChatHuggingFace(llm=endpoint, verbose=False)
         except Exception:
             pass  # fall through to other providers
-
-    if llm is None and settings.google_api_key:
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
-            google_api_key=settings.google_api_key,
-            temperature=temperature,
-            max_retries=3,
-        )
 
     if llm is None and settings.openai_api_key:
         from langchain_openai import ChatOpenAI
@@ -135,13 +135,72 @@ def get_llm(
     return llm
 
 
+def _get_fallback_llm(temperature: float = 0.3) -> BaseChatModel | None:
+    """Build a HuggingFace fallback LLM for when the primary provider is rate-limited.
+
+    Returns None if HuggingFace is not configured or is already the primary.
+    """
+    settings = get_settings()
+
+    # No point falling back to HF if it's already the primary
+    if settings.default_model_provider == "huggingface":
+        return None
+    if not settings.huggingface_api_key:
+        return None
+
+    cache_key = ("huggingface", "Qwen/Qwen2.5-Coder-32B-Instruct", temperature)
+    if cache_key in _llm_cache:
+        return _llm_cache[cache_key]
+
+    try:
+        from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
+        import os
+        os.environ.setdefault("HUGGINGFACEHUB_API_TOKEN", settings.huggingface_api_key)
+        endpoint = HuggingFaceEndpoint(
+            repo_id="Qwen/Qwen2.5-Coder-32B-Instruct",
+            temperature=temperature,
+            max_new_tokens=2048,
+            huggingfacehub_api_token=settings.huggingface_api_key,
+            timeout=120,
+        )
+        llm = ChatHuggingFace(llm=endpoint, verbose=False)
+        _llm_cache[cache_key] = llm
+        logger.info("llm.fallback_cached", provider="huggingface")
+        return llm
+    except Exception as exc:
+        logger.warning("llm.fallback_unavailable", error=str(exc))
+        return None
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    """Check if an exception is a rate-limit / quota-exhausted error."""
+    err = str(exc).lower()
+    return any(marker in err for marker in [
+        "429", "resource_exhausted", "quota", "rate limit",
+        "too many requests", "rate_limit",
+    ])
+
+
 async def _invoke_with_retry(llm, messages, max_retries=0):
-    """Invoke LLM with a timeout so requests don't hang indefinitely."""
-    import asyncio
+    """Invoke LLM with timeout and automatic fallback to HuggingFace on rate limits."""
     try:
         return await asyncio.wait_for(llm.ainvoke(messages), timeout=90)
     except asyncio.TimeoutError:
         raise RuntimeError("LLM request timed out after 90 seconds. The model may be loading (cold start). Try again in a moment.")
+    except Exception as exc:
+        if _is_rate_limit_error(exc):
+            logger.warning("llm.rate_limited", error=str(exc)[:200])
+            fallback = _get_fallback_llm()
+            if fallback is not None:
+                logger.info("llm.falling_back_to_huggingface")
+                try:
+                    return await asyncio.wait_for(fallback.ainvoke(messages), timeout=120)
+                except asyncio.TimeoutError:
+                    raise RuntimeError("Fallback LLM (HuggingFace) timed out after 120 seconds.")
+                except Exception as fb_exc:
+                    logger.error("llm.fallback_failed", error=str(fb_exc)[:200])
+                    raise exc  # Re-raise original rate limit error
+        raise
 
 
 class BaseAgent:

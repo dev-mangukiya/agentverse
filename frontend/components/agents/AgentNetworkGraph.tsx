@@ -71,7 +71,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
     return () => clearInterval(interval);
   }, []);
 
-  const height = fullscreen ? "h-full min-h-[600px]" : "h-[420px]";
+  const height = fullscreen ? "h-full min-h-[600px]" : "h-[480px]";
   const selectedAgent = agents.find(a => a.id === selected);
 
   return (
@@ -99,7 +99,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
       </div>
 
       {/* Graph */}
-      <div className="flex-1 relative p-4">
+      <div className="flex-1 relative px-6 pt-4 pb-8">
         {loading ? (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: "var(--brand-dim)", borderTopColor: "var(--brand)" }} />

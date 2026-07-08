@@ -705,7 +705,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       <div className="px-3 md:px-4 pb-4 md:pb-5 pt-2 flex-shrink-0">
         <div className="w-full max-w-3xl mx-auto">
           <div
-            className="relative flex items-end gap-2 rounded-2xl px-4 py-3 transition-all duration-200"
+            className="relative flex items-center gap-2 rounded-2xl px-4 py-3 transition-all duration-200"
             style={{
               backgroundColor: "var(--input-bg)",
               border: "1px solid var(--input-border)",
@@ -743,7 +743,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             <button
               onClick={() => handleSend()}
               disabled={!input.trim() || isThinking}
-              className="send-btn flex-shrink-0 mb-0.5"
+              className="send-btn flex-shrink-0"
             >
               {isThinking ? (
                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />

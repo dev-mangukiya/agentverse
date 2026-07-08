@@ -18,15 +18,16 @@ settings = get_settings()
 _START_TIME = time.time()
 
 # Static agent graph positions and metadata (extended by live data)
+# Positions use a spread-out layout to avoid overlap on all screen sizes
 _AGENT_META: dict[str, dict] = {
-    "orchestrator":  {"color": "#4285f4", "role": "Planning & Delegation",    "x": 50, "y": 50},
-    "research":      {"color": "#34a853", "role": "Web Search & Analysis",      "x": 22, "y": 28},
-    "data":          {"color": "#a855f7", "role": "Data Processing & Viz",      "x": 78, "y": 28},
-    "data_analyst":  {"color": "#a855f7", "role": "Data Analyst",               "x": 78, "y": 45},
-    "coding":        {"color": "#ea4335", "role": "Code Generation & Debug",    "x": 18, "y": 72},
-    "writer":        {"color": "#fbbc04", "role": "Content & Reports",          "x": 82, "y": 72},
-    "critic":        {"color": "#06b6d4", "role": "Quality & Evaluation",       "x": 50, "y": 85},
-    "memory":        {"color": "#8b5cf6", "role": "RAG & Vector Storage",       "x": 50, "y": 18},
+    "orchestrator":  {"color": "#4285f4", "role": "Planning & Delegation",    "x": 42, "y": 55},
+    "research":      {"color": "#34a853", "role": "Web Search & Analysis",      "x": 18, "y": 25},
+    "data":          {"color": "#a855f7", "role": "Data Processing & Viz",      "x": 72, "y": 22},
+    "data_analyst":  {"color": "#a855f7", "role": "Data Analyst",               "x": 72, "y": 50},
+    "coding":        {"color": "#ea4335", "role": "Code Generation & Debug",    "x": 15, "y": 75},
+    "writer":        {"color": "#fbbc04", "role": "Content & Reports",          "x": 72, "y": 78},
+    "critic":        {"color": "#06b6d4", "role": "Quality & Evaluation",       "x": 42, "y": 85},
+    "memory":        {"color": "#8b5cf6", "role": "RAG & Vector Storage",       "x": 48, "y": 18},
 }
 
 
@@ -177,7 +178,7 @@ async def get_agents(db: AsyncSession = Depends(get_db)) -> dict:
 
         agents.append({
             "id": name,
-            "label": name.title() + " Agent" if name != "orchestrator" else "Chief Orchestrator",
+            "label": name.replace("_", " ").title() + " Agent" if name != "orchestrator" else "Chief Orchestrator",
             "role": meta["role"],
             "status": status,
             "color": meta["color"],

@@ -172,218 +172,180 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     load();
   }, [conversationId]);
 
-  // WebSocket connection
-  const connectWs = useCallback((convId: string) => {
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
-    }
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-
-    const ws = new WebSocket(`${WS_BASE}/api/v1/chat/ws/${convId}`);
-    wsRef.current = ws;
-
-    let pingInterval: ReturnType<typeof setInterval> | null = null;
-
-    ws.onopen = () => {
-      if (wsRef.current !== ws) return;
-      setWsConnected(true);
-      setError(null);
-      pingInterval = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "ping" }));
-      }, 30000);
-      
-      // Send any pending message immediately.
-      // The wsRef.current === ws guard above ensures only the latest
-      // (final) WebSocket connection will reach this point.
-      if (pendingMessageRef.current) {
-        ws.send(JSON.stringify({ type: "message", content: pendingMessageRef.current }));
-        pendingMessageRef.current = null;
-      }
-    };
-
-    ws.onmessage = (event) => {
-      if (wsRef.current !== ws) return;
-      const data = JSON.parse(event.data);
-
-      switch (data.type) {
-        case "pipeline_start":
-          resetPipeline();
-          emitPipeline(true);
-          break;
-
-        case "agent_activated":
-          updateAgent(data.agent, {
-            status: "activated",
-            task: data.task,
-            startTime: Date.now(),
-          });
-          break;
-
-        case "delegation":
-          delegationsRef.current = [
-            ...delegationsRef.current,
-            { from: data.from, to: data.to, reason: data.reason, timestamp: Date.now() },
-          ];
-          emitPipeline(true);
-          break;
-
-        case "thinking":
-          setIsThinking(true);
-          setThinkingAgent(data.agent || "orchestrator");
-          thinkingAgentRef.current = data.agent || "orchestrator";
-          setThinkingPhase(data.phase || "");
-          updateAgent(data.agent || "orchestrator", {
-            status: "thinking",
-            phase: data.phase,
-            startTime: pipelineAgentsRef.current.find(a => a.name === (data.agent || "orchestrator"))?.startTime || Date.now(),
-          });
-          break;
-
-        case "tool_call":
-          setToolActivity({ tool: data.tool, status: "calling", agent: data.agent, args: data.args });
-          updateAgent(data.agent || thinkingAgentRef.current, {
-            status: "tool_call",
-            toolName: data.tool,
-            toolArgs: data.args,
-          });
-          toolEventsRef.current = [
-            ...toolEventsRef.current,
-            { agent: data.agent || thinkingAgentRef.current, tool: data.tool, status: "calling", timestamp: Date.now() },
-          ];
-          emitPipeline(true);
-          break;
-
-        case "tool_result":
-          setToolActivity({
-            tool: data.tool,
-            status: "done",
-            agent: data.agent,
-            result: data.result,
-            duration_ms: data.duration_ms,
-          });
-          // Update tool event
-          const toolIdx = toolEventsRef.current.findLastIndex(
-            t => t.tool === data.tool && t.status === "calling"
-          );
-          if (toolIdx >= 0) {
-            toolEventsRef.current[toolIdx] = {
-              ...toolEventsRef.current[toolIdx],
-              status: "done",
-              durationMs: data.duration_ms,
-              result: data.result,
-            };
-          }
-          // Set agent back to thinking
-          updateAgent(data.agent || thinkingAgentRef.current, {
-            status: "thinking",
-            toolName: undefined,
-            toolArgs: undefined,
-          });
-          setTimeout(() => setToolActivity(null), 800);
-          break;
-
-        case "agent_complete":
-          updateAgent(data.agent, {
-            status: "complete",
-            durationMs: data.duration_ms,
-            summary: data.summary,
-            toolName: undefined,
-            toolArgs: undefined,
-          });
-          break;
-
-        case "synthesis_start":
-          updateAgent("orchestrator", {
-            status: "thinking",
-            phase: "synthesizing",
-            startTime: Date.now(),
-          });
-          break;
-
-        case "pipeline_complete":
-          setIsThinking(false);
-          setToolActivity(null);
-          setThinkingAgent("");
-          thinkingAgentRef.current = "";
-          setThinkingPhase("");
-          emitPipeline(false, data.total_duration_ms, data.agents_used);
-          break;
-
-        case "response":
-          setIsThinking(false);
-          setToolActivity(null);
-          setThinkingAgent("");
-          thinkingAgentRef.current = "";
-          setThinkingPhase("");
-          if (data.message) {
-            setMessages((prev) => [...prev, {
-              ...data.message,
-              contributing_agents: data.contributing_agents,
-              pipeline_duration_ms: data.pipeline_duration_ms,
-            }]);
-          } else {
-            setMessages((prev) => [...prev, {
-              id: Date.now(),
-              role: "agent",
-              agent_name: data.agent,
-              content: data.content,
-              contributing_agents: data.contributing_agents,
-              pipeline_duration_ms: data.pipeline_duration_ms,
-            }]);
-          }
-          onMessageSent();
-          break;
-
-        case "message_saved":
-          break;
-
-        case "error":
-          setIsThinking(false);
-          setToolActivity(null);
-          setError(data.content);
-          setMessages((prev) => [...prev, { id: Date.now(), role: "system", content: `⚠️ ${data.content}` }]);
-          emitPipeline(false);
-          break;
-
-        case "pong":
-          break;
-      }
-    };
-
-    ws.onclose = () => {
-      if (pingInterval) clearInterval(pingInterval);
-      if (wsRef.current !== ws) return;
-      setWsConnected(false);
-      setIsThinking(false);
-      setToolActivity(null);
-      reconnectTimeoutRef.current = setTimeout(() => {
-        if (convId) connectWs(convId);
-      }, 3000);
-    };
-
-    ws.onerror = () => {
-      if (wsRef.current !== ws) return;
-      setWsConnected(false);
-    };
-  }, [onMessageSent, emitPipeline, resetPipeline, updateAgent]);
-
-  // Connect/disconnect on conversation change
+  // Keep all callbacks in a ref so WS handlers always use the latest version
+  // without needing to recreate the WebSocket on every render.
+  const callbacksRef = useRef({ onMessageSent, emitPipeline, resetPipeline, updateAgent });
   useEffect(() => {
-    if (conversationId) {
-      connectWs(conversationId);
-    } else {
+    callbacksRef.current = { onMessageSent, emitPipeline, resetPipeline, updateAgent };
+  });
+
+  // WebSocket connection — only re-runs when conversationId changes
+  useEffect(() => {
+    if (!conversationId) {
       if (reconnectTimeoutRef.current) { clearTimeout(reconnectTimeoutRef.current); reconnectTimeoutRef.current = null; }
-      if (wsRef.current) { const old = wsRef.current; wsRef.current = null; old.close(); }
+      if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
       setWsConnected(false);
+      return;
     }
-    // Only clean up on true unmount, not on every re-render.
-    // connectWs() already closes the previous WS at the start of each call,
-    // so we don't need the cleanup to do it (which was causing race conditions).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    let ws: WebSocket | null = null;
+    let pingInterval: ReturnType<typeof setInterval> | null = null;
+    let destroyed = false;
+
+    const connect = () => {
+      if (destroyed) return;
+      if (reconnectTimeoutRef.current) { clearTimeout(reconnectTimeoutRef.current); reconnectTimeoutRef.current = null; }
+      if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+
+      ws = new WebSocket(`${WS_BASE}/api/v1/chat/ws/${conversationId}`);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        if (destroyed || wsRef.current !== ws) return;
+        setWsConnected(true);
+        setError(null);
+        if (pingInterval) clearInterval(pingInterval);
+        pingInterval = setInterval(() => {
+          if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "ping" }));
+        }, 30000);
+        // Send any pending message immediately — this ref survives re-renders
+        if (pendingMessageRef.current) {
+          ws.send(JSON.stringify({ type: "message", content: pendingMessageRef.current }));
+          pendingMessageRef.current = null;
+        }
+      };
+
+      ws.onmessage = (event) => {
+        if (destroyed || wsRef.current !== ws) return;
+        const data = JSON.parse(event.data);
+        // Always read latest callbacks from ref — never stale
+        const cb = callbacksRef.current;
+
+        switch (data.type) {
+          case "pipeline_start":
+            cb.resetPipeline();
+            cb.emitPipeline(true);
+            break;
+
+          case "agent_activated":
+            cb.updateAgent(data.agent, { status: "activated", task: data.task, startTime: Date.now() });
+            break;
+
+          case "delegation":
+            delegationsRef.current = [
+              ...delegationsRef.current,
+              { from: data.from, to: data.to, reason: data.reason, timestamp: Date.now() },
+            ];
+            cb.emitPipeline(true);
+            break;
+
+          case "thinking":
+            setIsThinking(true);
+            setThinkingAgent(data.agent || "orchestrator");
+            thinkingAgentRef.current = data.agent || "orchestrator";
+            setThinkingPhase(data.phase || "");
+            cb.updateAgent(data.agent || "orchestrator", {
+              status: "thinking",
+              phase: data.phase,
+              startTime: pipelineAgentsRef.current.find(a => a.name === (data.agent || "orchestrator"))?.startTime || Date.now(),
+            });
+            break;
+
+          case "tool_call":
+            setToolActivity({ tool: data.tool, status: "calling", agent: data.agent, args: data.args });
+            cb.updateAgent(data.agent || thinkingAgentRef.current, {
+              status: "tool_call", toolName: data.tool, toolArgs: data.args,
+            });
+            toolEventsRef.current = [
+              ...toolEventsRef.current,
+              { agent: data.agent || thinkingAgentRef.current, tool: data.tool, status: "calling", timestamp: Date.now() },
+            ];
+            cb.emitPipeline(true);
+            break;
+
+          case "tool_result": {
+            setToolActivity({ tool: data.tool, status: "done", agent: data.agent, result: data.result, duration_ms: data.duration_ms });
+            const toolIdx = toolEventsRef.current.findLastIndex(t => t.tool === data.tool && t.status === "calling");
+            if (toolIdx >= 0) {
+              toolEventsRef.current[toolIdx] = { ...toolEventsRef.current[toolIdx], status: "done", durationMs: data.duration_ms, result: data.result };
+            }
+            cb.updateAgent(data.agent || thinkingAgentRef.current, { status: "thinking", toolName: undefined, toolArgs: undefined });
+            setTimeout(() => setToolActivity(null), 800);
+            break;
+          }
+
+          case "agent_complete":
+            cb.updateAgent(data.agent, { status: "complete", durationMs: data.duration_ms, summary: data.summary, toolName: undefined, toolArgs: undefined });
+            break;
+
+          case "synthesis_start":
+            cb.updateAgent("orchestrator", { status: "thinking", phase: "synthesizing", startTime: Date.now() });
+            break;
+
+          case "pipeline_complete":
+            setIsThinking(false);
+            setToolActivity(null);
+            setThinkingAgent("");
+            thinkingAgentRef.current = "";
+            setThinkingPhase("");
+            cb.emitPipeline(false, data.total_duration_ms, data.agents_used);
+            break;
+
+          case "response":
+            setIsThinking(false);
+            setToolActivity(null);
+            setThinkingAgent("");
+            thinkingAgentRef.current = "";
+            setThinkingPhase("");
+            if (data.message) {
+              setMessages(prev => [...prev, { ...data.message, contributing_agents: data.contributing_agents, pipeline_duration_ms: data.pipeline_duration_ms }]);
+            } else {
+              setMessages(prev => [...prev, { id: Date.now(), role: "agent", agent_name: data.agent, content: data.content, contributing_agents: data.contributing_agents, pipeline_duration_ms: data.pipeline_duration_ms }]);
+            }
+            cb.onMessageSent();
+            break;
+
+          case "message_saved":
+            break;
+
+          case "error":
+            setIsThinking(false);
+            setToolActivity(null);
+            setError(data.content);
+            setMessages(prev => [...prev, { id: Date.now(), role: "system", content: `⚠️ ${data.content}` }]);
+            cb.emitPipeline(false);
+            break;
+
+          case "pong":
+            break;
+        }
+      };
+
+      ws.onclose = () => {
+        if (pingInterval) clearInterval(pingInterval);
+        if (destroyed || wsRef.current !== ws) return;
+        setWsConnected(false);
+        setIsThinking(false);
+        setToolActivity(null);
+        // Reconnect after 3s using the stable `connect` function from this effect's scope
+        reconnectTimeoutRef.current = setTimeout(connect, 3000);
+      };
+
+      ws.onerror = () => {
+        if (destroyed || wsRef.current !== ws) return;
+        setWsConnected(false);
+      };
+    };
+
+    connect();
+
+    return () => {
+      destroyed = true;
+      if (pingInterval) clearInterval(pingInterval);
+      if (reconnectTimeoutRef.current) { clearTimeout(reconnectTimeoutRef.current); reconnectTimeoutRef.current = null; }
+      if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
   const handleSend = async (text?: string) => {

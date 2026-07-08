@@ -46,10 +46,23 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
     google_api_key: str | None = None
+    google_api_keys: str | None = None  # Comma-separated list of Google API keys for round-robin
     huggingface_api_key: str | None = None  # HuggingFace token (HUGGINGFACEHUB_API_TOKEN)
     # Force google provider to fix Render deployment issue where env vars override
     default_model_provider: str = "google"
     default_model: str = "gemini-2.5-flash"
+
+    @property
+    def google_api_key_list(self) -> list[str]:
+        """Return all available Google API keys as a list (deduped, non-empty)."""
+        keys: list[str] = []
+        # Add keys from comma-separated GOOGLE_API_KEYS
+        if self.google_api_keys:
+            keys.extend(k.strip() for k in self.google_api_keys.split(",") if k.strip())
+        # Add single GOOGLE_API_KEY if not already present
+        if self.google_api_key and self.google_api_key not in keys:
+            keys.append(self.google_api_key)
+        return keys
 
     # ── PostgreSQL ───────────────────────────────────────
     database_url: str = ""

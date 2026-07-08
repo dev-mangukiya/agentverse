@@ -150,6 +150,8 @@ async def delete_conversation(
 @router.get("/status")
 async def llm_status() -> dict:
     """Check if LLM is configured and available."""
+    from app.agents.base import get_google_key_manager
+    km = get_google_key_manager()
     return {
         "llm_configured": settings.llm_configured,
         "provider": settings.default_model_provider,
@@ -158,6 +160,8 @@ async def llm_status() -> dict:
         "has_anthropic": bool(settings.anthropic_api_key),
         "has_google": bool(settings.google_api_key),
         "has_huggingface": bool(settings.huggingface_api_key),
+        "google_keys_total": km.key_count,
+        "google_keys_available": km.get_available_count(),
     }
 
 

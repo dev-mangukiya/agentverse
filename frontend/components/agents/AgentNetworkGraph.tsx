@@ -1,7 +1,9 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
-import { motion } from "framer-motion";
+import { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
 interface AgentNode {
   id: string;
@@ -11,6 +13,8 @@ interface AgentNode {
   color: string;
   x: number;
   y: number;
+  message_count: number;
+  last_seen: string | null;
 }
 
 interface AgentEdge {
@@ -18,118 +22,192 @@ interface AgentEdge {
   to: string;
 }
 
-const agents: AgentNode[] = [
-  { id: "orchestrator", label: "Chief Orchestrator", role: "Planning & Delegation", status: "active", color: "#4c6ef5", x: 50, y: 50 },
-  { id: "research", label: "Research Agent", role: "Web Search & Analysis", status: "working", color: "#22c55e", x: 22, y: 28 },
-  { id: "data", label: "Data Analyst", role: "Data Processing & Viz", status: "idle", color: "#a855f7", x: 78, y: 28 },
-  { id: "coding", label: "Coding Agent", role: "Code Generation & Debug", status: "working", color: "#ec4899", x: 18, y: 72 },
-  { id: "writer", label: "Writer Agent", role: "Content & Reports", status: "idle", color: "#f59e0b", x: 82, y: 72 },
-  { id: "critic", label: "Critic Agent", role: "Quality & Evaluation", status: "active", color: "#06b6d4", x: 50, y: 85 },
-  { id: "memory", label: "Memory Agent", role: "RAG & Vector Storage", status: "active", color: "#8b5cf6", x: 50, y: 18 },
-];
-
-const edges: AgentEdge[] = [
-  { from: "orchestrator", to: "research" },
-  { from: "orchestrator", to: "data" },
-  { from: "orchestrator", to: "coding" },
-  { from: "orchestrator", to: "writer" },
-  { from: "orchestrator", to: "critic" },
-  { from: "orchestrator", to: "memory" },
-  { from: "research", to: "memory" },
-  { from: "coding", to: "critic" },
-  { from: "writer", to: "critic" },
-];
-
 const statusLabel: Record<string, string> = {
   active: "Online",
-  working: "Working",
+  working: "Active recently",
   idle: "Idle",
 };
 
+const statusDotClass: Record<string, string> = {
+  active: "bg-[#34a853]",
+  working: "bg-[#fbbc04]",
+  idle: "bg-[#9aa0a6]",
+};
+
 export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
+  const [agents, setAgents] = useState<AgentNode[]>([]);
+  const [edges, setEdges] = useState<AgentEdge[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchAgents = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/v1/stats/agents`);
+        if (res.ok) {
+          const data = await res.json();
+          setAgents(data.agents || []);
+          setEdges(data.edges || []);
+        }
+      } catch {
+        // silently fail
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchAgents();
+    const interval = setInterval(fetchAgents, 20000);
+    return () => clearInterval(interval);
+  }, []);
+
   const height = fullscreen ? "h-full min-h-[600px]" : "h-[420px]";
+  const selectedAgent = agents.find(a => a.id === selected);
 
   return (
-    <div className={`glass-panel p-5 ${height} relative overflow-hidden`}>
-      <h3 className="text-sm font-semibold text-white mb-2">Agent Network</h3>
-      <p className="text-xs text-zinc-500 mb-4">
-        Real-time visualization of agent status and communication
-      </p>
-
-      <div className="relative w-full h-[calc(100%-60px)] p-4">
-        {/* SVG Edges */}
-        <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 0 }}>
-          {edges.map((edge, i) => {
-            const from = agents.find((a) => a.id === edge.from)!;
-            const to = agents.find((a) => a.id === edge.to)!;
-            return (
-              <line
-                key={i}
-                x1={`${from.x}%`}
-                y1={`${from.y}%`}
-                x2={`${to.x}%`}
-                y2={`${to.y}%`}
-                stroke="rgba(255,255,255,0.06)"
-                strokeWidth="1"
-                strokeDasharray="4 4"
-              />
-            );
-          })}
-        </svg>
-
-        {/* Agent Nodes */}
-        {agents.map((agent, i) => (
-          <motion.div
-            key={agent.id}
-            initial={{ opacity: 0, scale: 0.5 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: i * 0.08, type: "spring", stiffness: 200 }}
-            className="absolute -translate-x-1/2 -translate-y-1/2 z-10 group cursor-pointer"
-            style={{ left: `${agent.x}%`, top: `${agent.y}%` }}
-          >
-            {/* Glow ring for working agents */}
-            {agent.status === "working" && (
-              <div
-                className="absolute inset-0 rounded-full animate-ping"
-                style={{
-                  backgroundColor: agent.color,
-                  opacity: 0.15,
-                  margin: "-6px",
-                }}
-              />
-            )}
-
-            {/* Node circle */}
-            <div
-              className="w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold border-2 transition-transform duration-200 group-hover:scale-110"
-              style={{
-                backgroundColor: `${agent.color}20`,
-                borderColor: `${agent.color}60`,
-                boxShadow: `0 0 20px ${agent.color}30`,
-              }}
-            >
-              {agent.label[0]}
+    <div className={`glass-panel ${height} relative overflow-hidden flex flex-col`}>
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 pt-5 pb-2 flex-shrink-0">
+        <div>
+          <h3 className="text-sm font-semibold text-[#e8eaed]">Agent Network</h3>
+          <p className="text-xs text-[#9aa0a6] mt-0.5">
+            {loading ? "Loading…" : `${agents.length} agents · ${agents.filter(a => a.status !== "idle").length} active`}
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          {[
+            { color: "bg-[#34a853]", label: "Online" },
+            { color: "bg-[#fbbc04]", label: "Active" },
+            { color: "bg-[#9aa0a6]", label: "Idle" },
+          ].map(({ color, label }) => (
+            <div key={label} className="flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${color}`} />
+              <span className="text-[10px] text-[#9aa0a6]">{label}</span>
             </div>
-
-            {/* Tooltip */}
-            <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-20">
-              <div className="glass-panel-subtle px-3 py-2 text-center">
-                <div className="text-xs font-semibold text-white">{agent.label}</div>
-                <div className="text-[10px] text-zinc-500 mt-0.5">{agent.role}</div>
-                <div className="flex items-center justify-center gap-1.5 mt-1">
-                  <span
-                    className="w-1.5 h-1.5 rounded-full"
-                    style={{ backgroundColor: agent.color }}
-                  />
-                  <span className="text-[10px]" style={{ color: agent.color }}>
-                    {statusLabel[agent.status]}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        ))}
+          ))}
+        </div>
       </div>
+
+      {/* Graph */}
+      <div className="flex-1 relative p-4">
+        {loading ? (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-6 h-6 border-2 border-[#4285f4]/30 border-t-[#4285f4] rounded-full animate-spin" />
+          </div>
+        ) : (
+          <>
+            {/* SVG Edges */}
+            <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 0 }}>
+              <defs>
+                <marker id="arrowhead" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+                  <path d="M 0 0 L 6 3 L 0 6 z" fill="rgba(255,255,255,0.08)" />
+                </marker>
+              </defs>
+              {edges.map((edge, i) => {
+                const from = agents.find(a => a.id === edge.from);
+                const to = agents.find(a => a.id === edge.to);
+                if (!from || !to) return null;
+                return (
+                  <line
+                    key={i}
+                    x1={`${from.x}%`} y1={`${from.y}%`}
+                    x2={`${to.x}%`}   y2={`${to.y}%`}
+                    stroke="rgba(255,255,255,0.07)"
+                    strokeWidth="1"
+                    strokeDasharray="4 4"
+                    markerEnd="url(#arrowhead)"
+                  />
+                );
+              })}
+            </svg>
+
+            {/* Agent Nodes */}
+            <AnimatePresence>
+              {agents.map((agent, i) => (
+                <motion.div
+                  key={agent.id}
+                  initial={{ opacity: 0, scale: 0.5 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.5 }}
+                  transition={{ delay: i * 0.07, type: "spring", stiffness: 220 }}
+                  className="absolute -translate-x-1/2 -translate-y-1/2 z-10 cursor-pointer"
+                  style={{ left: `${agent.x}%`, top: `${agent.y}%` }}
+                  onClick={() => setSelected(selected === agent.id ? null : agent.id)}
+                >
+                  {/* Active glow ring */}
+                  {agent.status === "working" && (
+                    <div
+                      className="absolute inset-0 rounded-full animate-ping"
+                      style={{ backgroundColor: agent.color, opacity: 0.15, margin: "-8px" }}
+                    />
+                  )}
+
+                  {/* Node */}
+                  <div
+                    className="w-11 h-11 rounded-full flex items-center justify-center text-white text-sm font-bold border-2 transition-all duration-200 hover:scale-110"
+                    style={{
+                      backgroundColor: `${agent.color}22`,
+                      borderColor: selected === agent.id ? agent.color : `${agent.color}55`,
+                      boxShadow: selected === agent.id
+                        ? `0 0 24px ${agent.color}60`
+                        : `0 0 12px ${agent.color}20`,
+                    }}
+                  >
+                    {agent.label[0]}
+                  </div>
+
+                  {/* Status dot */}
+                  <div
+                    className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[#1a1a1a] ${statusDotClass[agent.status]}`}
+                    style={{ bottom: "-1px", right: "-1px" }}
+                  />
+
+                  {/* Label below */}
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 whitespace-nowrap text-center pointer-events-none">
+                    <div className="text-[10px] font-medium text-[#c4c7c5]">{agent.label}</div>
+                    {agent.message_count > 0 && (
+                      <div className="text-[9px] text-[#5f6368]">{agent.message_count} msgs</div>
+                    )}
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </>
+        )}
+      </div>
+
+      {/* Selected agent detail panel */}
+      <AnimatePresence>
+        {selectedAgent && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="absolute bottom-4 left-4 right-4 glass-panel-subtle px-4 py-3 flex items-center gap-4 z-20"
+          >
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+              style={{ backgroundColor: `${selectedAgent.color}33`, border: `1.5px solid ${selectedAgent.color}66` }}
+            >
+              {selectedAgent.label[0]}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold text-[#e8eaed]">{selectedAgent.label}</div>
+              <div className="text-xs text-[#9aa0a6]">{selectedAgent.role}</div>
+            </div>
+            <div className="text-right flex-shrink-0">
+              <div className="flex items-center gap-1.5 justify-end mb-0.5">
+                <span className={`w-2 h-2 rounded-full ${statusDotClass[selectedAgent.status]}`} />
+                <span className="text-xs text-[#c4c7c5]">{statusLabel[selectedAgent.status]}</span>
+              </div>
+              <div className="text-[10px] text-[#5f6368]">{selectedAgent.message_count} responses total</div>
+            </div>
+            <button
+              onClick={() => setSelected(null)}
+              className="text-[#5f6368] hover:text-[#9aa0a6] transition-colors ml-1 text-sm"
+            >✕</button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

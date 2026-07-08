@@ -1,7 +1,7 @@
 # ── Web framework ──────────────────────────────────────
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
-websockets==13.1
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.6
+websockets>=14.0
 python-multipart==0.0.9
 
 # ── Settings & validation ──────────────────────────────

@@ -30,6 +30,13 @@ interface ChatPanelProps {
   onMessageSent: () => void;
 }
 
+const SUGGESTIONS = [
+  "Search for the latest AI news",
+  "What is 25 × 37?",
+  "What time is it right now?",
+  "Open YouTube for me",
+];
+
 export function ChatPanel({ conversationId, onConversationCreated, onMessageSent }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -40,12 +47,10 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const [error, setError] = useState<string | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Queue: if user sends a message before WS is open, buffer it here
   const pendingMessageRef = useRef<string | null>(null);
-  // Skip the next loadMessages when we just created a new conversation
-  // (prevents the effect from clearing optimistic UI with an empty DB fetch)
   const skipNextLoadRef = useRef(false);
 
   // Auto-scroll
@@ -55,22 +60,20 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     }
   }, [messages, toolActivity, isThinking]);
 
-  // Load conversation messages when conversationId changes
+  // Auto-resize textarea
   useEffect(() => {
-    if (!conversationId) {
-      setMessages([]);
-      return;
-    }
+    const ta = inputRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+  }, [input]);
 
-    // Skip loading if we just created this conversation in handleSend.
-    // The optimistic UI already has the user's message, and loading from
-    // DB would return empty (the WS message hasn't been processed yet).
-    if (skipNextLoadRef.current) {
-      skipNextLoadRef.current = false;
-      return;
-    }
+  // Load conversation messages
+  useEffect(() => {
+    if (!conversationId) { setMessages([]); return; }
+    if (skipNextLoadRef.current) { skipNextLoadRef.current = false; return; }
 
-    const loadMessages = async () => {
+    const load = async () => {
       try {
         const res = await fetch(`${API_URL}/api/v1/chat/conversations/${conversationId}`, {
           headers: { "X-Session-ID": getSessionId() },
@@ -83,42 +86,32 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         console.error("Failed to load messages:", err);
       }
     };
-    loadMessages();
+    load();
   }, [conversationId]);
 
   // WebSocket connection
   const connectWs = useCallback((convId: string) => {
-    // Clear any pending reconnect
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
-
-    // Close existing connection
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
     }
 
     const ws = new WebSocket(`${WS_BASE}/api/v1/chat/ws/${convId}`);
-    wsRef.current = ws; // Set ref IMMEDIATELY so stale checks work
+    wsRef.current = ws;
 
-    // Keep-alive ping to prevent Render load balancer from dropping idle connections (55s limit)
     let pingInterval: ReturnType<typeof setInterval> | null = null;
 
     ws.onopen = () => {
-      // Ignore if this WS is already stale (user switched conversations)
       if (wsRef.current !== ws) return;
-
       setWsConnected(true);
       setError(null);
       pingInterval = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "ping" }));
-        }
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "ping" }));
       }, 30000);
-
-      // Flush any message that was queued while WS was connecting
       if (pendingMessageRef.current) {
         ws.send(JSON.stringify({ type: "message", content: pendingMessageRef.current }));
         pendingMessageRef.current = null;
@@ -126,35 +119,20 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     };
 
     ws.onmessage = (event) => {
-      // Ignore messages from a stale WS
       if (wsRef.current !== ws) return;
-
       const data = JSON.parse(event.data);
-
       switch (data.type) {
         case "thinking":
           setIsThinking(true);
           setThinkingAgent(data.agent || "orchestrator");
           break;
-
         case "tool_call":
-          setToolActivity({
-            tool: data.tool,
-            status: "calling",
-            args: data.args,
-          });
+          setToolActivity({ tool: data.tool, status: "calling", args: data.args });
           break;
-
         case "tool_result":
-          setToolActivity({
-            tool: data.tool,
-            status: "done",
-            result: data.result,
-          });
-          // Clear after brief display
+          setToolActivity({ tool: data.tool, status: "done", result: data.result });
           setTimeout(() => setToolActivity(null), 1500);
           break;
-
         case "response":
           setIsThinking(false);
           setToolActivity(null);
@@ -162,37 +140,18 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
           if (data.message) {
             setMessages((prev) => [...prev, data.message]);
           } else {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: Date.now(),
-                role: "agent",
-                agent_name: data.agent,
-                content: data.content,
-              },
-            ]);
+            setMessages((prev) => [...prev, { id: Date.now(), role: "agent", agent_name: data.agent, content: data.content }]);
           }
           onMessageSent();
           break;
-
         case "message_saved":
-          // Backend echo of saved user message — already shown via optimistic UI, skip
           break;
-
         case "error":
           setIsThinking(false);
           setToolActivity(null);
           setError(data.content);
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: Date.now(),
-              role: "system",
-              content: `⚠️ ${data.content}`,
-            },
-          ]);
+          setMessages((prev) => [...prev, { id: Date.now(), role: "system", content: `⚠️ ${data.content}` }]);
           break;
-
         case "pong":
           break;
       }
@@ -200,285 +159,258 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
     ws.onclose = () => {
       if (pingInterval) clearInterval(pingInterval);
-
-      // If this WS is stale (we already moved to a different connection), ignore
       if (wsRef.current !== ws) return;
-
       setWsConnected(false);
       setIsThinking(false);
       setToolActivity(null);
-
-      // Reconnect after 3s (only for unexpected disconnects)
       reconnectTimeoutRef.current = setTimeout(() => {
         if (convId) connectWs(convId);
       }, 3000);
     };
 
     ws.onerror = () => {
-      // Ignore errors from stale WS; onerror is always followed by onclose
       if (wsRef.current !== ws) return;
       setWsConnected(false);
     };
   }, [onMessageSent]);
 
-  // Connect/disconnect WS when conversation changes
+  // Connect/disconnect on conversation change
   useEffect(() => {
     if (conversationId) {
       connectWs(conversationId);
     } else {
-      // conversationId is null (New Chat) — clean up
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = null;
-      }
-      if (wsRef.current) {
-        const oldWs = wsRef.current;
-        wsRef.current = null; // Null ref BEFORE close so onclose sees it as stale
-        oldWs.close();
-      }
+      if (reconnectTimeoutRef.current) { clearTimeout(reconnectTimeoutRef.current); reconnectTimeoutRef.current = null; }
+      if (wsRef.current) { const old = wsRef.current; wsRef.current = null; old.close(); }
       setWsConnected(false);
     }
-
     return () => {
-      // Cleanup on unmount or before re-running effect
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = null;
-      }
-      if (wsRef.current) {
-        const oldWs = wsRef.current;
-        wsRef.current = null; // Null ref BEFORE close so onclose sees it as stale
-        oldWs.close();
-      }
+      if (reconnectTimeoutRef.current) { clearTimeout(reconnectTimeoutRef.current); reconnectTimeoutRef.current = null; }
+      if (wsRef.current) { const old = wsRef.current; wsRef.current = null; old.close(); }
     };
   }, [conversationId, connectWs]);
 
-  const handleSend = async () => {
-    if (!input.trim() || isThinking) return;
-    const content = input.trim();
+  const handleSend = async (text?: string) => {
+    const content = (text || input).trim();
+    if (!content || isThinking) return;
     setInput("");
     setError(null);
 
     let activeConvId = conversationId;
 
-    // Create conversation if needed
     if (!activeConvId) {
       try {
         const res = await fetch(`${API_URL}/api/v1/chat/conversations`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Session-ID": getSessionId(),
-          },
+          headers: { "Content-Type": "application/json", "X-Session-ID": getSessionId() },
           body: JSON.stringify({ title: content.slice(0, 80) }),
         });
         const conv = await res.json();
         activeConvId = conv.id;
-
-        // Queue the message so it gets sent as soon as WS opens
         pendingMessageRef.current = content;
-
-        // Prevent the loadMessages effect from wiping our optimistic UI
         skipNextLoadRef.current = true;
-
-        // This triggers the useEffect which calls connectWs
         onConversationCreated(conv.id);
-      } catch (err) {
+      } catch {
         setError("Failed to create conversation");
         return;
       }
     }
 
-    // Optimistic UI: add user message immediately
-    const userMsg: Message = {
-      id: Date.now(),
-      role: "user",
-      content,
-      created_at: new Date().toISOString(),
-    };
+    const userMsg: Message = { id: Date.now(), role: "user", content, created_at: new Date().toISOString() };
     setMessages((prev) => [...prev, userMsg]);
 
-    // If WS is already open (existing conversation), send immediately
-    // If WS is connecting (new conversation), the message is queued in pendingMessageRef
     if (!pendingMessageRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: "message", content }));
     } else if (!pendingMessageRef.current && wsRef.current?.readyState === WebSocket.CONNECTING) {
-      // WS is still connecting, queue the message
       pendingMessageRef.current = content;
     } else if (!pendingMessageRef.current) {
-      // WS is not connected and no pending message — try to reconnect
-      setError("Not connected to server. Reconnecting...");
-      if (activeConvId) {
-        pendingMessageRef.current = content;
-        connectWs(activeConvId);
-      }
+      setError("Not connected. Reconnecting...");
+      if (activeConvId) { pendingMessageRef.current = content; connectWs(activeConvId); }
     }
   };
 
   const toolIcons: Record<string, string> = {
-    web_search: "🔍",
-    open_url: "🌐",
-    execute_python: "💻",
-    calculate: "🧮",
-    get_current_time: "🕐",
-    read_file: "📄",
-    write_file: "✍️",
+    web_search: "🔍", open_url: "🌐", execute_python: "💻",
+    calculate: "🧮", get_current_time: "🕐", read_file: "📄", write_file: "✍️",
   };
 
+  const isEmpty = messages.length === 0 && !isThinking;
+
   return (
-    <div className="glass-panel flex flex-col h-full">
-      {/* Chat Header */}
-      <div className="flex items-center gap-3 px-5 py-3 border-b border-white/[0.06]">
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
-          A
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold text-white">AgentVerse</div>
-          <div className="text-[10px] text-zinc-500">Multi-agent AI workforce</div>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className={`status-dot ${wsConnected ? "status-dot--ok" : "status-dot--error"}`} />
-          <span className={`text-xs ${wsConnected ? "text-emerald-400" : "text-red-400"}`}>
-            {wsConnected ? "Connected" : "Disconnected"}
-          </span>
-        </div>
-      </div>
-
-      {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-4">
-        {messages.length === 0 && !isThinking && (
-          <div className="flex flex-col items-center justify-center h-full text-center py-12">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-brand-500/20 to-purple-500/20 flex items-center justify-center mb-4">
-              <span className="text-2xl">⬡</span>
-            </div>
-            <h3 className="text-lg font-semibold text-zinc-300 mb-2">AgentVerse Ready</h3>
-            <p className="text-sm text-zinc-500 max-w-md">
-              Tell me what you need. I can search the web, open websites, run code,
-              do calculations, and more.
-            </p>
-            <div className="flex flex-wrap gap-2 mt-4 justify-center">
-              {["Open YouTube", "Search for AI news", "What is 25 * 37?", "What time is it?"].map(
-                (suggestion) => (
-                  <button
-                    key={suggestion}
-                    onClick={() => {
-                      setInput(suggestion);
-                    }}
-                    className="px-3 py-1.5 rounded-lg text-xs text-zinc-400 bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] hover:text-zinc-300 transition-all"
-                  >
-                    {suggestion}
-                  </button>
-                )
-              )}
-            </div>
+    <div className="flex flex-col h-full bg-[#0d0d0d]">
+      {/* Connection status — tiny pill at top right, only shows when disconnected */}
+      {!wsConnected && conversationId && (
+        <div className="absolute top-3 right-4 z-10">
+          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#ea4335]/10 border border-[#ea4335]/20">
+            <span className="status-dot status-dot--error" style={{width:6, height:6}} />
+            <span className="text-[10px] text-[#ea4335]">Reconnecting…</span>
           </div>
-        )}
-
-        <AnimatePresence initial={false}>
-          {messages.map((msg, idx) => (
-            <motion.div
-              key={`${msg.id}-${idx}`}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.2 }}
-              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-            >
-              <div
-                className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed overflow-hidden ${
-                  msg.role === "user"
-                    ? "bg-brand-600/30 text-brand-100 rounded-br-md"
-                    : msg.role === "system"
-                    ? "bg-amber-500/10 text-amber-300 border border-amber-500/20 rounded-bl-md"
-                    : "glass-panel-subtle text-zinc-300 rounded-bl-md"
-                }`}
-              >
-                {msg.role === "agent" && msg.agent_name && (
-                  <div className="text-[10px] font-semibold text-brand-400 mb-1 uppercase tracking-wider">
-                    {msg.agent_name}
-                  </div>
-                )}
-                <div className="break-words overflow-hidden" style={{ overflowWrap: "anywhere" }}>
-                  {msg.role === "user" ? msg.content : <MarkdownRenderer content={msg.content} />}
-                </div>
-                {msg.created_at && (
-                  <div className="text-[10px] text-zinc-600 mt-1.5">
-                    {new Date(msg.created_at).toLocaleTimeString()}
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-
-        {/* Tool Activity Indicator */}
-        {toolActivity && (
-          <motion.div
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[rgba(34,34,51,0.5)] border border-white/[0.04] w-fit"
-          >
-            <span className="text-base">{toolIcons[toolActivity.tool] || "🔧"}</span>
-            <div>
-              <span className="text-xs font-medium text-zinc-300">
-                {toolActivity.status === "calling" ? `Using ${toolActivity.tool}...` : `${toolActivity.tool} complete`}
-              </span>
-              {toolActivity.args && Object.keys(toolActivity.args).length > 0 && (
-                <div className="text-[10px] text-zinc-500 font-mono truncate max-w-[300px]">
-                  {JSON.stringify(toolActivity.args)}
-                </div>
-              )}
-            </div>
-            {toolActivity.status === "calling" && (
-              <div className="w-4 h-4 border-2 border-brand-500/30 border-t-brand-500 rounded-full animate-spin" />
-            )}
-          </motion.div>
-        )}
-
-        {/* Thinking Indicator */}
-        {isThinking && !toolActivity && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="flex items-center gap-2 text-xs text-zinc-500"
-          >
-            <div className="flex gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-bounce" style={{ animationDelay: "0ms" }} />
-              <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-bounce" style={{ animationDelay: "150ms" }} />
-              <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-bounce" style={{ animationDelay: "300ms" }} />
-            </div>
-            <span>{thinkingAgent || "Agent"} is thinking...</span>
-          </motion.div>
-        )}
-      </div>
-
-      {/* Error Banner */}
-      {error && (
-        <div className="mx-5 mb-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-400">
-          {error}
-          <button onClick={() => setError(null)} className="ml-2 text-red-500 hover:text-red-300">✕</button>
         </div>
       )}
 
-      {/* Input */}
-      <div className="px-5 py-4 border-t border-white/[0.06]">
-        <div className="flex items-center gap-3">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-            placeholder="Ask anything — search, open websites, run code..."
-            className="input-field flex-1"
-            disabled={isThinking}
-          />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || isThinking}
-            className="btn-primary disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none"
-          >
-            {isThinking ? "..." : "Send"}
-          </button>
+      {/* Messages area */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        {isEmpty ? (
+          /* ── Gemini-style welcome screen ── */
+          <div className="flex flex-col items-center justify-center h-full px-6 pb-8">
+            {/* Gradient gem icon */}
+            <div className="w-16 h-16 rounded-3xl bg-gradient-to-br from-[#4285f4] via-[#8b5cf6] to-[#ec4899] flex items-center justify-center mb-6 shadow-2xl shadow-[#4285f4]/20">
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
+                <path d="M12 3l2.5 6.5H21l-5.5 4 2 6.5L12 16l-5.5 4 2-6.5L3 9.5h6.5L12 3Z" fill="white" opacity="0.9"/>
+              </svg>
+            </div>
+
+            <h1 className="text-3xl font-semibold text-[#e8eaed] mb-2 text-center">
+              Hello, how can I help?
+            </h1>
+            <p className="text-[#9aa0a6] text-sm mb-8 text-center max-w-sm">
+              I can search the web, run code, open websites, do calculations, and more.
+            </p>
+
+            {/* Suggestion chips */}
+            <div className="flex flex-wrap gap-2 justify-center max-w-lg">
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => handleSend(s)}
+                  className="px-4 py-2 rounded-full text-sm text-[#c4c7c5] bg-[#1e1e1e] border border-white/[0.07] hover:bg-[#252525] hover:text-[#e8eaed] hover:border-white/[0.12] transition-all duration-150"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          /* ── Message list ── */
+          <div className="max-w-3xl mx-auto px-4 md:px-6 py-6 space-y-6">
+            <AnimatePresence initial={false}>
+              {messages.map((msg, idx) => (
+                <motion.div
+                  key={`${msg.id}-${idx}`}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                >
+                  {/* Agent avatar */}
+                  {msg.role !== "user" && (
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#4285f4] to-[#8b5cf6] flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 mr-3 mt-0.5">
+                      A
+                    </div>
+                  )}
+
+                  <div
+                    className={`overflow-hidden ${
+                      msg.role === "user"
+                        ? "max-w-[75%] px-4 py-3 rounded-2xl rounded-br-sm bg-[#1e3a5f] text-[#c2d9f5] text-sm leading-relaxed"
+                        : msg.role === "system"
+                        ? "max-w-[80%] px-4 py-3 rounded-2xl bg-[#2d1a1a] text-[#f87171] border border-[#ea4335]/20 text-sm"
+                        : "flex-1 text-[#e8eaed] text-sm leading-relaxed"
+                    }`}
+                    style={{ overflowWrap: "anywhere" }}
+                  >
+                    {msg.role === "agent" && msg.agent_name && (
+                      <div className="text-[10px] font-semibold text-[#8ab4f8] mb-1.5 uppercase tracking-widest">
+                        {msg.agent_name}
+                      </div>
+                    )}
+                    {msg.role === "user"
+                      ? <span className="break-words">{msg.content}</span>
+                      : <MarkdownRenderer content={msg.content} />
+                    }
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+
+            {/* Tool activity */}
+            {toolActivity && (
+              <motion.div
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex items-center gap-3 ml-10"
+              >
+                <div className="flex items-center gap-2 px-3 py-2 rounded-full bg-[#1a1a2e] border border-[#4285f4]/20 text-xs text-[#8ab4f8]">
+                  <span>{toolIcons[toolActivity.tool] || "🔧"}</span>
+                  <span>{toolActivity.status === "calling" ? `Using ${toolActivity.tool}…` : `${toolActivity.tool} done`}</span>
+                  {toolActivity.status === "calling" && (
+                    <div className="w-3 h-3 border-2 border-[#4285f4]/30 border-t-[#4285f4] rounded-full animate-spin" />
+                  )}
+                </div>
+              </motion.div>
+            )}
+
+            {/* Thinking indicator */}
+            {isThinking && !toolActivity && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex items-center gap-3 ml-10"
+              >
+                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#4285f4] to-[#8b5cf6] flex items-center justify-center flex-shrink-0">
+                  <div className="flex gap-0.5">
+                    {[0, 1, 2].map(i => (
+                      <span
+                        key={i}
+                        className="w-1 h-1 rounded-full bg-white animate-bounce"
+                        style={{ animationDelay: `${i * 150}ms` }}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <span className="text-xs text-[#9aa0a6]">{thinkingAgent || "Agent"} is thinking…</span>
+              </motion.div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Error banner */}
+      {error && (
+        <div className="px-4 pb-2">
+          <div className="max-w-3xl mx-auto px-4 py-2 rounded-xl bg-[#ea4335]/10 border border-[#ea4335]/20 text-xs text-[#f87171] flex items-center justify-between">
+            <span>{error}</span>
+            <button onClick={() => setError(null)} className="ml-3 text-[#ea4335] hover:text-white transition-colors">✕</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Gemini-style floating input bar ── */}
+      <div className="px-4 pb-5 pt-2 flex-shrink-0">
+        <div className="max-w-3xl mx-auto">
+          <div className="relative flex items-end gap-2 bg-[#1e1e1e] rounded-3xl border border-white/[0.07] px-4 py-3 focus-within:border-[#4285f4]/40 focus-within:bg-[#222] transition-all duration-200 shadow-xl">
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              placeholder="Ask AgentVerse anything…"
+              rows={1}
+              className="flex-1 bg-transparent text-[#e8eaed] text-sm placeholder-[#5f6368] outline-none resize-none leading-6 max-h-[180px] overflow-y-auto"
+              disabled={isThinking}
+            />
+            <button
+              onClick={() => handleSend()}
+              disabled={!input.trim() || isThinking}
+              className="send-btn flex-shrink-0 mb-0.5"
+            >
+              {isThinking ? (
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              )}
+            </button>
+          </div>
+          <p className="text-center text-[10px] text-[#5f6368] mt-2">
+            AgentVerse can make mistakes. Consider verifying important information.
+          </p>
         </div>
       </div>
     </div>

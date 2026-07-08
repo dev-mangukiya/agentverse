@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
@@ -33,30 +33,22 @@ export default function Home() {
     setHistoryRefresh((n) => n + 1);
   }, []);
 
-  // Close mobile sidebar when navigating
   const handleNavigate = useCallback((view: View) => {
     setCurrentView(view);
     setMobileSidebarOpen(false);
   }, []);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-surface-0">
-      {/* Ambient background effects */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] rounded-full bg-brand-600/[0.03] blur-[120px]" />
-        <div className="absolute bottom-[-20%] right-[-10%] w-[500px] h-[500px] rounded-full bg-purple-600/[0.03] blur-[120px]" />
-        <div className="absolute top-[40%] left-[50%] w-[400px] h-[400px] rounded-full bg-pink-600/[0.02] blur-[100px]" />
-      </div>
-
-      {/* Mobile sidebar overlay */}
+    <div className="flex h-screen w-screen overflow-hidden bg-[#0d0d0d]">
+      {/* Mobile overlay */}
       {mobileSidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          className="fixed inset-0 bg-black/60 z-40 lg:hidden"
           onClick={() => setMobileSidebarOpen(false)}
         />
       )}
 
-      {/* Sidebar — hidden on mobile by default, shown via overlay */}
+      {/* Sidebar */}
       <div className={`
         fixed inset-y-0 left-0 z-50 lg:relative lg:z-10
         transform transition-transform duration-300 ease-in-out
@@ -71,22 +63,24 @@ export default function Home() {
         />
       </div>
 
-      <main className="flex-1 flex flex-col min-w-0 relative">
+      {/* Main content */}
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#0d0d0d]">
         <Header
           currentView={currentView}
           onMobileMenuToggle={() => setMobileSidebarOpen(!mobileSidebarOpen)}
         />
 
-        <div className="flex-1 flex flex-col overflow-hidden p-4 md:p-6">
+        <div className="flex-1 overflow-hidden">
           <AnimatePresence mode="wait">
+
             {currentView === "dashboard" && (
               <motion.div
                 key="dashboard"
-                initial={{ opacity: 0, y: 12 }}
+                initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -12 }}
-                transition={{ duration: 0.3 }}
-                className="flex-1 overflow-y-auto space-y-6"
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.25 }}
+                className="h-full overflow-y-auto p-6 space-y-6"
               >
                 <KPICards />
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -104,11 +98,11 @@ export default function Home() {
             {currentView === "agents" && (
               <motion.div
                 key="agents"
-                initial={{ opacity: 0, y: 12 }}
+                initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -12 }}
-                transition={{ duration: 0.3 }}
-                className="flex-1 overflow-hidden"
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.25 }}
+                className="h-full p-6"
               >
                 <AgentNetworkGraph fullscreen />
               </motion.div>
@@ -117,14 +111,14 @@ export default function Home() {
             {currentView === "chat" && (
               <motion.div
                 key="chat"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -12 }}
-                transition={{ duration: 0.3 }}
-                className="flex-1 flex gap-4 overflow-hidden min-h-0"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="h-full flex overflow-hidden"
               >
-                {/* Chat History Sidebar */}
-                <div className="w-64 flex-shrink-0 glass-panel hidden lg:flex lg:flex-col overflow-hidden">
+                {/* Chat history sidebar */}
+                <div className="w-64 flex-shrink-0 hidden lg:flex lg:flex-col overflow-hidden border-r border-white/[0.04]">
                   <ChatHistory
                     activeId={activeConversationId}
                     onSelect={setActiveConversationId}
@@ -133,8 +127,8 @@ export default function Home() {
                   />
                 </div>
 
-                {/* Chat Panel */}
-                <div className="flex-1 min-w-0 min-h-0">
+                {/* Chat panel — takes all remaining space */}
+                <div className="flex-1 min-w-0 relative">
                   <ChatPanel
                     conversationId={activeConversationId}
                     onConversationCreated={handleConversationCreated}
@@ -143,6 +137,7 @@ export default function Home() {
                 </div>
               </motion.div>
             )}
+
           </AnimatePresence>
         </div>
       </main>

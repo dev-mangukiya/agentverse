@@ -25,6 +25,7 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   const fetchConversations = useCallback(async () => {
     try {
@@ -52,17 +53,13 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (!confirm("Delete this conversation?")) return;
-
     try {
       await fetch(`${API_URL}/api/v1/chat/conversations/${id}`, {
         method: "DELETE",
         headers: { "X-Session-ID": getSessionId() },
       });
       setConversations((prev) => prev.filter((c) => c.id !== id));
-      if (activeId === id) {
-        onNewChat();
-      }
+      if (activeId === id) onNewChat();
     } catch (err) {
       console.error("Failed to delete conversation:", err);
     }
@@ -81,30 +78,45 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-[#111111]">
       {/* New Chat Button */}
-      <div className="p-3">
+      <div className="px-3 pt-3 pb-2 flex-shrink-0">
         <button
           onClick={onNewChat}
-          className="w-full btn-primary text-center flex items-center justify-center gap-2"
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-full bg-[#1e1e1e] hover:bg-[#252525] border border-white/[0.06] transition-all duration-150 group"
         >
-          <span>+</span>
-          <span>New Chat</span>
+          <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[#4285f4] to-[#8b5cf6] flex items-center justify-center flex-shrink-0">
+            <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+              <path d="M6 2v8M2 6h8" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </div>
+          <span className="text-sm font-medium text-[#c4c7c5] group-hover:text-[#e8eaed] transition-colors">New chat</span>
         </button>
       </div>
 
+      {/* Section label */}
+      {conversations.length > 0 && (
+        <div className="px-4 py-1 flex-shrink-0">
+          <span className="text-[11px] font-medium text-[#5f6368] uppercase tracking-wider">Recent</span>
+        </div>
+      )}
+
       {/* Conversations List */}
-      <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-1">
+      <div className="flex-1 overflow-y-auto px-2 pb-3">
         {loading && (
-          <div className="text-center text-xs text-zinc-500 py-4">Loading...</div>
+          <div className="flex flex-col gap-1.5 px-2 pt-2">
+            {[1,2,3].map(i => (
+              <div key={i} className="h-9 rounded-full bg-white/[0.04] animate-pulse" />
+            ))}
+          </div>
         )}
 
         {!loading && fetchError && (
           <div className="text-center py-8 px-3">
-            <div className="text-xs text-red-400 mb-2">Failed to load conversations</div>
+            <div className="text-xs text-[#ea4335] mb-2">Failed to load</div>
             <button
               onClick={() => { setLoading(true); fetchConversations(); }}
-              className="px-3 py-1.5 rounded-lg text-xs text-zinc-400 bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] hover:text-zinc-300 transition-all"
+              className="px-3 py-1.5 rounded-full text-xs text-[#9aa0a6] bg-white/[0.04] hover:bg-white/[0.07] transition-all"
             >
               Retry
             </button>
@@ -112,41 +124,53 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
         )}
 
         {!loading && !fetchError && conversations.length === 0 && (
-          <div className="text-center text-xs text-zinc-600 py-8 px-3">
-            No conversations yet. Start a new chat!
+          <div className="text-center text-xs text-[#5f6368] py-8 px-4">
+            Your chats will appear here
           </div>
         )}
 
         <AnimatePresence>
-          {conversations.map((conv) => (
-            <motion.button
-              key={conv.id}
-              initial={{ opacity: 0, x: -8 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -8 }}
-              onClick={() => onSelect(conv.id)}
-              className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all duration-150 group flex items-start gap-2 ${
-                activeId === conv.id
-                  ? "bg-brand-600/20 text-brand-300"
-                  : "text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-300"
-              }`}
-            >
-              <span className="text-xs mt-0.5 flex-shrink-0 opacity-50">◉</span>
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-xs font-medium">{conv.title}</div>
-                <div className="text-[10px] text-zinc-600 mt-0.5">
-                  {formatTime(conv.updated_at)} · {conv.message_count} msgs
-                </div>
-              </div>
-              <button
-                onClick={(e) => handleDelete(e, conv.id)}
-                className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 transition-all text-xs flex-shrink-0 mt-0.5"
-                title="Delete"
+          {conversations.map((conv) => {
+            const isActive = activeId === conv.id;
+            const isHovered = hoveredId === conv.id;
+            return (
+              <motion.div
+                key={conv.id}
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.15 }}
+                className="relative"
+                onMouseEnter={() => setHoveredId(conv.id)}
+                onMouseLeave={() => setHoveredId(null)}
               >
-                ✕
-              </button>
-            </motion.button>
-          ))}
+                <button
+                  onClick={() => onSelect(conv.id)}
+                  className={`w-full text-left flex items-center gap-2.5 px-3 py-2.5 rounded-full text-sm transition-all duration-150 ${
+                    isActive
+                      ? "bg-[rgba(66,133,244,0.12)] text-[#8ab4f8]"
+                      : "text-[#c4c7c5] hover:bg-white/[0.06] hover:text-[#e8eaed]"
+                  }`}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="flex-shrink-0 opacity-50">
+                    <path d="M12 3C6.477 3 2 6.925 2 11.75c0 2.278.98 4.35 2.59 5.88L3 21l4.5-1.45A10.3 10.3 0 0 0 12 20.5c5.523 0 10-3.925 10-8.75S17.523 3 12 3Z" stroke="currentColor" strokeWidth="1.5"/>
+                  </svg>
+                  <span className="truncate flex-1 text-sm">{conv.title}</span>
+                  {isHovered && (
+                    <button
+                      onClick={(e) => handleDelete(e, conv.id)}
+                      className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[#9aa0a6] hover:text-[#ea4335] hover:bg-white/[0.08] transition-all"
+                      title="Delete"
+                    >
+                      <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                        <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                      </svg>
+                    </button>
+                  )}
+                </button>
+              </motion.div>
+            );
+          })}
         </AnimatePresence>
       </div>
     </div>

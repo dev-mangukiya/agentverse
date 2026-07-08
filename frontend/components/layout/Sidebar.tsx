@@ -53,7 +53,8 @@ export function Sidebar({ currentView, onNavigate, collapsed, onToggle }: Sideba
     <motion.aside
       animate={{ width: collapsed ? 68 : 260 }}
       transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-      className="relative flex flex-col h-full bg-[#111111] overflow-hidden z-10"
+      className="relative flex flex-col h-full overflow-hidden z-10"
+      style={{ backgroundColor: "var(--bg-sidebar)", borderRight: "1px solid var(--border-subtle)" }}
     >
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 h-16 flex-shrink-0">
@@ -64,11 +65,10 @@ export function Sidebar({ currentView, onNavigate, collapsed, onToggle }: Sideba
           <motion.div
             initial={{ opacity: 0, x: -8 }}
             animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
           >
-            <div className="font-semibold text-[#e8eaed] text-base tracking-tight">AgentVerse</div>
-            <div className="text-[10px] text-[#5f6368]">AI Workforce</div>
+            <div className="font-semibold text-base tracking-tight" style={{ color: "var(--text-primary)" }}>AgentVerse</div>
+            <div className="text-[10px]" style={{ color: "var(--text-faint)" }}>AI Workforce</div>
           </motion.div>
         )}
       </div>
@@ -81,16 +81,13 @@ export function Sidebar({ currentView, onNavigate, collapsed, onToggle }: Sideba
             <button
               key={item.id}
               onClick={() => onNavigate(item.id)}
-              className={clsx(
-                "nav-item",
-                isActive && "nav-item--active"
-              )}
+              className={clsx("nav-item", isActive && "nav-item--active")}
             >
-              <span className={clsx("flex-shrink-0 transition-colors", isActive ? "text-[#8ab4f8]" : "text-[#9aa0a6]")}>
+              <span className="flex-shrink-0" style={{ color: isActive ? "var(--brand-text)" : "var(--text-muted)" }}>
                 {item.icon}
               </span>
               {!collapsed && (
-                <span className={clsx("text-sm", isActive ? "text-[#8ab4f8] font-medium" : "text-[#c4c7c5]")}>
+                <span className="text-sm" style={{ color: isActive ? "var(--brand-text)" : "var(--text-secondary)", fontWeight: isActive ? 500 : 400 }}>
                   {item.label}
                 </span>
               )}
@@ -101,18 +98,15 @@ export function Sidebar({ currentView, onNavigate, collapsed, onToggle }: Sideba
 
       {/* Collapse toggle */}
       <div className="px-3 pb-4 flex-shrink-0">
-        <button
-          onClick={onToggle}
-          className="nav-item w-full justify-center"
-          title={collapsed ? "Expand" : "Collapse"}
-        >
+        <button onClick={onToggle} className="nav-item w-full justify-center" title={collapsed ? "Expand" : "Collapse"}>
           <svg
             width="18" height="18" viewBox="0 0 24 24" fill="none"
-            className={clsx("text-[#9aa0a6] transition-transform duration-300", !collapsed && "rotate-180")}
+            className={clsx("transition-transform duration-300", !collapsed && "rotate-180")}
+            style={{ color: "var(--text-muted)" }}
           >
             <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
-          {!collapsed && <span className="text-xs text-[#9aa0a6]">Collapse</span>}
+          {!collapsed && <span className="text-xs" style={{ color: "var(--text-muted)" }}>Collapse</span>}
         </button>
       </div>
     </motion.aside>

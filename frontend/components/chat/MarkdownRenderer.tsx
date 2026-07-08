@@ -9,31 +9,27 @@ interface MarkdownRendererProps {
 }
 
 const components: Components = {
-  // Headings
   h1: ({ children }) => (
-    <h1 className="text-lg font-bold text-white mt-4 mb-2 first:mt-0">{children}</h1>
+    <h1 style={{ color: "var(--text-primary)" }} className="text-lg font-bold mt-4 mb-2 first:mt-0">{children}</h1>
   ),
   h2: ({ children }) => (
-    <h2 className="text-base font-bold text-white mt-3 mb-1.5 first:mt-0">{children}</h2>
+    <h2 style={{ color: "var(--text-primary)" }} className="text-base font-bold mt-3 mb-1.5 first:mt-0">{children}</h2>
   ),
   h3: ({ children }) => (
-    <h3 className="text-sm font-semibold text-zinc-200 mt-2.5 mb-1 first:mt-0">{children}</h3>
+    <h3 style={{ color: "var(--text-secondary)" }} className="text-sm font-semibold mt-2.5 mb-1 first:mt-0">{children}</h3>
   ),
 
-  // Paragraphs
   p: ({ children }) => (
     <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>
   ),
 
-  // Bold & Italic
   strong: ({ children }) => (
-    <strong className="font-semibold text-white">{children}</strong>
+    <strong style={{ color: "var(--text-primary)" }} className="font-semibold">{children}</strong>
   ),
   em: ({ children }) => (
-    <em className="italic text-zinc-300">{children}</em>
+    <em style={{ color: "var(--text-secondary)" }} className="italic">{children}</em>
   ),
 
-  // Lists
   ul: ({ children }) => (
     <ul className="mb-2 last:mb-0 space-y-1 pl-1">{children}</ul>
   ),
@@ -42,80 +38,93 @@ const components: Components = {
   ),
   li: ({ children }) => (
     <li className="flex gap-2 items-start">
-      <span className="mt-2 w-1 h-1 rounded-full bg-brand-400 flex-shrink-0" />
+      <span className="mt-2 w-1 h-1 rounded-full flex-shrink-0" style={{ backgroundColor: "var(--brand)" }} />
       <span className="flex-1">{children}</span>
     </li>
   ),
 
-  // Code
-  code: ({ className, children, ...props }) => {
+  code: ({ className, children }) => {
     const isInline = !className;
     if (isInline) {
       return (
-        <code className="px-1.5 py-0.5 rounded-md bg-white/[0.08] text-brand-300 font-mono text-[0.85em] border border-white/[0.06]">
+        <code
+          className="px-1.5 py-0.5 rounded-md font-mono text-[0.85em]"
+          style={{
+            backgroundColor: "var(--bg-raised)",
+            color: "var(--brand-text)",
+            border: "1px solid var(--border-muted)",
+          }}
+        >
           {children}
         </code>
       );
     }
-    // Block code
     const language = className?.replace("language-", "") || "";
     return (
-      <div className="my-2 rounded-xl overflow-hidden border border-white/[0.06]">
+      <div
+        className="my-2 rounded-xl overflow-hidden"
+        style={{ border: "1px solid var(--border-subtle)" }}
+      >
         {language && (
-          <div className="px-3 py-1 bg-white/[0.04] border-b border-white/[0.06]">
-            <span className="text-[10px] font-mono text-zinc-500 uppercase">{language}</span>
+          <div
+            className="px-3 py-1"
+            style={{ backgroundColor: "var(--bg-raised)", borderBottom: "1px solid var(--border-subtle)" }}
+          >
+            <span className="text-[10px] font-mono uppercase" style={{ color: "var(--text-faint)" }}>{language}</span>
           </div>
         )}
-        <pre className="p-3 overflow-x-auto bg-[rgba(10,10,15,0.6)]">
-          <code className="text-xs font-mono text-zinc-300 leading-relaxed">{children}</code>
+        <pre className="p-3 overflow-x-auto" style={{ backgroundColor: "var(--bg-panel)" }}>
+          <code className="text-xs font-mono leading-relaxed" style={{ color: "var(--text-secondary)" }}>{children}</code>
         </pre>
       </div>
     );
   },
   pre: ({ children }) => <>{children}</>,
 
-  // Links
   a: ({ href, children }) => (
     <a
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-brand-400 hover:text-brand-300 underline underline-offset-2 decoration-brand-400/40 hover:decoration-brand-300/60 transition-colors break-all"
+      className="underline underline-offset-2 transition-colors break-all"
+      style={{ color: "var(--brand-text)" }}
     >
       {children}
     </a>
   ),
 
-  // Blockquote
   blockquote: ({ children }) => (
-    <blockquote className="my-2 pl-3 border-l-2 border-brand-500/40 text-zinc-400 italic">
+    <blockquote
+      className="my-2 pl-3 italic"
+      style={{
+        borderLeft: "2px solid var(--brand)",
+        color: "var(--text-muted)",
+        opacity: 0.8,
+      }}
+    >
       {children}
     </blockquote>
   ),
 
-  // Horizontal rule
-  hr: () => (
-    <hr className="my-3 border-white/[0.08]" />
-  ),
+  hr: () => <hr className="my-3" style={{ borderColor: "var(--border-subtle)" }} />,
 
-  // Table
   table: ({ children }) => (
-    <div className="my-2 overflow-x-auto rounded-lg border border-white/[0.06]">
+    <div className="my-2 overflow-x-auto rounded-lg" style={{ border: "1px solid var(--border-subtle)" }}>
       <table className="w-full text-xs">{children}</table>
     </div>
   ),
   thead: ({ children }) => (
-    <thead className="bg-white/[0.04] border-b border-white/[0.06]">{children}</thead>
+    <thead style={{ backgroundColor: "var(--bg-raised)", borderBottom: "1px solid var(--border-subtle)" }}>{children}</thead>
   ),
   tbody: ({ children }) => <tbody>{children}</tbody>,
   tr: ({ children }) => (
-    <tr className="border-b border-white/[0.04] last:border-0">{children}</tr>
+    <tr style={{ borderBottom: "1px solid var(--border-subtle)" }}>{children}</tr>
   ),
   th: ({ children }) => (
-    <th className="px-3 py-2 text-left font-semibold text-zinc-300">{children}</th>
+    <th className="px-3 py-2 text-left font-semibold" style={{ color: "var(--text-secondary)" }}>{children}</th>
   ),
   td: ({ children }) => (
-    <td className="px-3 py-2 text-zinc-400">{children}</td>
+    <td className="px-3 py-2" style={{ color: "var(--text-muted)" }}>{children}</td>
   ),
 };
 

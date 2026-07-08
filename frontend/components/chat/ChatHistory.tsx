@@ -39,8 +39,7 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
       } else {
         setFetchError(true);
       }
-    } catch (err) {
-      console.error("Failed to fetch conversations:", err);
+    } catch {
       setFetchError(true);
     } finally {
       setLoading(false);
@@ -60,63 +59,72 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
       });
       setConversations((prev) => prev.filter((c) => c.id !== id));
       if (activeId === id) onNewChat();
-    } catch (err) {
-      console.error("Failed to delete conversation:", err);
+    } catch {
+      /* ignore */
     }
   };
 
   const formatTime = (iso: string) => {
     const d = new Date(iso);
-    const now = new Date();
-    const diffMs = now.getTime() - d.getTime();
-    const diffMin = Math.floor(diffMs / 60000);
-    if (diffMin < 1) return "Just now";
-    if (diffMin < 60) return `${diffMin}m ago`;
-    const diffHr = Math.floor(diffMin / 60);
-    if (diffHr < 24) return `${diffHr}h ago`;
+    const diff = Math.floor((Date.now() - d.getTime()) / 60000);
+    if (diff < 1) return "Just now";
+    if (diff < 60) return `${diff}m ago`;
+    const hr = Math.floor(diff / 60);
+    if (hr < 24) return `${hr}h ago`;
     return d.toLocaleDateString();
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#111111]">
+    <div className="flex flex-col h-full" style={{ backgroundColor: "var(--bg-sidebar)" }}>
       {/* New Chat Button */}
       <div className="px-3 pt-3 pb-2 flex-shrink-0">
         <button
           onClick={onNewChat}
-          className="w-full flex items-center gap-3 px-4 py-3 rounded-full bg-[#1e1e1e] hover:bg-[#252525] border border-white/[0.06] transition-all duration-150 group"
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-full transition-all duration-150 group"
+          style={{
+            backgroundColor: "var(--bg-raised)",
+            border: "1px solid var(--border-muted)",
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--bg-elevated)")}
+          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "var(--bg-raised)")}
         >
           <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[#4285f4] to-[#8b5cf6] flex items-center justify-center flex-shrink-0">
             <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
               <path d="M6 2v8M2 6h8" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
           </div>
-          <span className="text-sm font-medium text-[#c4c7c5] group-hover:text-[#e8eaed] transition-colors">New chat</span>
+          <span className="text-sm font-medium transition-colors" style={{ color: "var(--text-secondary)" }}>
+            New chat
+          </span>
         </button>
       </div>
 
       {/* Section label */}
       {conversations.length > 0 && (
         <div className="px-4 py-1 flex-shrink-0">
-          <span className="text-[11px] font-medium text-[#5f6368] uppercase tracking-wider">Recent</span>
+          <span className="text-[11px] font-medium uppercase tracking-wider" style={{ color: "var(--text-faint)" }}>
+            Recent
+          </span>
         </div>
       )}
 
-      {/* Conversations List */}
+      {/* List */}
       <div className="flex-1 overflow-y-auto px-2 pb-3">
         {loading && (
           <div className="flex flex-col gap-1.5 px-2 pt-2">
-            {[1,2,3].map(i => (
-              <div key={i} className="h-9 rounded-full bg-white/[0.04] animate-pulse" />
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-9 rounded-full animate-pulse" style={{ backgroundColor: "var(--bg-hover)" }} />
             ))}
           </div>
         )}
 
         {!loading && fetchError && (
           <div className="text-center py-8 px-3">
-            <div className="text-xs text-[#ea4335] mb-2">Failed to load</div>
+            <div className="text-xs mb-2" style={{ color: "var(--red)" }}>Failed to load</div>
             <button
               onClick={() => { setLoading(true); fetchConversations(); }}
-              className="px-3 py-1.5 rounded-full text-xs text-[#9aa0a6] bg-white/[0.04] hover:bg-white/[0.07] transition-all"
+              className="px-3 py-1.5 rounded-full text-xs transition-all"
+              style={{ color: "var(--text-muted)", backgroundColor: "var(--bg-hover)" }}
             >
               Retry
             </button>
@@ -124,7 +132,7 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
         )}
 
         {!loading && !fetchError && conversations.length === 0 && (
-          <div className="text-center text-xs text-[#5f6368] py-8 px-4">
+          <div className="text-center text-xs py-8 px-4" style={{ color: "var(--text-faint)" }}>
             Your chats will appear here
           </div>
         )}
@@ -146,11 +154,11 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
               >
                 <button
                   onClick={() => onSelect(conv.id)}
-                  className={`w-full text-left flex items-center gap-2.5 px-3 py-2.5 rounded-full text-sm transition-all duration-150 ${
-                    isActive
-                      ? "bg-[rgba(66,133,244,0.12)] text-[#8ab4f8]"
-                      : "text-[#c4c7c5] hover:bg-white/[0.06] hover:text-[#e8eaed]"
-                  }`}
+                  className="w-full text-left flex items-center gap-2.5 px-3 py-2.5 rounded-full text-sm transition-all duration-150"
+                  style={{
+                    backgroundColor: isActive ? "var(--bg-active)" : isHovered ? "var(--bg-hover)" : "transparent",
+                    color: isActive ? "var(--brand-text)" : "var(--text-secondary)",
+                  }}
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="flex-shrink-0 opacity-50">
                     <path d="M12 3C6.477 3 2 6.925 2 11.75c0 2.278.98 4.35 2.59 5.88L3 21l4.5-1.45A10.3 10.3 0 0 0 12 20.5c5.523 0 10-3.925 10-8.75S17.523 3 12 3Z" stroke="currentColor" strokeWidth="1.5"/>
@@ -159,7 +167,10 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
                   {isHovered && (
                     <button
                       onClick={(e) => handleDelete(e, conv.id)}
-                      className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[#9aa0a6] hover:text-[#ea4335] hover:bg-white/[0.08] transition-all"
+                      className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center transition-all"
+                      style={{ color: "var(--text-muted)" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.color = "var(--red)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
                       title="Delete"
                     >
                       <svg width="10" height="10" viewBox="0 0 12 12" fill="none">

@@ -20,30 +20,24 @@ export default function Home() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [historyRefresh, setHistoryRefresh] = useState(0);
 
-  const handleNewChat = useCallback(() => {
-    setActiveConversationId(null);
-  }, []);
-
+  const handleNewChat = useCallback(() => { setActiveConversationId(null); }, []);
   const handleConversationCreated = useCallback((id: string) => {
     setActiveConversationId(id);
     setHistoryRefresh((n) => n + 1);
   }, []);
-
-  const handleMessageSent = useCallback(() => {
-    setHistoryRefresh((n) => n + 1);
-  }, []);
-
+  const handleMessageSent = useCallback(() => { setHistoryRefresh((n) => n + 1); }, []);
   const handleNavigate = useCallback((view: View) => {
     setCurrentView(view);
     setMobileSidebarOpen(false);
   }, []);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#0d0d0d]">
+    <div className="flex h-screen w-screen overflow-hidden" style={{ backgroundColor: "var(--bg-base)" }}>
       {/* Mobile overlay */}
       {mobileSidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/60 z-40 lg:hidden"
+          className="fixed inset-0 z-40 lg:hidden"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
           onClick={() => setMobileSidebarOpen(false)}
         />
       )}
@@ -64,7 +58,7 @@ export default function Home() {
       </div>
 
       {/* Main content */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#0d0d0d]">
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden" style={{ backgroundColor: "var(--bg-base)" }}>
         <Header
           currentView={currentView}
           onMobileMenuToggle={() => setMobileSidebarOpen(!mobileSidebarOpen)}
@@ -81,12 +75,11 @@ export default function Home() {
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.25 }}
                 className="h-full overflow-y-auto p-6 space-y-6"
+                style={{ backgroundColor: "var(--bg-base)" }}
               >
                 <KPICards />
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  <div className="lg:col-span-2">
-                    <AgentNetworkGraph />
-                  </div>
+                  <div className="lg:col-span-2"><AgentNetworkGraph /></div>
                   <div className="space-y-6">
                     <SystemHealth />
                     <ActivityFeed />
@@ -103,6 +96,7 @@ export default function Home() {
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.25 }}
                 className="h-full p-6"
+                style={{ backgroundColor: "var(--bg-base)" }}
               >
                 <AgentNetworkGraph fullscreen />
               </motion.div>
@@ -118,7 +112,10 @@ export default function Home() {
                 className="h-full flex overflow-hidden"
               >
                 {/* Chat history sidebar */}
-                <div className="w-64 flex-shrink-0 hidden lg:flex lg:flex-col overflow-hidden border-r border-white/[0.04]">
+                <div
+                  className="w-64 flex-shrink-0 hidden lg:flex lg:flex-col overflow-hidden"
+                  style={{ borderRight: "1px solid var(--border-subtle)" }}
+                >
                   <ChatHistory
                     activeId={activeConversationId}
                     onSelect={setActiveConversationId}
@@ -127,7 +124,7 @@ export default function Home() {
                   />
                 </div>
 
-                {/* Chat panel — takes all remaining space */}
+                {/* Chat panel */}
                 <div className="flex-1 min-w-0 relative">
                   <ChatPanel
                     conversationId={activeConversationId}

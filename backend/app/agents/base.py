@@ -79,8 +79,12 @@ class GoogleKeyManager:
             logger.warning("google_keys.all_exhausted", total_keys=len(self._keys))
             return None
 
-    def mark_rate_limited(self, key: str) -> None:
+    def mark_rate_limited(self, key) -> None:
         """Mark a key as rate-limited — it won't be used for COOLDOWN_SECONDS."""
+        # LangChain may pass a pydantic SecretStr; unwrap to plain str
+        if hasattr(key, 'get_secret_value'):
+            key = key.get_secret_value()
+        key = str(key)
         with self._lock:
             self._cooldowns[key] = time.monotonic() + self.COOLDOWN_SECONDS
             active = sum(1 for k in self._keys if self._cooldowns.get(k, 0) <= time.monotonic())
@@ -123,7 +127,7 @@ def _create_google_llm(api_key: str, model: str = "gemini-2.5-flash", temperatur
         model=model if "gemini" in model else "gemini-2.5-flash",
         google_api_key=api_key,
         temperature=temperature,
-        max_retries=2,
+        max_retries=0,  # Don't let LangChain retry the same rate-limited key; our rotation handles it
     )
     _llm_cache[cache_key] = llm
     return llm
@@ -305,11 +309,13 @@ class BaseAgent:
 
     def __init__(self, tools: list[BaseTool] | None = None):
         self.tools = tools or []
-        self.llm = get_llm()
+
+    def _get_fresh_llm(self):
+        """Get a fresh LLM instance so the key manager's round-robin rotates keys."""
+        llm = get_llm()
         if self.tools:
-            self.llm_with_tools = self.llm.bind_tools(self.tools)
-        else:
-            self.llm_with_tools = self.llm
+            return llm.bind_tools(self.tools)
+        return llm
 
     async def run(self, user_input: str, context: str = "") -> str:
         """Execute the agent with user input and optional context."""
@@ -318,8 +324,11 @@ class BaseAgent:
 
         logger.info(f"agent.{self.name}.invoke", input_length=len(user_input))
 
+        # Get a fresh LLM each time so the key manager can rotate keys
+        llm = self._get_fresh_llm()
+
         try:
-            response = await _invoke_with_retry(self.llm_with_tools, messages)
+            response = await _invoke_with_retry(llm, messages)
 
             # Handle tool calls
             if hasattr(response, "tool_calls") and response.tool_calls:
@@ -327,7 +336,7 @@ class BaseAgent:
                 messages.append(response)
                 for result in tool_results:
                     messages.append(result)
-                response = await _invoke_with_retry(self.llm_with_tools, messages)
+                response = await _invoke_with_retry(llm, messages)
 
             content = response.content if isinstance(response, AIMessage) else str(response)
             logger.info(f"agent.{self.name}.complete", output_length=len(content))

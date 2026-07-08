@@ -210,7 +210,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         }, 30000);
         // Send any pending message immediately — this ref survives re-renders
         if (pendingMessageRef.current) {
-          ws.send(JSON.stringify({ type: "message", content: pendingMessageRef.current }));
+          // ws is guaranteed non-null here — we're inside its own onopen handler
+          ws!.send(JSON.stringify({ type: "message", content: pendingMessageRef.current }));
           pendingMessageRef.current = null;
         }
       };

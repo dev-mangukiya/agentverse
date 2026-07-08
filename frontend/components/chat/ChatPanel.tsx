@@ -385,7 +385,12 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       pendingMessageRef.current = content;
     } else if (!pendingMessageRef.current) {
       setError("Not connected. Reconnecting...");
-      if (activeConvId) { pendingMessageRef.current = content; connectWs(activeConvId); }
+      if (activeConvId) {
+        pendingMessageRef.current = content;
+        // Force-close the WS — the onclose handler inside the effect will auto-reconnect
+        // and onopen will pick up the pending message from pendingMessageRef
+        if (wsRef.current) { wsRef.current.close(); }
+      }
     }
   };
 

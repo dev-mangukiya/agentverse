@@ -10,6 +10,7 @@ vars discoverable in one place.
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -48,7 +49,7 @@ class Settings(BaseSettings):
     huggingface_api_key: str | None = None  # HuggingFace token (HUGGINGFACEHUB_API_TOKEN)
     # Force google provider to fix Render deployment issue where env vars override
     default_model_provider: str = "google"
-    default_model: str = "gemini-3.5-flash"
+    default_model: str = "gemini-2.5-flash"
 
     # ── PostgreSQL ───────────────────────────────────────
     database_url: str = ""
@@ -101,6 +102,19 @@ class Settings(BaseSettings):
             or self.google_api_key
             or self.huggingface_api_key
         )
+
+    @model_validator(mode="after")
+    def _prefer_google_when_available(self) -> "Settings":
+        """Always prefer Google Gemini when a key is available.
+
+        Render's env vars may set DEFAULT_MODEL_PROVIDER to 'huggingface',
+        but HuggingFace free tier is extremely slow for large models. When we
+        have a Google API key, force the fast path.
+        """
+        if self.google_api_key and self.default_model_provider != "google":
+            self.default_model_provider = "google"
+            self.default_model = "gemini-2.5-flash"
+        return self
 
 
 @lru_cache

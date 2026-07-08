@@ -29,9 +29,20 @@ const statusLabel: Record<string, string> = {
 };
 
 const statusDotClass: Record<string, string> = {
-  active: "bg-[#34a853]",
-  working: "bg-[#fbbc04]",
-  idle: "bg-[#9aa0a6]",
+  active: "bg-[#10b981]",
+  working: "bg-[#f59e0b]",
+  idle: "bg-[#5f6368]",
+};
+
+const agentIcons: Record<string, string> = {
+  orchestrator: "🧠",
+  research: "🔬",
+  coding: "💻",
+  writer: "✍️",
+  critic: "🔍",
+  data: "📊",
+  data_analyst: "📊",
+  memory: "🧩",
 };
 
 export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
@@ -56,7 +67,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
       }
     };
     fetchAgents();
-    const interval = setInterval(fetchAgents, 20000);
+    const interval = setInterval(fetchAgents, 15000);
     return () => clearInterval(interval);
   }, []);
 
@@ -68,20 +79,20 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
       {/* Header */}
       <div className="flex items-center justify-between px-5 pt-5 pb-2 flex-shrink-0">
         <div>
-          <h3 className="text-sm font-semibold text-[#e8eaed]">Agent Network</h3>
-          <p className="text-xs text-[#9aa0a6] mt-0.5">
+          <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Agent Network</h3>
+          <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
             {loading ? "Loading…" : `${agents.length} agents · ${agents.filter(a => a.status !== "idle").length} active`}
           </p>
         </div>
         <div className="flex items-center gap-3">
           {[
-            { color: "bg-[#34a853]", label: "Online" },
-            { color: "bg-[#fbbc04]", label: "Active" },
-            { color: "bg-[#9aa0a6]", label: "Idle" },
+            { color: "bg-[#10b981]", label: "Online" },
+            { color: "bg-[#f59e0b]", label: "Active" },
+            { color: "bg-[#5f6368]", label: "Idle" },
           ].map(({ color, label }) => (
             <div key={label} className="flex items-center gap-1.5">
               <span className={`w-2 h-2 rounded-full ${color}`} />
-              <span className="text-[10px] text-[#9aa0a6]">{label}</span>
+              <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>{label}</span>
             </div>
           ))}
         </div>
@@ -91,7 +102,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
       <div className="flex-1 relative p-4">
         {loading ? (
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-6 h-6 border-2 border-[#4285f4]/30 border-t-[#4285f4] rounded-full animate-spin" />
+            <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: "var(--brand-dim)", borderTopColor: "var(--brand)" }} />
           </div>
         ) : (
           <>
@@ -99,22 +110,30 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
             <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 0 }}>
               <defs>
                 <marker id="arrowhead" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-                  <path d="M 0 0 L 6 3 L 0 6 z" fill="rgba(255,255,255,0.08)" />
+                  <path d="M 0 0 L 6 3 L 0 6 z" fill="rgba(99,102,241,0.2)" />
                 </marker>
+                {/* Animated gradient for active edges */}
+                <linearGradient id="activeEdge" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="var(--brand)" stopOpacity="0.1" />
+                  <stop offset="50%" stopColor="var(--brand)" stopOpacity="0.4" />
+                  <stop offset="100%" stopColor="var(--brand)" stopOpacity="0.1" />
+                </linearGradient>
               </defs>
               {edges.map((edge, i) => {
                 const from = agents.find(a => a.id === edge.from);
                 const to = agents.find(a => a.id === edge.to);
                 if (!from || !to) return null;
+                const isActive = from.status === "working" || to.status === "working";
                 return (
                   <line
                     key={i}
                     x1={`${from.x}%`} y1={`${from.y}%`}
                     x2={`${to.x}%`}   y2={`${to.y}%`}
-                    stroke="rgba(255,255,255,0.07)"
-                    strokeWidth="1"
-                    strokeDasharray="4 4"
+                    stroke={isActive ? "url(#activeEdge)" : "rgba(255,255,255,0.06)"}
+                    strokeWidth={isActive ? "1.5" : "1"}
+                    strokeDasharray={isActive ? "6 4" : "4 4"}
                     markerEnd="url(#arrowhead)"
+                    style={isActive ? { animation: "flowLine 1s linear infinite" } : undefined}
                   />
                 );
               })}
@@ -136,36 +155,44 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                   {/* Active glow ring */}
                   {agent.status === "working" && (
                     <div
-                      className="absolute inset-0 rounded-full animate-ping"
-                      style={{ backgroundColor: agent.color, opacity: 0.15, margin: "-8px" }}
+                      className="absolute inset-0 rounded-xl"
+                      style={{
+                        backgroundColor: agent.color,
+                        opacity: 0.12,
+                        animation: "pulseRing 1.5s ease-out infinite",
+                        margin: "-6px",
+                        borderRadius: "14px",
+                      }}
                     />
                   )}
 
                   {/* Node */}
                   <div
-                    className="w-11 h-11 rounded-full flex items-center justify-center text-white text-sm font-bold border-2 transition-all duration-200 hover:scale-110"
+                    className="w-12 h-12 rounded-xl flex items-center justify-center text-lg transition-all duration-200 hover:scale-110"
                     style={{
-                      backgroundColor: `${agent.color}22`,
-                      borderColor: selected === agent.id ? agent.color : `${agent.color}55`,
+                      backgroundColor: `${agent.color}15`,
+                      borderWidth: "1.5px",
+                      borderStyle: "solid",
+                      borderColor: selected === agent.id ? agent.color : `${agent.color}40`,
                       boxShadow: selected === agent.id
-                        ? `0 0 24px ${agent.color}60`
-                        : `0 0 12px ${agent.color}20`,
+                        ? `0 0 24px ${agent.color}40`
+                        : `0 0 12px ${agent.color}15`,
                     }}
                   >
-                    {agent.label[0]}
+                    {agentIcons[agent.id] || agent.label[0]}
                   </div>
 
                   {/* Status dot */}
                   <div
-                    className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[#1a1a1a] ${statusDotClass[agent.status]}`}
-                    style={{ bottom: "-1px", right: "-1px" }}
+                    className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 ${statusDotClass[agent.status]}`}
+                    style={{ bottom: "-1px", right: "-1px", borderColor: "var(--bg-panel)" }}
                   />
 
                   {/* Label below */}
                   <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 whitespace-nowrap text-center pointer-events-none">
-                    <div className="text-[10px] font-medium text-[#c4c7c5]">{agent.label}</div>
+                    <div className="text-[10px] font-medium" style={{ color: "var(--text-secondary)" }}>{agent.label}</div>
                     {agent.message_count > 0 && (
-                      <div className="text-[9px] text-[#5f6368]">{agent.message_count} msgs</div>
+                      <div className="text-[9px]" style={{ color: "var(--text-faint)" }}>{agent.message_count} msgs</div>
                     )}
                   </div>
                 </motion.div>
@@ -185,25 +212,29 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
             className="absolute bottom-4 left-4 right-4 glass-panel-subtle px-4 py-3 flex items-center gap-4 z-20"
           >
             <div
-              className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-              style={{ backgroundColor: `${selectedAgent.color}33`, border: `1.5px solid ${selectedAgent.color}66` }}
+              className="w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0"
+              style={{
+                backgroundColor: `${selectedAgent.color}20`,
+                border: `1.5px solid ${selectedAgent.color}40`,
+              }}
             >
-              {selectedAgent.label[0]}
+              {agentIcons[selectedAgent.id] || selectedAgent.label[0]}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold text-[#e8eaed]">{selectedAgent.label}</div>
-              <div className="text-xs text-[#9aa0a6]">{selectedAgent.role}</div>
+              <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{selectedAgent.label}</div>
+              <div className="text-xs" style={{ color: "var(--text-muted)" }}>{selectedAgent.role}</div>
             </div>
             <div className="text-right flex-shrink-0">
               <div className="flex items-center gap-1.5 justify-end mb-0.5">
                 <span className={`w-2 h-2 rounded-full ${statusDotClass[selectedAgent.status]}`} />
-                <span className="text-xs text-[#c4c7c5]">{statusLabel[selectedAgent.status]}</span>
+                <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{statusLabel[selectedAgent.status]}</span>
               </div>
-              <div className="text-[10px] text-[#5f6368]">{selectedAgent.message_count} responses total</div>
+              <div className="text-[10px]" style={{ color: "var(--text-faint)" }}>{selectedAgent.message_count} responses total</div>
             </div>
             <button
               onClick={() => setSelected(null)}
-              className="text-[#5f6368] hover:text-[#9aa0a6] transition-colors ml-1 text-sm"
+              className="transition-colors ml-1 text-sm"
+              style={{ color: "var(--text-faint)" }}
             >✕</button>
           </motion.div>
         )}

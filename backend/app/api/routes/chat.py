@@ -1,7 +1,13 @@
-"""Chat API routes — REST endpoints and WebSocket for real-time agent interaction."""
+"""Chat API routes — REST endpoints and WebSocket for real-time agent interaction.
+
+Supports parallel multi-agent execution, rich pipeline event streaming,
+and agent instance caching for speed.
+"""
 
 import asyncio
 import json
+import re
+import time
 import traceback
 from datetime import datetime, timezone
 
@@ -18,6 +24,49 @@ from app.database.session import get_db, async_session_factory
 logger = get_logger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
 settings = get_settings()
+
+
+# ── Agent instance cache ──────────────────────────────────
+# Reuse agent instances instead of creating new ones per request
+_agent_cache: dict[str, object] = {}
+
+
+def _get_cached_agent(name: str):
+    """Return a cached agent instance by name. Creates one if not cached."""
+    name = name.lower().strip()
+    if name in _agent_cache:
+        return _agent_cache[name]
+
+    agent = None
+    try:
+        if name == "orchestrator":
+            from app.agents.orchestrator import OrchestratorAgent
+            agent = OrchestratorAgent()
+        elif name == "research":
+            from app.agents.research import ResearchAgent
+            agent = ResearchAgent()
+        elif name in ("coding", "code", "coder"):
+            from app.agents.coding import CodingAgent
+            agent = CodingAgent()
+            name = "coding"
+        elif name in ("writer", "write", "writing"):
+            from app.agents.writer import WriterAgent
+            agent = WriterAgent()
+            name = "writer"
+        elif name in ("critic", "review", "reviewer"):
+            from app.agents.critic import CriticAgent
+            agent = CriticAgent()
+            name = "critic"
+        elif name in ("data", "analyst", "data_analyst"):
+            from app.agents.data_analyst import DataAnalystAgent
+            agent = DataAnalystAgent()
+            name = "data"
+    except ImportError as e:
+        logger.warning("agent.import_failed", name=name, error=str(e))
+
+    if agent:
+        _agent_cache[name] = agent
+    return agent
 
 
 # ── Pydantic schemas ──────────────────────────────────────
@@ -167,14 +216,27 @@ async def chat_websocket(websocket: WebSocket, conversation_id: str):
             active_connections.remove(websocket)
 
 
+async def _send_ws(websocket: WebSocket, data: dict) -> None:
+    """Safe WebSocket send — swallows errors if connection is closed."""
+    try:
+        await websocket.send_json(data)
+    except Exception:
+        pass
+
+
 async def _process_user_message(
     websocket: WebSocket,
     conversation_id: str,
     content: str,
 ) -> None:
-    """Process a user message: save to DB, run orchestrator, delegate to sub-agents if needed."""
+    """Process a user message through the multi-agent pipeline.
+
+    Pipeline: Save → Orchestrate → Delegate (parallel) → Synthesize → Respond
+    """
+    pipeline_start = time.time()
+
     try:
-        # Save user message to DB
+        # ── Save user message to DB ──────────────────────────────
         async with async_session_factory() as db:
             stmt = select(Conversation).where(Conversation.id == conversation_id)
             result = await db.execute(stmt)
@@ -193,67 +255,273 @@ async def _process_user_message(
             db.add(user_msg)
             await db.commit()
 
-            await websocket.send_json({
+            await _send_ws(websocket, {
                 "type": "message_saved",
                 "message": user_msg.to_dict(),
             })
 
         # Check LLM
         if not settings.llm_configured:
-            await websocket.send_json({
+            await _send_ws(websocket, {
                 "type": "error",
                 "content": "No LLM API key configured. Add GOOGLE_API_KEY to your .env file and restart the server.",
             })
             return
 
-        # ── Step 1: Run orchestrator ──────────────────────────────
-        await websocket.send_json({"type": "thinking", "agent": "orchestrator", "content": "Analyzing your request..."})
-        await broadcast_event({"type": "activity", "agent": "Orchestrator", "action": f'Processing: "{content[:50]}"', "time": "now"})
+        # ── Pipeline Start Event ─────────────────────────────────
+        await _send_ws(websocket, {
+            "type": "pipeline_start",
+            "timestamp": time.time(),
+        })
 
-        from app.agents.orchestrator import OrchestratorAgent
-        orchestrator = OrchestratorAgent()
+        # ── Step 1: Run orchestrator ─────────────────────────────
+        await _send_ws(websocket, {
+            "type": "agent_activated",
+            "agent": "orchestrator",
+            "task": "Analyzing request and planning delegation...",
+        })
+        await _send_ws(websocket, {
+            "type": "thinking",
+            "agent": "orchestrator",
+            "content": "Analyzing your request...",
+            "phase": "planning",
+        })
+        await broadcast_event({
+            "type": "activity",
+            "agent": "Orchestrator",
+            "action": f'Planning: "{content[:50]}"',
+            "time": "now",
+        })
+
+        orchestrator = _get_cached_agent("orchestrator")
         history = await _get_conversation_context(conversation_id)
+        orch_start = time.time()
         orch_response = await _run_agent_with_streaming(orchestrator, content, history, websocket)
+        orch_duration = int((time.time() - orch_start) * 1000)
 
-        # ── Step 2: Check for DELEGATE directive or intent ───────
-        import re
-        delegate_match = re.match(r"^\s*DELEGATE:\s*(\w+)\s*\|\s*(.+)", orch_response.strip(), re.IGNORECASE | re.DOTALL)
+        await _send_ws(websocket, {
+            "type": "agent_complete",
+            "agent": "orchestrator",
+            "duration_ms": orch_duration,
+            "summary": "Analysis complete",
+        })
 
-        if delegate_match:
-            # LLM explicitly said DELEGATE: <agent> | <task>
+        # ── Step 2: Parse delegation directive ───────────────────
+        parallel_match = re.match(
+            r"^\s*PARALLEL:\s*([\w\s,]+)\s*\|\s*(.+)",
+            orch_response.strip(),
+            re.IGNORECASE | re.DOTALL,
+        )
+        delegate_match = re.match(
+            r"^\s*DELEGATE:\s*(\w+)\s*\|\s*(.+)",
+            orch_response.strip(),
+            re.IGNORECASE | re.DOTALL,
+        )
+
+        if parallel_match:
+            # ── Parallel multi-agent execution ───────────────────
+            agent_names = [n.strip().lower() for n in parallel_match.group(1).split(",")]
+            tasks_text = parallel_match.group(2).strip()
+            sub_tasks = [t.strip() for t in tasks_text.split("|||")]
+
+            # Pad tasks if fewer than agents
+            while len(sub_tasks) < len(agent_names):
+                sub_tasks.append(content)
+
+            agents_planned = ["orchestrator"] + agent_names
+            await _send_ws(websocket, {
+                "type": "pipeline_start",
+                "agents_planned": agents_planned,
+            })
+
+            # Activate all agents
+            for i, name in enumerate(agent_names):
+                agent = _get_cached_agent(name)
+                if agent:
+                    await _send_ws(websocket, {
+                        "type": "agent_activated",
+                        "agent": name,
+                        "task": sub_tasks[i][:100],
+                        "parallel_group": 1,
+                    })
+                    await _send_ws(websocket, {
+                        "type": "delegation",
+                        "from": "orchestrator",
+                        "to": name,
+                        "reason": f"Specialist needed for: {sub_tasks[i][:60]}",
+                        "task": sub_tasks[i][:200],
+                    })
+
+            # Run all agents in parallel
+            async def _run_sub(name: str, task: str) -> tuple[str, str, int]:
+                agent = _get_cached_agent(name)
+                if not agent:
+                    return name, f"Agent '{name}' not available.", 0
+                await _send_ws(websocket, {
+                    "type": "thinking",
+                    "agent": name,
+                    "content": f"{name.title()} agent is working...",
+                    "phase": "executing",
+                })
+                start = time.time()
+                result = await _run_agent_with_streaming(agent, task, history, websocket)
+                duration = int((time.time() - start) * 1000)
+                await _send_ws(websocket, {
+                    "type": "agent_complete",
+                    "agent": name,
+                    "duration_ms": duration,
+                    "summary": result[:80] + "..." if len(result) > 80 else result,
+                })
+                await broadcast_event({
+                    "type": "activity",
+                    "agent": name.capitalize(),
+                    "action": "Completed task",
+                    "time": "now",
+                })
+                return name, result, duration
+
+            # Execute in parallel with asyncio.gather
+            parallel_results = await asyncio.gather(
+                *[_run_sub(name, sub_tasks[i]) for i, name in enumerate(agent_names)],
+                return_exceptions=True,
+            )
+
+            # Collect results
+            agent_outputs: dict[str, str] = {}
+            contributing_agents = []
+            for res in parallel_results:
+                if isinstance(res, Exception):
+                    logger.error("parallel.agent.error", error=str(res))
+                    continue
+                name, output, duration = res
+                agent_outputs[name] = output
+                contributing_agents.append(name)
+
+            # Synthesize if multiple agents responded
+            if len(agent_outputs) > 1:
+                await _send_ws(websocket, {
+                    "type": "synthesis_start",
+                    "agents_completed": contributing_agents,
+                })
+                await _send_ws(websocket, {
+                    "type": "thinking",
+                    "agent": "orchestrator",
+                    "content": "Synthesizing results from all agents...",
+                    "phase": "synthesizing",
+                })
+
+                synthesis_prompt = "Synthesize the following agent outputs into a single, cohesive response for the user:\n\n"
+                for name, output in agent_outputs.items():
+                    synthesis_prompt += f"## {name.title()} Agent's Output:\n{output}\n\n"
+                synthesis_prompt += "Combine the above into a well-structured final response. Give credit to each agent's contribution."
+
+                final_response = await _run_agent_with_streaming(orchestrator, synthesis_prompt, "", websocket)
+                final_agent_name = "orchestrator"
+            elif agent_outputs:
+                name = list(agent_outputs.keys())[0]
+                final_response = agent_outputs[name]
+                final_agent_name = name
+            else:
+                final_response = orch_response
+                final_agent_name = "orchestrator"
+
+        elif delegate_match:
+            # ── Single agent delegation ──────────────────────────
             sub_agent_name = delegate_match.group(1).strip().lower()
             sub_task = delegate_match.group(2).strip()
+
+            sub_agent = _get_cached_agent(sub_agent_name)
+            if sub_agent:
+                await _send_ws(websocket, {
+                    "type": "delegation",
+                    "from": "orchestrator",
+                    "to": sub_agent_name,
+                    "reason": f"Delegated to specialist: {sub_agent_name}",
+                    "task": sub_task[:200],
+                })
+                await _send_ws(websocket, {
+                    "type": "agent_activated",
+                    "agent": sub_agent_name,
+                    "task": sub_task[:100],
+                })
+                await _send_ws(websocket, {
+                    "type": "thinking",
+                    "agent": sub_agent_name,
+                    "content": f"{sub_agent_name.title()} agent is working...",
+                    "phase": "executing",
+                })
+                await broadcast_event({
+                    "type": "activity",
+                    "agent": sub_agent_name.capitalize(),
+                    "action": f"Working on: {sub_task[:60]}",
+                    "time": "now",
+                })
+
+                agent_start = time.time()
+                sub_response = await _run_agent_with_streaming(sub_agent, sub_task, history, websocket)
+                agent_duration = int((time.time() - agent_start) * 1000)
+
+                await _send_ws(websocket, {
+                    "type": "agent_complete",
+                    "agent": sub_agent_name,
+                    "duration_ms": agent_duration,
+                    "summary": sub_response[:80] + "..." if len(sub_response) > 80 else sub_response,
+                })
+
+                final_agent_name = sub_agent_name
+                final_response = sub_response
+                contributing_agents = [sub_agent_name]
+            else:
+                final_agent_name = "orchestrator"
+                final_response = orch_response
+                contributing_agents = []
         else:
-            # Fallback: keyword-based intent detection on original user input
+            # ── Fallback: keyword-based intent detection ─────────
             sub_agent_name = _detect_intent(content) or ""
-            sub_task = content  # send original user request to sub-agent
+            sub_agent = _get_cached_agent(sub_agent_name) if sub_agent_name else None
 
-        sub_agent = _get_sub_agent(sub_agent_name) if sub_agent_name else None
+            if sub_agent:
+                await _send_ws(websocket, {
+                    "type": "delegation",
+                    "from": "orchestrator",
+                    "to": sub_agent_name,
+                    "reason": f"Auto-routed to {sub_agent_name} specialist",
+                    "task": content[:200],
+                })
+                await _send_ws(websocket, {
+                    "type": "agent_activated",
+                    "agent": sub_agent_name,
+                    "task": content[:100],
+                })
+                await _send_ws(websocket, {
+                    "type": "thinking",
+                    "agent": sub_agent_name,
+                    "content": f"{sub_agent_name.title()} agent is working...",
+                    "phase": "executing",
+                })
 
-        if sub_agent:
-            # Notify client — delegation happening
-            await websocket.send_json({
-                "type": "thinking",
-                "agent": sub_agent_name,
-                "content": f"{sub_agent_name.title()} agent is working...",
-            })
-            await broadcast_event({
-                "type": "activity",
-                "agent": sub_agent_name.capitalize(),
-                "action": f"Working on: {sub_task[:60]}",
-                "time": "now",
-            })
+                agent_start = time.time()
+                sub_response = await _run_agent_with_streaming(sub_agent, content, history, websocket)
+                agent_duration = int((time.time() - agent_start) * 1000)
 
-            # Run sub-agent with original user task + conversation context
-            sub_response = await _run_agent_with_streaming(sub_agent, sub_task, history, websocket)
-            final_agent_name = sub_agent_name
-            final_response = sub_response
-        else:
-            # Orchestrator handled it directly
-            final_agent_name = "orchestrator"
-            final_response = orch_response
+                await _send_ws(websocket, {
+                    "type": "agent_complete",
+                    "agent": sub_agent_name,
+                    "duration_ms": agent_duration,
+                    "summary": sub_response[:80] + "..." if len(sub_response) > 80 else sub_response,
+                })
+
+                final_agent_name = sub_agent_name
+                final_response = sub_response
+                contributing_agents = [sub_agent_name]
+            else:
+                final_agent_name = "orchestrator"
+                final_response = orch_response
+                contributing_agents = []
 
         # ── Step 3: Save and send final response ─────────────────
+        total_duration = int((time.time() - pipeline_start) * 1000)
+
         async with async_session_factory() as db:
             agent_msg = Message(
                 conversation_id=conversation_id,
@@ -271,17 +539,27 @@ async def _process_user_message(
 
             await db.commit()
 
-            await websocket.send_json({
+            # Pipeline complete event
+            await _send_ws(websocket, {
+                "type": "pipeline_complete",
+                "total_duration_ms": total_duration,
+                "agents_used": len(contributing_agents) + 1 if contributing_agents else 1,
+                "contributing_agents": contributing_agents if contributing_agents else [],
+            })
+
+            await _send_ws(websocket, {
                 "type": "response",
                 "agent": final_agent_name,
                 "content": final_response,
                 "message": agent_msg.to_dict(),
+                "contributing_agents": contributing_agents if contributing_agents else [],
+                "pipeline_duration_ms": total_duration,
             })
 
         await broadcast_event({
             "type": "activity",
             "agent": final_agent_name.capitalize(),
-            "action": "Completed task",
+            "action": f"Completed in {total_duration}ms",
             "time": "now",
         })
 
@@ -290,17 +568,17 @@ async def _process_user_message(
         logger.error("ws.process_error", error=err_str)
         try:
             if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
-                await websocket.send_json({
+                await _send_ws(websocket, {
                     "type": "error",
-                    "content": "⏳ Rate limit reached — your Gemini API free tier quota is temporarily exhausted. The system will auto-retry. Please wait ~30 seconds and try again.",
+                    "content": "⏳ Rate limit reached — your API quota is temporarily exhausted. Please wait ~30 seconds and try again.",
                 })
             elif "API_KEY_INVALID" in err_str or "API key not valid" in err_str:
-                await websocket.send_json({
+                await _send_ws(websocket, {
                     "type": "error",
-                    "content": "🔑 Invalid API key. Please check your GOOGLE_API_KEY in the .env file.",
+                    "content": "🔑 Invalid API key. Please check your API key in the .env file.",
                 })
             else:
-                await websocket.send_json({
+                await _send_ws(websocket, {
                     "type": "error",
                     "content": f"Error: {err_str[:300]}",
                 })
@@ -308,31 +586,7 @@ async def _process_user_message(
             pass
 
 
-# ── Sub-agent loader ──────────────────────────────────────
-
-def _get_sub_agent(name: str):
-    """Return a sub-agent instance by name. Returns None if unknown."""
-    name = name.lower().strip()
-    try:
-        if name == "research":
-            from app.agents.research import ResearchAgent
-            return ResearchAgent()
-        if name in ("coding", "code", "coder"):
-            from app.agents.coding import CodingAgent
-            return CodingAgent()
-        if name in ("writer", "write", "writing"):
-            from app.agents.writer import WriterAgent
-            return WriterAgent()
-        if name in ("critic", "review", "reviewer"):
-            from app.agents.critic import CriticAgent
-            return CriticAgent()
-        if name in ("data", "analyst", "data_analyst"):
-            from app.agents.data_analyst import DataAnalystAgent
-            return DataAnalystAgent()
-    except ImportError as e:
-        logger.warning("sub_agent.import_failed", name=name, error=str(e))
-    return None
-
+# ── Intent detection fallback ─────────────────────────────
 
 def _detect_intent(user_input: str) -> str | None:
     """Keyword-based intent detection — fallback when LLM doesn't emit DELEGATE format."""
@@ -407,7 +661,8 @@ async def _run_agent_with_streaming(agent, user_input: str, context: str, websoc
             messages.append(response)
 
             for call in response.tool_calls:
-                await websocket.send_json({
+                tool_start = time.time()
+                await _send_ws(websocket, {
                     "type": "tool_call",
                     "agent": agent.name,
                     "tool": call["name"],
@@ -430,12 +685,15 @@ async def _run_agent_with_streaming(agent, user_input: str, context: str, websoc
                 except Exception as exc:
                     result = f"Tool error: {exc}"
 
+                tool_duration = int((time.time() - tool_start) * 1000)
                 messages.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
 
-                await websocket.send_json({
+                await _send_ws(websocket, {
                     "type": "tool_result",
+                    "agent": agent.name,
                     "tool": call["name"],
                     "result": str(result)[:1000],
+                    "duration_ms": tool_duration,
                 })
         else:
             content = response.content if isinstance(response, AIMessage) else str(response)

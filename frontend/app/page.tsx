@@ -5,7 +5,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { AgentNetworkGraph } from "@/components/agents/AgentNetworkGraph";
+import { AgentPipeline } from "@/components/agents/AgentPipeline";
 import { ChatPanel } from "@/components/chat/ChatPanel";
+import type { PipelineAgent, DelegationEvent, ToolEvent } from "@/components/chat/ChatPanel";
 import { ChatHistory } from "@/components/chat/ChatHistory";
 import { SystemHealth } from "@/components/dashboard/SystemHealth";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
@@ -20,6 +22,14 @@ export default function Home() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [historyRefresh, setHistoryRefresh] = useState(0);
 
+  // Pipeline state — managed here, fed by ChatPanel, displayed by AgentPipeline
+  const [pipelineAgents, setPipelineAgents] = useState<PipelineAgent[]>([]);
+  const [pipelineDelegations, setPipelineDelegations] = useState<DelegationEvent[]>([]);
+  const [pipelineToolEvents, setPipelineToolEvents] = useState<ToolEvent[]>([]);
+  const [pipelineActive, setPipelineActive] = useState(false);
+  const [pipelineDurationMs, setPipelineDurationMs] = useState<number | undefined>(undefined);
+  const [pipelineTotalAgents, setPipelineTotalAgents] = useState<number | undefined>(undefined);
+
   const handleNewChat = useCallback(() => { setActiveConversationId(null); }, []);
   const handleConversationCreated = useCallback((id: string) => {
     setActiveConversationId(id);
@@ -31,13 +41,29 @@ export default function Home() {
     setMobileSidebarOpen(false);
   }, []);
 
+  const handlePipelineUpdate = useCallback((data: {
+    agents: PipelineAgent[];
+    delegations: DelegationEvent[];
+    toolEvents: ToolEvent[];
+    active: boolean;
+    durationMs?: number;
+    totalAgentsUsed?: number;
+  }) => {
+    setPipelineAgents(data.agents);
+    setPipelineDelegations(data.delegations);
+    setPipelineToolEvents(data.toolEvents);
+    setPipelineActive(data.active);
+    if (data.durationMs !== undefined) setPipelineDurationMs(data.durationMs);
+    if (data.totalAgentsUsed !== undefined) setPipelineTotalAgents(data.totalAgentsUsed);
+  }, []);
+
   return (
     <div className="flex h-screen w-screen overflow-hidden" style={{ backgroundColor: "var(--bg-base)" }}>
       {/* Mobile overlay */}
       {mobileSidebarOpen && (
         <div
           className="fixed inset-0 z-40 lg:hidden"
-          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          style={{ backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
           onClick={() => setMobileSidebarOpen(false)}
         />
       )}
@@ -54,6 +80,8 @@ export default function Home() {
           onNavigate={handleNavigate}
           collapsed={sidebarCollapsed}
           onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+          pipelineActive={pipelineActive}
+          activeAgentCount={pipelineAgents.filter(a => ["activated", "thinking", "tool_call"].includes(a.status)).length}
         />
       </div>
 
@@ -62,6 +90,8 @@ export default function Home() {
         <Header
           currentView={currentView}
           onMobileMenuToggle={() => setMobileSidebarOpen(!mobileSidebarOpen)}
+          pipelineActive={pipelineActive}
+          activeAgents={pipelineAgents.filter(a => ["activated", "thinking", "tool_call"].includes(a.status))}
         />
 
         <div className="flex-1 overflow-hidden">
@@ -113,7 +143,7 @@ export default function Home() {
               >
                 {/* Chat history sidebar */}
                 <div
-                  className="w-64 flex-shrink-0 hidden lg:flex lg:flex-col overflow-hidden"
+                  className="w-56 flex-shrink-0 hidden lg:flex lg:flex-col overflow-hidden"
                   style={{ borderRight: "1px solid var(--border-subtle)" }}
                 >
                   <ChatHistory
@@ -124,12 +154,27 @@ export default function Home() {
                   />
                 </div>
 
-                {/* Chat panel */}
+                {/* Chat panel — main area */}
                 <div className="flex-1 min-w-0 relative">
                   <ChatPanel
                     conversationId={activeConversationId}
                     onConversationCreated={handleConversationCreated}
                     onMessageSent={handleMessageSent}
+                    onPipelineUpdate={handlePipelineUpdate}
+                  />
+                </div>
+
+                {/* Agent Pipeline panel — right side */}
+                <div
+                  className="w-80 xl:w-96 flex-shrink-0 hidden lg:flex lg:flex-col overflow-hidden"
+                >
+                  <AgentPipeline
+                    agents={pipelineAgents}
+                    delegations={pipelineDelegations}
+                    toolEvents={pipelineToolEvents}
+                    pipelineActive={pipelineActive}
+                    pipelineDurationMs={pipelineDurationMs}
+                    totalAgentsUsed={pipelineTotalAgents}
                   />
                 </div>
               </motion.div>

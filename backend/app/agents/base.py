@@ -18,6 +18,11 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+# ── LLM instance cache ─────────────────────────────────────────────────────
+# Keyed by (provider, model, temperature) so agents reuse LLM connections
+# instead of creating new ones on every request.
+_llm_cache: dict[tuple[str, str, float], BaseChatModel] = {}
+
 
 def get_llm(
     provider: str | None = None,
@@ -27,10 +32,19 @@ def get_llm(
     """Create an LLM instance based on the configured provider.
 
     Tries providers in order: explicit arg → config default → whatever has a key.
+    Uses a module-level cache to avoid recreating LLM connections.
     """
     settings = get_settings()
     provider = provider or settings.default_model_provider
     model = model or settings.default_model
+
+    # ── Check cache first ─────────────────────────────────────────────────
+    cache_key = (provider, model, temperature)
+    if cache_key in _llm_cache:
+        logger.info("llm.cache_hit", provider=provider, model=model)
+        return _llm_cache[cache_key]
+
+    llm: BaseChatModel | None = None
 
     # ── HuggingFace (free tier via Serverless Inference API) ──────────────
     if provider == "huggingface" and settings.huggingface_api_key:
@@ -45,39 +59,39 @@ def get_llm(
                 huggingfacehub_api_token=settings.huggingface_api_key,
                 timeout=120,
             )
-            return ChatHuggingFace(llm=endpoint, verbose=False)
+            llm = ChatHuggingFace(llm=endpoint, verbose=False)
         except ImportError:
             raise RuntimeError(
                 "langchain-huggingface not installed. Run: pip install langchain-huggingface"
             )
 
-    if provider == "google" and settings.google_api_key:
+    if llm is None and provider == "google" and settings.google_api_key:
         from langchain_google_genai import ChatGoogleGenerativeAI
-        return ChatGoogleGenerativeAI(
+        llm = ChatGoogleGenerativeAI(
             model=model if "gemini" in model else "gemini-2.5-flash",
             google_api_key=settings.google_api_key,
             temperature=temperature,
             max_retries=3,
         )
 
-    if provider == "openai" and settings.openai_api_key:
+    if llm is None and provider == "openai" and settings.openai_api_key:
         from langchain_openai import ChatOpenAI
-        return ChatOpenAI(
+        llm = ChatOpenAI(
             model=model,
             api_key=settings.openai_api_key,
             temperature=temperature,
         )
 
-    if provider == "anthropic" and settings.anthropic_api_key:
+    if llm is None and provider == "anthropic" and settings.anthropic_api_key:
         from langchain_anthropic import ChatAnthropic
-        return ChatAnthropic(
+        llm = ChatAnthropic(
             model=model if "claude" in model else "claude-sonnet-4-20250514",
             api_key=settings.anthropic_api_key,
             temperature=temperature,
         )
 
     # ── Fallback: try any configured provider in order of preference ──────
-    if settings.huggingface_api_key:
+    if llm is None and settings.huggingface_api_key:
         try:
             from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
             import os
@@ -89,30 +103,36 @@ def get_llm(
                 huggingfacehub_api_token=settings.huggingface_api_key,
                 timeout=120,
             )
-            return ChatHuggingFace(llm=endpoint, verbose=False)
+            llm = ChatHuggingFace(llm=endpoint, verbose=False)
         except Exception:
             pass  # fall through to other providers
 
-    if settings.google_api_key:
+    if llm is None and settings.google_api_key:
         from langchain_google_genai import ChatGoogleGenerativeAI
-        return ChatGoogleGenerativeAI(
+        llm = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
             google_api_key=settings.google_api_key,
             temperature=temperature,
             max_retries=3,
         )
 
-    if settings.openai_api_key:
+    if llm is None and settings.openai_api_key:
         from langchain_openai import ChatOpenAI
-        return ChatOpenAI(model="gpt-4o-mini", api_key=settings.openai_api_key, temperature=temperature)
+        llm = ChatOpenAI(model="gpt-4o-mini", api_key=settings.openai_api_key, temperature=temperature)
 
-    if settings.anthropic_api_key:
+    if llm is None and settings.anthropic_api_key:
         from langchain_anthropic import ChatAnthropic
-        return ChatAnthropic(model="claude-sonnet-4-20250514", api_key=settings.anthropic_api_key, temperature=temperature)
+        llm = ChatAnthropic(model="claude-sonnet-4-20250514", api_key=settings.anthropic_api_key, temperature=temperature)
 
-    raise RuntimeError(
-        "No LLM API key configured. Set HUGGINGFACE_API_KEY, GOOGLE_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY in .env"
-    )
+    if llm is None:
+        raise RuntimeError(
+            "No LLM API key configured. Set HUGGINGFACE_API_KEY, GOOGLE_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY in .env"
+        )
+
+    # ── Store in cache ────────────────────────────────────────────────────
+    _llm_cache[cache_key] = llm
+    logger.info("llm.cached", provider=provider, model=model)
+    return llm
 
 
 async def _invoke_with_retry(llm, messages, max_retries=0):

@@ -1,12 +1,22 @@
 "use client";
 
+import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "@/lib/theme";
+import { agentMeta } from "@/components/agents/AgentCard";
 
 type View = "dashboard" | "agents" | "chat";
+
+interface ActiveAgent {
+  name: string;
+  status: string;
+  toolName?: string;
+}
 
 interface HeaderProps {
   currentView: View;
   onMobileMenuToggle?: () => void;
+  pipelineActive?: boolean;
+  activeAgents?: ActiveAgent[];
 }
 
 function SunIcon() {
@@ -26,16 +36,16 @@ function MoonIcon() {
   );
 }
 
-export function Header({ currentView, onMobileMenuToggle }: HeaderProps) {
+export function Header({ currentView, onMobileMenuToggle, pipelineActive, activeAgents = [] }: HeaderProps) {
   const { theme, toggle } = useTheme();
 
   return (
     <header
-      className="flex items-center justify-between px-4 md:px-6 h-14 flex-shrink-0"
+      className="flex items-center justify-between px-4 md:px-6 h-13 flex-shrink-0"
       style={{ backgroundColor: "var(--bg-base)", borderBottom: "1px solid var(--border-subtle)" }}
     >
-      {/* Mobile hamburger */}
-      <div className="flex items-center gap-2">
+      {/* Left: Mobile hamburger + Pipeline status */}
+      <div className="flex items-center gap-3">
         {onMobileMenuToggle && (
           <button
             onClick={onMobileMenuToggle}
@@ -48,6 +58,53 @@ export function Header({ currentView, onMobileMenuToggle }: HeaderProps) {
             </svg>
           </button>
         )}
+
+        {/* Live pipeline status */}
+        <AnimatePresence>
+          {pipelineActive && activeAgents.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, x: -12 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -12 }}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full"
+              style={{ backgroundColor: "var(--brand-dim)", border: "1px solid color-mix(in srgb, var(--brand) 15%, transparent)" }}
+            >
+              <div
+                className="w-2 h-2 rounded-full"
+                style={{ backgroundColor: "var(--brand)", animation: "pulse 1.5s ease-in-out infinite" }}
+              />
+              <div className="flex items-center gap-1.5">
+                {activeAgents.slice(0, 3).map((agent) => {
+                  const meta = agentMeta[agent.name?.toLowerCase()];
+                  return (
+                    <motion.div
+                      key={agent.name}
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      className="flex items-center gap-1"
+                    >
+                      <div
+                        className="w-5 h-5 rounded-md flex items-center justify-center"
+                        style={{
+                          backgroundColor: `color-mix(in srgb, ${meta?.color || "var(--brand)"} 25%, transparent)`,
+                          fontSize: "10px",
+                        }}
+                      >
+                        {meta?.icon || "🤖"}
+                      </div>
+                      <span className="text-[10px] font-medium hidden md:inline" style={{ color: meta?.color || "var(--brand-text)" }}>
+                        {agent.toolName ? `${meta?.label || agent.name} → ${agent.toolName}` : meta?.label || agent.name}
+                      </span>
+                    </motion.div>
+                  );
+                })}
+              </div>
+              <span className="text-[10px] font-medium" style={{ color: "var(--brand-text)" }}>
+                {activeAgents.length} agent{activeAgents.length !== 1 ? "s" : ""} active
+              </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Right side */}
@@ -55,7 +112,7 @@ export function Header({ currentView, onMobileMenuToggle }: HeaderProps) {
         {/* System Online badge */}
         <div
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border hidden sm:flex"
-          style={{ backgroundColor: "var(--green-dim)", borderColor: "rgba(52,168,83,0.2)" }}
+          style={{ backgroundColor: "var(--green-dim)", borderColor: "color-mix(in srgb, var(--green) 20%, transparent)" }}
         >
           <span className="status-dot status-dot--ok" style={{ width: 6, height: 6 }} />
           <span className="text-xs font-medium" style={{ color: "var(--green)" }}>System Online</span>
@@ -72,7 +129,7 @@ export function Header({ currentView, onMobileMenuToggle }: HeaderProps) {
         </button>
 
         {/* Avatar */}
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#4285f4] to-[#8b5cf6] flex items-center justify-center text-white text-xs font-bold">
+        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#6366f1] to-[#a855f7] flex items-center justify-center text-white text-xs font-bold">
           U
         </div>
       </div>

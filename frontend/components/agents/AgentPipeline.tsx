@@ -1,0 +1,306 @@
+"use client";
+
+import { motion, AnimatePresence } from "framer-motion";
+import { AgentCard, agentMeta } from "./AgentCard";
+
+type AgentStatus = "idle" | "activated" | "thinking" | "tool_call" | "complete" | "error";
+
+interface PipelineAgent {
+  name: string;
+  status: AgentStatus;
+  task?: string;
+  phase?: string;
+  toolName?: string;
+  toolArgs?: Record<string, string>;
+  durationMs?: number;
+  summary?: string;
+  startTime?: number;
+}
+
+interface DelegationEvent {
+  from: string;
+  to: string;
+  reason: string;
+  timestamp: number;
+}
+
+interface ToolEvent {
+  agent: string;
+  tool: string;
+  status: "calling" | "done";
+  durationMs?: number;
+  result?: string;
+  timestamp: number;
+}
+
+interface AgentPipelineProps {
+  agents: PipelineAgent[];
+  delegations: DelegationEvent[];
+  toolEvents: ToolEvent[];
+  pipelineActive: boolean;
+  pipelineDurationMs?: number;
+  totalAgentsUsed?: number;
+}
+
+const toolIcons: Record<string, string> = {
+  web_search: "🔍",
+  open_url: "🌐",
+  execute_python: "⚡",
+  calculate: "🧮",
+  get_current_time: "🕐",
+  read_file: "📄",
+  write_file: "✍️",
+};
+
+export function AgentPipeline({
+  agents,
+  delegations,
+  toolEvents,
+  pipelineActive,
+  pipelineDurationMs,
+  totalAgentsUsed,
+}: AgentPipelineProps) {
+  const hasActivity = agents.length > 0 || pipelineActive;
+
+  return (
+    <div className="pipeline-container h-full flex flex-col">
+      {/* Header */}
+      <div
+        className="flex items-center justify-between px-4 py-3 flex-shrink-0"
+        style={{ borderBottom: "1px solid var(--border-subtle)" }}
+      >
+        <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-1.5">
+            <div
+              className="w-2 h-2 rounded-full"
+              style={{
+                backgroundColor: pipelineActive ? "var(--green)" : "var(--text-faint)",
+                boxShadow: pipelineActive ? "0 0 8px var(--green)" : "none",
+                animation: pipelineActive ? "pulse 1.5s ease-in-out infinite" : "none",
+              }}
+            />
+            <span
+              className="text-xs font-semibold uppercase tracking-wider"
+              style={{ color: pipelineActive ? "var(--green)" : "var(--text-faint)" }}
+            >
+              {pipelineActive ? "Pipeline Active" : "Pipeline Idle"}
+            </span>
+          </div>
+        </div>
+
+        {pipelineDurationMs !== undefined && !pipelineActive && (
+          <div className="flex items-center gap-2 text-[10px]" style={{ color: "var(--text-faint)" }}>
+            <span>{totalAgentsUsed || 0} agents</span>
+            <span>·</span>
+            <span className="font-mono">{(pipelineDurationMs / 1000).toFixed(1)}s</span>
+          </div>
+        )}
+      </div>
+
+      {/* Pipeline content */}
+      <div className="flex-1 overflow-y-auto px-4 py-4">
+        <AnimatePresence mode="sync">
+          {!hasActivity ? (
+            /* Idle state — show agent roster */
+            <motion.div
+              key="idle"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex flex-col items-center justify-center h-full text-center px-4"
+            >
+              <div className="mb-6">
+                <div
+                  className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center"
+                  style={{
+                    background: "linear-gradient(135deg, var(--brand) 0%, var(--agent-data) 100%)",
+                    opacity: 0.15,
+                  }}
+                >
+                  <span className="text-2xl" style={{ filter: "brightness(3)" }}>⚡</span>
+                </div>
+                <h3 className="text-sm font-semibold mb-1" style={{ color: "var(--text-primary)" }}>
+                  Agent Orchestration
+                </h3>
+                <p className="text-xs max-w-[200px] mx-auto" style={{ color: "var(--text-muted)" }}>
+                  Send a message to see your AI agents collaborate in real-time
+                </p>
+              </div>
+
+              {/* Agent roster */}
+              <div className="w-full space-y-2">
+                {Object.entries(agentMeta).slice(0, 6).map(([key, meta], i) => (
+                  <motion.div
+                    key={key}
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.06 }}
+                    className="flex items-center gap-3 px-3 py-2 rounded-xl"
+                    style={{ backgroundColor: "var(--bg-raised)" }}
+                  >
+                    <div
+                      className="agent-avatar agent-avatar--sm"
+                      style={{
+                        backgroundColor: `color-mix(in srgb, ${meta.color} 20%, var(--bg-panel))`,
+                        border: `1px solid color-mix(in srgb, ${meta.color} 25%, transparent)`,
+                      }}
+                    >
+                      <span style={{ fontSize: "10px" }}>{meta.icon}</span>
+                    </div>
+                    <div className="flex-1 text-left">
+                      <div className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+                        {meta.label}
+                      </div>
+                      <div className="text-[10px]" style={{ color: "var(--text-faint)" }}>
+                        {meta.role}
+                      </div>
+                    </div>
+                    <div
+                      className="w-1.5 h-1.5 rounded-full"
+                      style={{ backgroundColor: "var(--text-faint)", opacity: 0.5 }}
+                    />
+                  </motion.div>
+                ))}
+              </div>
+            </motion.div>
+          ) : (
+            /* Active pipeline — timeline view */
+            <motion.div
+              key="active"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="space-y-3"
+            >
+              {/* Pipeline nodes */}
+              {agents.map((agent, i) => {
+                const meta = agentMeta[agent.name.toLowerCase()];
+                const isActive = agent.status === "activated" || agent.status === "thinking" || agent.status === "tool_call";
+                const isComplete = agent.status === "complete";
+
+                // Find delegation for this agent
+                const delegation = delegations.find(d => d.to === agent.name);
+
+                // Find tool events for this agent
+                const agentTools = toolEvents.filter(t => t.agent === agent.name);
+
+                return (
+                  <motion.div
+                    key={agent.name}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.08, duration: 0.3 }}
+                    className={`pipeline-node ${isActive ? "pipeline-node--active" : ""}`}
+                    style={{ "--agent-color": meta?.color || "var(--brand)" } as React.CSSProperties}
+                  >
+                    {/* Timeline dot */}
+                    <div
+                      className={`pipeline-dot ${isActive ? "pipeline-dot--active" : ""} ${isComplete ? "pipeline-dot--complete" : ""}`}
+                      style={{ "--agent-color": meta?.color || "var(--brand)" } as React.CSSProperties}
+                    >
+                      {isActive && (
+                        <div
+                          className="w-1.5 h-1.5 rounded-full"
+                          style={{ backgroundColor: meta?.color || "var(--brand)" }}
+                        />
+                      )}
+                    </div>
+
+                    {/* Delegation label */}
+                    {delegation && (
+                      <motion.div
+                        initial={{ opacity: 0, x: -6 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className="text-[10px] mb-1.5 flex items-center gap-1"
+                        style={{ color: "var(--text-faint)" }}
+                      >
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                          <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                        <span>{delegation.reason}</span>
+                      </motion.div>
+                    )}
+
+                    {/* Agent card */}
+                    <AgentCard
+                      name={agent.name}
+                      status={agent.status}
+                      task={agent.task}
+                      phase={agent.phase}
+                      toolName={agent.toolName}
+                      toolArgs={agent.toolArgs}
+                      durationMs={agent.durationMs}
+                      summary={agent.summary}
+                      startTime={agent.startTime}
+                    />
+
+                    {/* Tool events timeline */}
+                    {agentTools.length > 0 && (
+                      <div className="ml-4 mt-2 space-y-1.5">
+                        {agentTools.map((tool, j) => (
+                          <motion.div
+                            key={`${tool.tool}-${j}`}
+                            initial={{ opacity: 0, x: -4 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: j * 0.05 }}
+                            className={`tool-pill ${tool.status === "calling" ? "tool-pill--active" : ""}`}
+                          >
+                            <span>{toolIcons[tool.tool] || "🔧"}</span>
+                            <span>{tool.tool}</span>
+                            {tool.status === "calling" ? (
+                              <div
+                                className="w-3 h-3 border-[1.5px] rounded-full"
+                                style={{
+                                  borderColor: "var(--brand-dim)",
+                                  borderTopColor: "var(--brand)",
+                                  animation: "spinSlow 0.8s linear infinite",
+                                }}
+                              />
+                            ) : tool.durationMs !== undefined ? (
+                              <span className="text-[10px] font-mono" style={{ color: "var(--text-faint)" }}>
+                                {(tool.durationMs / 1000).toFixed(1)}s
+                              </span>
+                            ) : (
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                                <path d="M20 6L9 17l-5-5" stroke="var(--green)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                              </svg>
+                            )}
+                          </motion.div>
+                        ))}
+                      </div>
+                    )}
+                  </motion.div>
+                );
+              })}
+
+              {/* Pipeline complete summary */}
+              {!pipelineActive && pipelineDurationMs !== undefined && agents.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mt-4 px-4 py-3 rounded-xl text-center"
+                  style={{
+                    backgroundColor: "var(--green-dim)",
+                    border: "1px solid color-mix(in srgb, var(--green) 20%, transparent)",
+                  }}
+                >
+                  <div className="flex items-center justify-center gap-2 mb-1">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                      <path d="M20 6L9 17l-5-5" stroke="var(--green)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                    <span className="text-xs font-semibold" style={{ color: "var(--green)" }}>
+                      Pipeline Complete
+                    </span>
+                  </div>
+                  <div className="text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>
+                    {totalAgentsUsed || agents.length} agents · {(pipelineDurationMs / 1000).toFixed(1)}s total
+                  </div>
+                </motion.div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}

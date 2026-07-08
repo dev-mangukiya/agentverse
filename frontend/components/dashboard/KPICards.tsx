@@ -16,7 +16,7 @@ const kpiConfig = [
   {
     key: "conversations",
     label: "Total Chats",
-    color: "from-[#4285f4] to-[#1a73e8]",
+    color: "from-[#6366f1] to-[#4f46e5]",
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
         <path d="M12 3C6.477 3 2 6.925 2 11.75c0 2.278.98 4.35 2.59 5.88L3 21l4.5-1.45A10.3 10.3 0 0 0 12 20.5c5.523 0 10-3.925 10-8.75S17.523 3 12 3Z" stroke="white" strokeWidth="1.5"/>
@@ -28,7 +28,7 @@ const kpiConfig = [
   {
     key: "messages",
     label: "Messages Sent",
-    color: "from-[#34a853] to-[#1e8e3e]",
+    color: "from-[#10b981] to-[#059669]",
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="white" strokeWidth="1.5" strokeLinejoin="round"/>
@@ -43,7 +43,7 @@ const kpiConfig = [
   {
     key: "agent_responses",
     label: "Agent Responses",
-    color: "from-[#8b5cf6] to-[#7c3aed]",
+    color: "from-[#a855f7] to-[#9333ea]",
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
         <circle cx="12" cy="8" r="3.5" stroke="white" strokeWidth="1.5"/>
@@ -56,7 +56,7 @@ const kpiConfig = [
   {
     key: "uptime",
     label: "Uptime",
-    color: "from-[#fbbc04] to-[#f29900]",
+    color: "from-[#f59e0b] to-[#d97706]",
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
         <circle cx="12" cy="12" r="9" stroke="white" strokeWidth="1.5"/>
@@ -64,7 +64,7 @@ const kpiConfig = [
       </svg>
     ),
     getValue: (s: Stats) => s.uptime,
-    getSubtext: (s: Stats) => `${s.llm.provider} · ${s.llm.model}`,
+    getSubtext: (s: Stats) => `${s.llm.provider} · ${s.llm.model.split('/').pop()?.slice(0, 20) || s.llm.model}`,
   },
 ];
 
@@ -99,7 +99,7 @@ export function KPICards() {
           className="glass-panel p-5 group hover:border-white/[0.1] transition-all duration-300"
         >
           <div className="flex items-start justify-between mb-3">
-            <span className="text-xs font-medium text-[#9aa0a6] uppercase tracking-wider">
+            <span className="text-xs font-medium uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
               {kpi.label}
             </span>
             <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${kpi.color} flex items-center justify-center opacity-80 group-hover:opacity-100 transition-opacity`}>
@@ -113,8 +113,8 @@ export function KPICards() {
             </>
           ) : (
             <>
-              <div className="text-2xl font-bold text-[#e8eaed] mb-1">{kpi.getValue(stats)}</div>
-              <div className="text-xs text-[#9aa0a6]">{kpi.getSubtext(stats)}</div>
+              <div className="text-2xl font-bold mb-1" style={{ color: "var(--text-primary)" }}>{kpi.getValue(stats)}</div>
+              <div className="text-xs" style={{ color: "var(--text-muted)" }}>{kpi.getSubtext(stats)}</div>
             </>
           )}
         </motion.div>

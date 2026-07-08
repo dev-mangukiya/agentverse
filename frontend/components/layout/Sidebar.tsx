@@ -10,6 +10,8 @@ interface SidebarProps {
   onNavigate: (view: View) => void;
   collapsed: boolean;
   onToggle: () => void;
+  pipelineActive?: boolean;
+  activeAgentCount?: number;
 }
 
 const navItems: { id: View; label: string; icon: React.ReactNode }[] = [
@@ -48,7 +50,7 @@ const navItems: { id: View; label: string; icon: React.ReactNode }[] = [
   },
 ];
 
-export function Sidebar({ currentView, onNavigate, collapsed, onToggle }: SidebarProps) {
+export function Sidebar({ currentView, onNavigate, collapsed, onToggle, pipelineActive, activeAgentCount = 0 }: SidebarProps) {
   return (
     <motion.aside
       animate={{ width: collapsed ? 68 : 260 }}
@@ -58,7 +60,13 @@ export function Sidebar({ currentView, onNavigate, collapsed, onToggle }: Sideba
     >
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 h-16 flex-shrink-0">
-        <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-[#4285f4] to-[#8b5cf6] flex items-center justify-center text-white font-bold text-sm flex-shrink-0 shadow-lg">
+        <div
+          className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
+          style={{
+            background: "linear-gradient(135deg, #6366f1 0%, #a855f7 100%)",
+            boxShadow: "0 4px 12px rgba(99,102,241,0.3)",
+          }}
+        >
           A
         </div>
         {!collapsed && (
@@ -68,7 +76,7 @@ export function Sidebar({ currentView, onNavigate, collapsed, onToggle }: Sideba
             transition={{ duration: 0.2 }}
           >
             <div className="font-semibold text-base tracking-tight" style={{ color: "var(--text-primary)" }}>AgentVerse</div>
-            <div className="text-[10px]" style={{ color: "var(--text-faint)" }}>AI Workforce</div>
+            <div className="text-[10px]" style={{ color: "var(--text-faint)" }}>Multi-Agent Platform</div>
           </motion.div>
         )}
       </div>
@@ -77,24 +85,82 @@ export function Sidebar({ currentView, onNavigate, collapsed, onToggle }: Sideba
       <nav className="flex-1 px-3 py-2 space-y-0.5">
         {navItems.map((item) => {
           const isActive = currentView === item.id;
+          const showBadge = item.id === "agents" && activeAgentCount > 0;
           return (
             <button
               key={item.id}
               onClick={() => onNavigate(item.id)}
-              className={clsx("nav-item", isActive && "nav-item--active")}
+              className={clsx("nav-item relative", isActive && "nav-item--active")}
             >
-              <span className="flex-shrink-0" style={{ color: isActive ? "var(--brand-text)" : "var(--text-muted)" }}>
+              <span className="flex-shrink-0 relative" style={{ color: isActive ? "var(--brand-text)" : "var(--text-muted)" }}>
                 {item.icon}
+                {/* Activity dot for agents nav */}
+                {showBadge && (
+                  <span
+                    className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full"
+                    style={{
+                      backgroundColor: "var(--brand)",
+                      boxShadow: "0 0 6px var(--brand)",
+                      animation: "pulse 1.5s ease-in-out infinite",
+                    }}
+                  />
+                )}
               </span>
               {!collapsed && (
-                <span className="text-sm" style={{ color: isActive ? "var(--brand-text)" : "var(--text-secondary)", fontWeight: isActive ? 500 : 400 }}>
+                <span
+                  className="text-sm flex-1"
+                  style={{ color: isActive ? "var(--brand-text)" : "var(--text-secondary)", fontWeight: isActive ? 500 : 400 }}
+                >
                   {item.label}
                 </span>
+              )}
+              {/* Agent count badge */}
+              {!collapsed && showBadge && (
+                <motion.span
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                  style={{
+                    backgroundColor: "var(--brand-dim)",
+                    color: "var(--brand-text)",
+                  }}
+                >
+                  {activeAgentCount}
+                </motion.span>
               )}
             </button>
           );
         })}
       </nav>
+
+      {/* Pipeline status indicator */}
+      {!collapsed && pipelineActive && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mx-3 mb-3 px-3 py-2.5 rounded-xl"
+          style={{
+            backgroundColor: "var(--brand-dim)",
+            border: "1px solid color-mix(in srgb, var(--brand) 15%, transparent)",
+          }}
+        >
+          <div className="flex items-center gap-2 mb-1">
+            <div
+              className="w-2 h-2 rounded-full"
+              style={{
+                backgroundColor: "var(--brand)",
+                animation: "pulse 1.5s ease-in-out infinite",
+              }}
+            />
+            <span className="text-[11px] font-semibold" style={{ color: "var(--brand-text)" }}>
+              Pipeline Active
+            </span>
+          </div>
+          <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+            {activeAgentCount} agent{activeAgentCount !== 1 ? "s" : ""} working...
+          </div>
+        </motion.div>
+      )}
 
       {/* Collapse toggle */}
       <div className="px-3 pb-4 flex-shrink-0">

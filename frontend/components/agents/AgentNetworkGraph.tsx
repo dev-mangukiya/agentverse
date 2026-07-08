@@ -45,6 +45,18 @@ const agentIcons: Record<string, string> = {
   memory: "🧩",
 };
 
+// Frontend fallback positions — well-spaced circular layout
+const FALLBACK_POSITIONS: Record<string, { x: number; y: number }> = {
+  orchestrator:  { x: 42, y: 52 },
+  research:      { x: 15, y: 20 },
+  memory:        { x: 48, y: 14 },
+  data:          { x: 80, y: 20 },
+  data_analyst:  { x: 80, y: 50 },
+  coding:        { x: 15, y: 75 },
+  writer:        { x: 80, y: 78 },
+  critic:        { x: 48, y: 82 },
+};
+
 export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
   const [agents, setAgents] = useState<AgentNode[]>([]);
   const [edges, setEdges] = useState<AgentEdge[]>([]);
@@ -57,7 +69,19 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
         const res = await fetch(`${API_URL}/api/v1/stats/agents`);
         if (res.ok) {
           const data = await res.json();
-          setAgents(data.agents || []);
+          // Apply fallback positions if backend returns cramped/default positions
+          const fixedAgents = (data.agents || []).map((agent: AgentNode) => {
+            const fallback = FALLBACK_POSITIONS[agent.id];
+            if (fallback) {
+              return { ...agent, x: fallback.x, y: fallback.y };
+            }
+            return agent;
+          });
+          // Fix labels: replace underscores with spaces
+          fixedAgents.forEach((agent: AgentNode) => {
+            agent.label = agent.label.replace(/_/g, " ");
+          });
+          setAgents(fixedAgents);
           setEdges(data.edges || []);
         }
       } catch {
@@ -99,7 +123,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
       </div>
 
       {/* Graph */}
-      <div className="flex-1 relative px-6 pt-4 pb-8">
+      <div className="flex-1 relative px-8 pt-4 pb-10">
         {loading ? (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: "var(--brand-dim)", borderTopColor: "var(--brand)" }} />
@@ -189,10 +213,10 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                   />
 
                   {/* Label below */}
-                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 whitespace-nowrap text-center pointer-events-none">
-                    <div className="text-[10px] font-medium" style={{ color: "var(--text-secondary)" }}>{agent.label}</div>
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 whitespace-nowrap text-center pointer-events-none">
+                    <div className="text-[10px] font-medium leading-tight" style={{ color: "var(--text-secondary)" }}>{agent.label}</div>
                     {agent.message_count > 0 && (
-                      <div className="text-[9px]" style={{ color: "var(--text-faint)" }}>{agent.message_count} msgs</div>
+                      <div className="text-[9px] mt-0.5" style={{ color: "var(--text-faint)" }}>{agent.message_count} msgs</div>
                     )}
                   </div>
                 </motion.div>

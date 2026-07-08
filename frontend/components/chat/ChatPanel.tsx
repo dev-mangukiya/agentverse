@@ -194,9 +194,17 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       pingInterval = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "ping" }));
       }, 30000);
+      
+      // Fix for React Strict Mode:
+      // If we have a pending message, wait a tiny bit to ensure this is the final connection
+      // before sending it, to avoid the backend dropping the task when the first WS closes.
       if (pendingMessageRef.current) {
-        ws.send(JSON.stringify({ type: "message", content: pendingMessageRef.current }));
-        pendingMessageRef.current = null;
+        setTimeout(() => {
+          if (wsRef.current === ws && ws.readyState === WebSocket.OPEN && pendingMessageRef.current) {
+            ws.send(JSON.stringify({ type: "message", content: pendingMessageRef.current }));
+            pendingMessageRef.current = null;
+          }
+        }, 300);
       }
     };
 

@@ -567,15 +567,20 @@ async def _process_user_message(
         err_str = str(exc)
         logger.error("ws.process_error", error=err_str)
         try:
-            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
+            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower() or "rate limit" in err_str.lower():
                 await _send_ws(websocket, {
                     "type": "error",
-                    "content": "⏳ Rate limit reached — your API quota is temporarily exhausted. Please wait ~30 seconds and try again.",
+                    "content": "⏳ Both primary and fallback APIs are temporarily rate-limited. Please wait ~30 seconds and try again.",
+                })
+            elif "Fallback LLM" in err_str and "timed out" in err_str:
+                await _send_ws(websocket, {
+                    "type": "error",
+                    "content": "⏳ Fallback model (HuggingFace) timed out. The model may be cold-starting — please try again in a moment.",
                 })
             elif "API_KEY_INVALID" in err_str or "API key not valid" in err_str:
                 await _send_ws(websocket, {
                     "type": "error",
-                    "content": "🔑 Invalid API key. Please check your API key in the .env file.",
+                    "content": "🔑 Invalid API key. Please check your API key configuration.",
                 })
             else:
                 await _send_ws(websocket, {

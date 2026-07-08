@@ -237,15 +237,38 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
   return (
     <div className="flex flex-col h-full bg-[#0d0d0d]">
-      {/* Connection status — tiny pill at top right, only shows when disconnected */}
-      {!wsConnected && conversationId && (
-        <div className="absolute top-3 right-4 z-10">
-          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#ea4335]/10 border border-[#ea4335]/20">
-            <span className="status-dot status-dot--error" style={{width:6, height:6}} />
-            <span className="text-[10px] text-[#ea4335]">Reconnecting…</span>
+      {/* Persistent top bar with agent name + connection status */}
+      <div className="flex items-center justify-between px-5 h-12 flex-shrink-0 border-b border-white/[0.04]">
+        <div className="flex items-center gap-2.5">
+          <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#4285f4] to-[#8b5cf6] flex items-center justify-center text-white text-[10px] font-bold">
+            A
           </div>
+          <span className="text-sm font-medium text-[#c4c7c5]">AgentVerse</span>
+          <span className="text-xs text-[#5f6368]">·</span>
+          <span className="text-xs text-[#5f6368]">Multi-agent AI workforce</span>
         </div>
-      )}
+
+        {/* Connection status */}
+        {conversationId ? (
+          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all duration-300 ${
+            wsConnected
+              ? "bg-[#34a853]/10 text-[#34a853]"
+              : "bg-[#ea4335]/10 text-[#ea4335]"
+          }`}>
+            <span
+              className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                wsConnected ? "bg-[#34a853]" : "bg-[#ea4335] animate-pulse"
+              }`}
+            />
+            {wsConnected ? "Connected" : "Reconnecting…"}
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-[#9aa0a6]/10 text-[#9aa0a6]">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#9aa0a6] flex-shrink-0" />
+            Idle
+          </div>
+        )}
+      </div>
 
       {/* Messages area */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">

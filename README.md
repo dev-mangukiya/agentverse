@@ -168,6 +168,9 @@ We build in phases to ensure no phase depends on stubbed-out code from a later p
 
 ---
 
-## 📜 License
+## 📜 License & Contact
 
 MIT — Use freely for your own portfolio.
+
+**Author**: Dev Mangukiya  
+**LinkedIn**: [linkedin.com/in/devmangukiya](https://www.linkedin.com/in/devmangukiya/)

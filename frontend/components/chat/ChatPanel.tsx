@@ -99,6 +99,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const thinkingAgentRef = useRef("");
   const pendingMessageRef = useRef<string | null>(null);
   const skipNextLoadRef = useRef(false);
 
@@ -237,6 +238,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         case "thinking":
           setIsThinking(true);
           setThinkingAgent(data.agent || "orchestrator");
+          thinkingAgentRef.current = data.agent || "orchestrator";
           setThinkingPhase(data.phase || "");
           updateAgent(data.agent || "orchestrator", {
             status: "thinking",
@@ -247,14 +249,14 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
         case "tool_call":
           setToolActivity({ tool: data.tool, status: "calling", agent: data.agent, args: data.args });
-          updateAgent(data.agent || thinkingAgent, {
+          updateAgent(data.agent || thinkingAgentRef.current, {
             status: "tool_call",
             toolName: data.tool,
             toolArgs: data.args,
           });
           toolEventsRef.current = [
             ...toolEventsRef.current,
-            { agent: data.agent || thinkingAgent, tool: data.tool, status: "calling", timestamp: Date.now() },
+            { agent: data.agent || thinkingAgentRef.current, tool: data.tool, status: "calling", timestamp: Date.now() },
           ];
           emitPipeline(true);
           break;
@@ -280,7 +282,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             };
           }
           // Set agent back to thinking
-          updateAgent(data.agent || thinkingAgent, {
+          updateAgent(data.agent || thinkingAgentRef.current, {
             status: "thinking",
             toolName: undefined,
             toolArgs: undefined,
@@ -310,6 +312,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
           setIsThinking(false);
           setToolActivity(null);
           setThinkingAgent("");
+          thinkingAgentRef.current = "";
           setThinkingPhase("");
           emitPipeline(false, data.total_duration_ms, data.agents_used);
           break;
@@ -318,6 +321,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
           setIsThinking(false);
           setToolActivity(null);
           setThinkingAgent("");
+          thinkingAgentRef.current = "";
           setThinkingPhase("");
           if (data.message) {
             setMessages((prev) => [...prev, {
@@ -369,7 +373,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       if (wsRef.current !== ws) return;
       setWsConnected(false);
     };
-  }, [onMessageSent, emitPipeline, resetPipeline, updateAgent, thinkingAgent]);
+  }, [onMessageSent, emitPipeline, resetPipeline, updateAgent]);
 
   // Connect/disconnect on conversation change
   useEffect(() => {

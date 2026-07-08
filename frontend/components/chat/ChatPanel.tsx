@@ -196,16 +196,12 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "ping" }));
       }, 30000);
       
-      // Fix for React Strict Mode:
-      // If we have a pending message, wait a tiny bit to ensure this is the final connection
-      // before sending it, to avoid the backend dropping the task when the first WS closes.
+      // Send any pending message immediately.
+      // The wsRef.current === ws guard above ensures only the latest
+      // (final) WebSocket connection will reach this point.
       if (pendingMessageRef.current) {
-        setTimeout(() => {
-          if (wsRef.current === ws && ws.readyState === WebSocket.OPEN && pendingMessageRef.current) {
-            ws.send(JSON.stringify({ type: "message", content: pendingMessageRef.current }));
-            pendingMessageRef.current = null;
-          }
-        }, 300);
+        ws.send(JSON.stringify({ type: "message", content: pendingMessageRef.current }));
+        pendingMessageRef.current = null;
       }
     };
 
@@ -384,11 +380,11 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       if (wsRef.current) { const old = wsRef.current; wsRef.current = null; old.close(); }
       setWsConnected(false);
     }
-    return () => {
-      if (reconnectTimeoutRef.current) { clearTimeout(reconnectTimeoutRef.current); reconnectTimeoutRef.current = null; }
-      if (wsRef.current) { const old = wsRef.current; wsRef.current = null; old.close(); }
-    };
-  }, [conversationId, connectWs]);
+    // Only clean up on true unmount, not on every re-render.
+    // connectWs() already closes the previous WS at the start of each call,
+    // so we don't need the cleanup to do it (which was causing race conditions).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId]);
 
   const handleSend = async (text?: string) => {
     const content = (text || input).trim();

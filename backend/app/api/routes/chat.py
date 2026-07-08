@@ -663,8 +663,10 @@ async def _run_agent_with_streaming(agent, user_input: str, context: str, websoc
     messages = [SystemMessage(content=agent._build_system_prompt(context))]
     messages.append(HumanMessage(content=user_input))
 
+    llm = agent._get_fresh_llm()
+
     for _ in range(5):  # max 5 tool rounds
-        response = await _invoke_with_retry(agent.llm_with_tools, messages)
+        response = await _invoke_with_retry(llm, messages)
 
         if hasattr(response, "tool_calls") and response.tool_calls:
             messages.append(response)

@@ -124,6 +124,14 @@ This repo is being built in 8 phases (see `docs/PHASES.md`):
 7. Real-time visualization (WebSocket streaming of agent state)
 8. Testing & deployment (integration tests, CI, Docker production build)
 
+## Recent Updates
+
+### LLM Orchestration & Fallback Fixes
+- **Robust Key Rotation**: Implemented a per-request round-robin API key manager that distributes load across multiple Google Gemini API keys to avoid quota exhaustion on free tiers.
+- **Automatic Fallback Pipeline**: If a key hits a `429 Too Many Requests` limit, the system gracefully traps the error, places the key in a 60-second cooldown, and immediately retries the prompt with the next available key. If all Google keys are exhausted, the system automatically falls back to a HuggingFace inference endpoint (`Qwen/Qwen2.5-Coder-32B-Instruct`).
+- **LangChain SecretStr Bug Fix**: Fixed a critical crash where LangChain's Pydantic `SecretStr` object was breaking the cooldown dictionary lookup during rate limit handling, ensuring smooth error recovery.
+- **Agent Caching Fix**: Modified the BaseAgent so it requests a fresh LLM instance on every `run()` call, ensuring that API key rotation properly propagates to long-lived agent instances.
+
 ## License
 
 MIT — use freely for your own portfolio.

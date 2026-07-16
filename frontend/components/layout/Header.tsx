@@ -1,7 +1,6 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { useTheme } from "@/lib/theme";
 import { agentMeta } from "@/components/agents/AgentCard";
 
 type View = "dashboard" | "agents" | "chat";
@@ -28,16 +27,7 @@ function SunIcon() {
   );
 }
 
-function MoonIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>
-  );
-}
-
 export function Header({ currentView, onMobileMenuToggle, pipelineActive, activeAgents = [] }: HeaderProps) {
-  const { theme, toggle } = useTheme();
 
   return (
     <header
@@ -149,22 +139,7 @@ export function Header({ currentView, onMobileMenuToggle, pipelineActive, active
             <span className="text-xs font-medium" style={{ color: "var(--green)" }}>System Online</span>
           </div>
 
-          {/* Theme toggle */}
-          <button
-            onClick={toggle}
-            className="theme-toggle"
-            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-            aria-label="Toggle theme"
-          >
-            <motion.div
-              key={theme}
-              initial={{ rotate: -90, opacity: 0 }}
-              animate={{ rotate: 0, opacity: 1 }}
-              transition={{ duration: 0.3 }}
-            >
-              {theme === "dark" ? <SunIcon /> : <MoonIcon />}
-            </motion.div>
-          </button>
+
 
           {/* Avatar */}
           <div

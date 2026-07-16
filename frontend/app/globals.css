@@ -707,6 +707,127 @@
   50% { opacity: 1; transform: scale(1) rotate(180deg); }
 }
 
+/* ── File Upload ───────────────────────────────────────────────────────────── */
+.file-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px 4px;
+}
+
+.file-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 8px;
+  border-radius: 10px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-subtle);
+  font-size: 11px;
+  color: var(--text-secondary);
+  max-width: 200px;
+  transition: all 0.2s ease;
+  animation: fadeSlideIn 0.25s ease-out;
+}
+.file-chip:hover {
+  border-color: var(--border-muted);
+  background: var(--bg-elevated);
+}
+.file-chip__icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.file-chip__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  font-weight: 500;
+}
+.file-chip__size {
+  font-size: 9px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.file-chip__remove {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  font-size: 12px;
+  line-height: 1;
+}
+.file-chip__remove:hover {
+  background: var(--red-dim);
+  color: var(--red);
+}
+
+.file-chip--image {
+  padding: 3px 10px 3px 3px;
+}
+.file-chip--image .file-chip__preview {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.upload-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  padding: 0;
+}
+.upload-btn:hover {
+  background: var(--bg-hover);
+  color: var(--brand);
+}
+.upload-btn:active {
+  transform: scale(0.92);
+}
+
+.drop-zone-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  border-radius: 16px;
+  border: 2px dashed var(--brand);
+  background: color-mix(in srgb, var(--brand) 8%, var(--bg-panel));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  animation: fadeSlideIn 0.15s ease-out;
+}
+.drop-zone-overlay span {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--brand);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* ── Scrollbar ─────────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }

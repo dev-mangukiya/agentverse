@@ -119,6 +119,78 @@ function OrbitalThinking({ agentColor }: { agentColor?: string }) {
   );
 }
 
+// ── File upload constants ─────────────────────────────────────
+const MAX_FILE_SIZE = 500 * 1024; // 500KB
+const MAX_FILES = 5;
+
+const CODE_EXTENSIONS: Record<string, string> = {
+  ".py": "python", ".js": "javascript", ".ts": "typescript", ".tsx": "tsx", ".jsx": "jsx",
+  ".css": "css", ".html": "html", ".json": "json", ".yml": "yaml", ".yaml": "yaml",
+  ".md": "markdown", ".sql": "sql", ".sh": "bash", ".go": "go", ".rs": "rust",
+  ".java": "java", ".c": "c", ".cpp": "cpp", ".h": "c",
+};
+const TEXT_EXTENSIONS = [".txt", ".csv", ".log", ".xml", ".env"];
+const IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"];
+const ALL_ACCEPT = [...Object.keys(CODE_EXTENSIONS), ...TEXT_EXTENSIONS, ...IMAGE_EXTENSIONS].join(",");
+
+interface AttachedFile {
+  id: string;
+  name: string;
+  size: number;
+  type: "code" | "text" | "image";
+  lang?: string;
+  content: string;      // text content or base64 data URL for images
+  preview?: string;     // base64 data URL for image thumbnails
+}
+
+function getFileCategory(name: string): { type: AttachedFile["type"]; lang?: string } {
+  const ext = "." + name.split(".").pop()?.toLowerCase();
+  if (CODE_EXTENSIONS[ext]) return { type: "code", lang: CODE_EXTENSIONS[ext] };
+  if (IMAGE_EXTENSIONS.includes(ext)) return { type: "image" };
+  return { type: "text" };
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function fileTypeIcon(type: AttachedFile["type"], lang?: string): string {
+  if (type === "image") return "🖼️";
+  if (type === "code") {
+    const icons: Record<string, string> = { python: "🐍", javascript: "📜", typescript: "📘", go: "🔵", rust: "🦀", java: "☕" };
+    return icons[lang || ""] || "💻";
+  }
+  return "📄";
+}
+
+async function readFile(file: File): Promise<AttachedFile> {
+  const cat = getFileCategory(file.name);
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  if (cat.type === "image") {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        resolve({ id, name: file.name, size: file.size, type: "image", content: `[Image: ${file.name}]`, preview: dataUrl });
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      resolve({ id, name: file.name, size: file.size, type: cat.type, lang: cat.lang, content: reader.result as string });
+    };
+    reader.onerror = reject;
+    reader.readAsText(file);
+  });
+}
+
 export function ChatPanel({ conversationId, onConversationCreated, onMessageSent, onPipelineUpdate }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -129,6 +201,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const [wsConnected, setWsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeAgents, setActiveAgents] = useState<string[]>([]);
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
 
   // Pipeline state
   const pipelineAgentsRef = useRef<PipelineAgent[]>([]);
@@ -137,11 +211,13 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const thinkingAgentRef = useRef("");
   const pendingMessageRef = useRef<string | null>(null);
   const skipNextLoadRef = useRef(false);
+  const dragCounterRef = useRef(0);
 
   // Emit pipeline updates
   const emitPipeline = useCallback((active: boolean, durationMs?: number, totalAgentsUsed?: number) => {
@@ -395,10 +471,100 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
+  // ── File handling ───────────────────────────────────────────
+  const processFiles = async (files: FileList | File[]) => {
+    const fileArray = Array.from(files);
+    const remaining = MAX_FILES - attachedFiles.length;
+    if (remaining <= 0) {
+      setError(`Maximum ${MAX_FILES} files allowed per message.`);
+      return;
+    }
+    const toProcess = fileArray.slice(0, remaining);
+    if (fileArray.length > remaining) {
+      setError(`Only ${remaining} more file(s) can be attached. Some files were skipped.`);
+    }
+
+    for (const file of toProcess) {
+      if (file.size > MAX_FILE_SIZE) {
+        setError(`"${file.name}" exceeds 500KB limit (${formatFileSize(file.size)}).`);
+        continue;
+      }
+      const ext = "." + (file.name.split(".").pop()?.toLowerCase() || "");
+      const isSupported = [...Object.keys(CODE_EXTENSIONS), ...TEXT_EXTENSIONS, ...IMAGE_EXTENSIONS].includes(ext);
+      if (!isSupported) {
+        setError(`"${file.name}" is not a supported file type.`);
+        continue;
+      }
+      try {
+        const attached = await readFile(file);
+        setAttachedFiles(prev => [...prev, attached]);
+      } catch {
+        setError(`Failed to read "${file.name}".`);
+      }
+    }
+  };
+
+  const removeFile = (id: string) => {
+    setAttachedFiles(prev => prev.filter(f => f.id !== id));
+  };
+
+  const buildMessageWithFiles = (text: string, files: AttachedFile[]): string => {
+    if (files.length === 0) return text;
+    const fileParts = files.map(f => {
+      if (f.type === "image") return `[Attached image: ${f.name}]`;
+      if (f.type === "code") return `[File: ${f.name}]\n\`\`\`${f.lang || ""}\n${f.content}\n\`\`\``;
+      return `[File: ${f.name}]\n${f.content}`;
+    });
+    return `${text}\n\n${fileParts.join("\n\n")}`;
+  };
+
+  // Drag and drop handlers
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current++;
+    if (e.dataTransfer.types.includes("Files")) setIsDragging(true);
+  };
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) setIsDragging(false);
+  };
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDragging(false);
+    if (e.dataTransfer.files.length > 0) processFiles(e.dataTransfer.files);
+  };
+
+  // Clipboard paste handler for images
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData.items;
+    const imageFiles: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith("image/")) {
+        const file = items[i].getAsFile();
+        if (file) imageFiles.push(file);
+      }
+    }
+    if (imageFiles.length > 0) {
+      e.preventDefault();
+      processFiles(imageFiles);
+    }
+  };
+
   const handleSend = async (text?: string) => {
-    const content = (text || input).trim();
-    if (!content || isThinking) return;
+    const rawContent = (text || input).trim();
+    const content = buildMessageWithFiles(rawContent, attachedFiles);
+    if ((!rawContent && attachedFiles.length === 0) || isThinking) return;
     setInput("");
+    setAttachedFiles([]);
     setError(null);
     resetPipeline();
 
@@ -733,7 +899,36 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                         </div>
                       )}
                       {msg.role === "user"
-                        ? <span className="break-words">{msg.content}</span>
+                        ? (() => {
+                            // Strip file attachment blocks from display
+                            const cleanContent = msg.content.replace(/\n\n\[(?:File|Attached image): [^\]]+\](?:\n```[\s\S]*?```|\n[\s\S]*?(?=\n\n\[|$))?/g, "").trim();
+                            const fileMatches = msg.content.match(/\[(?:File|Attached image): ([^\]]+)\]/g) || [];
+                            return (
+                              <>
+                                {cleanContent && <span className="break-words">{cleanContent}</span>}
+                                {fileMatches.length > 0 && (
+                                  <div className="flex flex-wrap gap-1 mt-1.5">
+                                    {fileMatches.map((match, i) => {
+                                      const fileName = match.replace(/\[(?:File|Attached image): /, "").replace("]", "");
+                                      const cat = getFileCategory(fileName);
+                                      return (
+                                        <span
+                                          key={i}
+                                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium"
+                                          style={{
+                                            backgroundColor: "rgba(255,255,255,0.1)",
+                                            color: "rgba(255,255,255,0.8)",
+                                          }}
+                                        >
+                                          {fileTypeIcon(cat.type, cat.lang)} {fileName}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()
                         : <MarkdownRenderer content={msg.content} />
                       }
                     </div>
@@ -813,10 +1008,26 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       )}
 
       {/* Input bar */}
-      <div className="px-3 md:px-4 pb-4 md:pb-5 pt-2 flex-shrink-0">
+      <div
+        className="px-3 md:px-4 pb-4 md:pb-5 pt-2 flex-shrink-0"
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
         <div className="w-full max-w-3xl mx-auto">
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept={ALL_ACCEPT}
+            className="hidden"
+            onChange={(e) => { if (e.target.files) processFiles(e.target.files); e.target.value = ""; }}
+          />
+
           <div
-            className="relative flex items-center gap-2 rounded-2xl px-4 py-3 transition-all duration-300"
+            className="relative rounded-2xl transition-all duration-300 overflow-hidden"
             style={{
               backgroundColor: "var(--input-bg)",
               border: "1px solid var(--input-border)",
@@ -835,35 +1046,79 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
               el.style.boxShadow = "0 4px 24px rgba(0,0,0,0.12)";
             }}
           >
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
-              placeholder="Ask your multi-agent team anything…"
-              rows={1}
-              className="flex-1 bg-transparent text-sm outline-none resize-none leading-6 max-h-[180px] overflow-y-auto"
-              style={{ color: "var(--text-primary)" }}
-              disabled={isThinking}
-            />
-            <button
-              onClick={() => handleSend()}
-              disabled={!input.trim() || isThinking}
-              className="send-btn flex-shrink-0"
-            >
-              {isThinking ? (
-                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              ) : (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            {/* Drag overlay */}
+            {isDragging && (
+              <div className="drop-zone-overlay">
+                <span>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 16V4m0 0L8 8m4-4l4 4M4 14v4a2 2 0 002 2h12a2 2 0 002-2v-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  Drop files here
+                </span>
+              </div>
+            )}
+
+            {/* File preview chips */}
+            {attachedFiles.length > 0 && (
+              <div className="file-chips">
+                {attachedFiles.map((file) => (
+                  <div key={file.id} className={`file-chip ${file.type === "image" ? "file-chip--image" : ""}`}>
+                    {file.type === "image" && file.preview ? (
+                      <img src={file.preview} alt={file.name} className="file-chip__preview" />
+                    ) : (
+                      <span className="file-chip__icon">{fileTypeIcon(file.type, file.lang)}</span>
+                    )}
+                    <span className="file-chip__name">{file.name}</span>
+                    <span className="file-chip__size">{formatFileSize(file.size)}</span>
+                    <button className="file-chip__remove" onClick={() => removeFile(file.id)} title="Remove">✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Input row */}
+            <div className="flex items-center gap-2 px-4 py-3">
+              {/* Upload button */}
+              <button
+                className="upload-btn"
+                onClick={() => fileInputRef.current?.click()}
+                title="Attach files (images, code, documents)"
+                disabled={isThinking}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
-              )}
-            </button>
+              </button>
+
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                onPaste={handlePaste}
+                placeholder={attachedFiles.length > 0 ? "Add a message about your files…" : "Ask your multi-agent team anything…"}
+                rows={1}
+                className="flex-1 bg-transparent text-sm outline-none resize-none leading-6 max-h-[180px] overflow-y-auto"
+                style={{ color: "var(--text-primary)" }}
+                disabled={isThinking}
+              />
+              <button
+                onClick={() => handleSend()}
+                disabled={(!input.trim() && attachedFiles.length === 0) || isThinking}
+                className="send-btn flex-shrink-0"
+              >
+                {isThinking ? (
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                )}
+              </button>
+            </div>
           </div>
           <p className="text-center text-[10px] mt-2.5 font-medium" style={{ color: "var(--text-faint)" }}>
             Orchestrator routes your request to specialized agents who collaborate in real-time.

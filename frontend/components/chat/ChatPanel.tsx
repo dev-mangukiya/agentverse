@@ -700,14 +700,23 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       >
         <div className="flex items-center gap-2.5">
           <div
-            className="w-6 h-6 rounded-lg flex items-center justify-center text-white text-[10px] font-bold relative overflow-hidden"
+            className="w-6 h-6 rounded-lg flex items-center justify-center text-white relative overflow-hidden"
             style={{
               background: "linear-gradient(135deg, #6366f1 0%, #a855f7 100%)",
             }}
           >
-            <span className="relative z-10">A</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="relative z-10">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" stroke="white" strokeWidth="1.5" fill="none"/>
+              <circle cx="12" cy="8" r="1.5" fill="white"/>
+              <circle cx="8" cy="14" r="1.5" fill="white"/>
+              <circle cx="16" cy="14" r="1.5" fill="white"/>
+              <circle cx="12" cy="12" r="2" fill="white" opacity="0.9"/>
+              <line x1="12" y1="10" x2="12" y2="8" stroke="white" strokeWidth="1" opacity="0.7"/>
+              <line x1="10.5" y1="13" x2="8.5" y2="14" stroke="white" strokeWidth="1" opacity="0.7"/>
+              <line x1="13.5" y1="13" x2="15.5" y2="14" stroke="white" strokeWidth="1" opacity="0.7"/>
+            </svg>
           </div>
-          <span className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>AgentVerse</span>
+          <span className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Cortex AI</span>
 
           {/* Active agents mini bar */}
           {activeAgents.length > 0 && (
@@ -1217,7 +1226,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             </div>
           </div>
           <p className="text-center text-[10px] mt-2.5 font-medium" style={{ color: "var(--text-faint)" }}>
-            Orchestrator routes your request to specialized agents who collaborate in real-time.
+            Cortex AI routes your request to specialized agents who collaborate in real-time.
           </p>
         </div>
       </div>

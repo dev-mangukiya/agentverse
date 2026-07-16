@@ -135,14 +135,17 @@ export function Header({ currentView, onMobileMenuToggle, pipelineActive, active
 
 
 
-          {/* Avatar */}
+          {/* User Avatar */}
           <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-xs font-bold relative group/avatar cursor-pointer overflow-hidden"
+            className="w-9 h-9 rounded-xl flex items-center justify-center relative group/avatar cursor-pointer overflow-hidden"
             style={{
               background: "linear-gradient(135deg, #6366f1, #a855f7)",
             }}
           >
-            <span className="relative z-10">U</span>
+            <svg width="16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" className=\"relative z-10\">
+              <circle cx="12" cy="8" r="4" fill="white" opacity="0.9"/>
+              <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" fill="white" opacity="0.9"/>
+            </svg>
             {/* Shine */}
             <div
               className="absolute inset-0 opacity-0 group-hover/avatar:opacity-100 transition-opacity duration-300"

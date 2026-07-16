@@ -3,7 +3,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/lib/theme";
 
 export const metadata: Metadata = {
-  title: "AgentVerse — Autonomous Multi-Agent AI Workforce",
+  title: "Cortex AI — Autonomous Multi-Agent AI Workforce",
   description:
     "A production-style multi-agent AI command center with real-time orchestration, planning, and observable agent communication.",
 };

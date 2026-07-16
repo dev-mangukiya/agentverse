@@ -203,6 +203,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const [activeAgents, setActiveAgents] = useState<string[]>([]);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
 
   // Pipeline state
   const pipelineAgentsRef = useRef<PipelineAgent[]>([]);
@@ -212,6 +213,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const thinkingAgentRef = useRef("");
@@ -557,6 +560,56 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       e.preventDefault();
       processFiles(imageFiles);
     }
+  };
+
+  // ── Camera handlers ────────────────────────────────────────
+  const openCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      setCameraOpen(true);
+      // Attach stream to video element after render
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      }, 50);
+    } catch {
+      setError("Camera access denied. Please allow camera permissions.");
+    }
+  };
+
+  const closeCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    setCameraOpen(false);
+  };
+
+  const capturePhoto = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0);
+    const dataUrl = canvas.toDataURL("image/png");
+    const id = `cam-${Date.now()}`;
+    const timestamp = new Date().toLocaleTimeString("en-US", { hour12: false }).replace(/:/g, "-");
+    const fileName = `camera-${timestamp}.png`;
+    // Estimate size from base64
+    const sizeEstimate = Math.round((dataUrl.length * 3) / 4);
+    setAttachedFiles(prev => [...prev, {
+      id, name: fileName, size: sizeEstimate, type: "image",
+      content: `[Image: ${fileName}]`, preview: dataUrl,
+    }]);
+    closeCamera();
   };
 
   const handleSend = async (text?: string) => {
@@ -1088,6 +1141,19 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                 </svg>
               </button>
 
+              {/* Camera button */}
+              <button
+                className="upload-btn"
+                onClick={openCamera}
+                title="Take a photo"
+                disabled={isThinking}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <circle cx="12" cy="13" r="4" stroke="currentColor" strokeWidth="1.5"/>
+                </svg>
+              </button>
+
               <textarea
                 ref={inputRef}
                 value={input}
@@ -1125,6 +1191,32 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
           </p>
         </div>
       </div>
+
+      {/* Camera modal */}
+      {cameraOpen && (
+        <div className="camera-modal">
+          <div className="camera-modal__inner">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="camera-modal__video"
+            />
+            <div className="camera-modal__controls">
+              <button className="camera-modal__close" onClick={closeCamera} title="Cancel">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                </svg>
+              </button>
+              <button className="camera-modal__capture" onClick={capturePhoto} title="Capture">
+                <div className="camera-modal__capture-ring" />
+              </button>
+              <div style={{ width: 44 }} />{/* Spacer for centering */}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

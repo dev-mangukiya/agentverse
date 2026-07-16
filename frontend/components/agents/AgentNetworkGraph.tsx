@@ -47,14 +47,14 @@ const agentIcons: Record<string, string> = {
 
 // Frontend fallback positions — well-spaced circular layout
 const FALLBACK_POSITIONS: Record<string, { x: number; y: number }> = {
-  orchestrator:  { x: 50, y: 50 },
-  research:      { x: 20, y: 22 },
-  memory:        { x: 50, y: 12 },
-  data:          { x: 80, y: 22 },
-  data_analyst:  { x: 82, y: 55 },
-  coding:        { x: 18, y: 75 },
-  writer:        { x: 80, y: 78 },
-  critic:        { x: 50, y: 88 },
+  orchestrator:  { x: 50, y: 45 },
+  research:      { x: 20, y: 20 },
+  memory:        { x: 50, y: 10 },
+  data:          { x: 80, y: 20 },
+  data_analyst:  { x: 82, y: 50 },
+  coding:        { x: 18, y: 65 },
+  writer:        { x: 80, y: 70 },
+  critic:        { x: 50, y: 75 },
 };
 
 // Floating particle positions for ambient effect

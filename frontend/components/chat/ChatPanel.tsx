@@ -329,6 +329,12 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             setThinkingAgent("");
             thinkingAgentRef.current = "";
             setThinkingPhase("");
+            // Mark all remaining active agents as complete
+            pipelineAgentsRef.current = pipelineAgentsRef.current.map(a =>
+              ["activated", "thinking", "tool_call"].includes(a.status)
+                ? { ...a, status: "complete" as const, toolName: undefined, toolArgs: undefined }
+                : a
+            );
             cb.emitPipeline(false, data.total_duration_ms, data.agents_used);
             break;
 

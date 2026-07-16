@@ -76,42 +76,36 @@ export function Header({ currentView, onMobileMenuToggle, pipelineActive, active
                 }}
               >
                 <div
-                  className="w-2 h-2 rounded-full"
+                  className="w-2 h-2 rounded-full flex-shrink-0"
                   style={{
                     backgroundColor: "var(--brand)",
                     boxShadow: "0 0 8px var(--brand)",
                     animation: "pulse 1.5s ease-in-out infinite",
                   }}
                 />
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1">
                   {activeAgents.slice(0, 3).map((agent) => {
                     const meta = agentMeta[agent.name?.toLowerCase()];
                     return (
                       <motion.div
                         key={agent.name}
-                        initial={{ scale: 0, rotate: -90 }}
-                        animate={{ scale: 1, rotate: 0 }}
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
                         transition={{ type: "spring", stiffness: 400, damping: 15 }}
-                        className="flex items-center gap-1"
+                        className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0"
+                        style={{
+                          backgroundColor: `color-mix(in srgb, ${meta?.color || "var(--brand)"} 20%, var(--bg-panel))`,
+                          border: `1px solid color-mix(in srgb, ${meta?.color || "var(--brand)"} 25%, transparent)`,
+                          fontSize: "10px",
+                        }}
+                        title={meta?.label || agent.name}
                       >
-                        <div
-                          className="w-5 h-5 rounded-md flex items-center justify-center"
-                          style={{
-                            backgroundColor: `color-mix(in srgb, ${meta?.color || "var(--brand)"} 20%, var(--bg-panel))`,
-                            border: `1px solid color-mix(in srgb, ${meta?.color || "var(--brand)"} 25%, transparent)`,
-                            fontSize: "10px",
-                          }}
-                        >
-                          {meta?.icon || "🤖"}
-                        </div>
-                        <span className="text-[10px] font-medium hidden md:inline" style={{ color: meta?.color || "var(--brand-text)" }}>
-                          {agent.toolName ? `${meta?.label || agent.name} → ${agent.toolName}` : meta?.label || agent.name}
-                        </span>
+                        {meta?.icon || "🤖"}
                       </motion.div>
                     );
                   })}
                 </div>
-                <span className="text-[10px] font-semibold" style={{ color: "var(--brand-text)" }}>
+                <span className="text-[10px] font-semibold whitespace-nowrap flex-shrink-0" style={{ color: "var(--brand-text)" }}>
                   {activeAgents.length} active
                 </span>
               </motion.div>

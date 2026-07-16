@@ -367,8 +367,10 @@ async def _process_user_message(
                     "content": f"{name.title()} agent is working...",
                     "phase": "executing",
                 })
+                # Include original user content so sub-agents see file attachments
+                full_task = f"User's original message:\n{content}\n\nYour specific task:\n{task}"
                 start = time.time()
-                result = await _run_agent_with_streaming(agent, task, history, websocket)
+                result = await _run_agent_with_streaming(agent, full_task, history, websocket)
                 duration = int((time.time() - start) * 1000)
                 await _send_ws(websocket, {
                     "type": "agent_complete",
@@ -462,7 +464,9 @@ async def _process_user_message(
                 })
 
                 agent_start = time.time()
-                sub_response = await _run_agent_with_streaming(sub_agent, sub_task, history, websocket)
+                # Include original user content so sub-agent sees file attachments
+                full_sub_task = f"User's original message:\n{content}\n\nYour specific task:\n{sub_task}"
+                sub_response = await _run_agent_with_streaming(sub_agent, full_sub_task, history, websocket)
                 agent_duration = int((time.time() - agent_start) * 1000)
 
                 await _send_ws(websocket, {
@@ -650,7 +654,7 @@ async def _get_conversation_context(conversation_id: str) -> str:
         parts = []
         for msg in messages[:-1]:
             role = "User" if msg.role == "user" else f"Agent ({msg.agent_name or 'system'})"
-            parts.append(f"{role}: {msg.content[:500]}")
+            parts.append(f"{role}: {msg.content[:2000]}")
 
         return "Previous conversation:\n" + "\n".join(parts) if parts else ""
 

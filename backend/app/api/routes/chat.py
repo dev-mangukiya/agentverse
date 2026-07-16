@@ -300,7 +300,9 @@ async def _process_user_message(
         orchestrator = _get_cached_agent("orchestrator")
         history = await _get_conversation_context(conversation_id)
         orch_start = time.time()
-        orch_response = await _run_agent_with_streaming(orchestrator, content, history, websocket)
+        # Truncate file content for orchestrator — it only needs to route, not analyze
+        orch_content = _truncate_file_content(content)
+        orch_response = await _run_agent_with_streaming(orchestrator, orch_content, history, websocket)
         orch_duration = int((time.time() - orch_start) * 1000)
 
         await _send_ws(websocket, {
@@ -599,6 +601,51 @@ async def _process_user_message(
             pass
 
 
+# ── File content truncation for routing ────────────────────
+
+def _truncate_file_content(content: str, preview_chars: int = 500) -> str:
+    """Truncate file attachment content for the orchestrator.
+    
+    The orchestrator only needs to know what files are attached and see a preview
+    to make a routing decision. Sub-agents get the full content separately.
+    """
+    import re
+    
+    # Truncate code fence blocks: [File: name]\n```lang\n<content>\n```
+    def truncate_code_block(match: re.Match) -> str:
+        header = match.group(1)  # [File: name]
+        lang = match.group(2) or ""
+        body = match.group(3)
+        truncated = body[:preview_chars]
+        lines = truncated.split("\n")
+        line_count = body.count("\n") + 1
+        return f"{header}\n```{lang}\n{truncated}\n```\n[... {line_count} total lines, showing first {len(lines)} lines]"
+    
+    result = re.sub(
+        r'(\[File: [^\]]+\])\n```(\w*)\n([\s\S]*?)```',
+        truncate_code_block,
+        content,
+    )
+    
+    # Truncate plain text blocks: [File: name]\n<content>
+    def truncate_text_block(match: re.Match) -> str:
+        header = match.group(1)
+        body = match.group(2)
+        if len(body) <= preview_chars:
+            return match.group(0)
+        truncated = body[:preview_chars]
+        line_count = body.count("\n") + 1
+        return f"{header}\n{truncated}\n[... {line_count} total lines truncated for routing]"
+    
+    result = re.sub(
+        r'(\[File: [^\]]+\])\n((?:(?!\[File: |\[Attached image: )[\s\S])*)',
+        truncate_text_block,
+        result,
+    )
+    
+    return result
+
+
 # ── Intent detection fallback ─────────────────────────────
 
 def _detect_intent(user_input: str) -> str | None:
@@ -664,62 +711,69 @@ async def _run_agent_with_streaming(agent, user_input: str, context: str, websoc
     from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, AIMessage
     from app.agents.base import _invoke_with_retry
 
-    messages = [SystemMessage(content=agent._build_system_prompt(context))]
-    messages.append(HumanMessage(content=user_input))
+    async def _execute() -> str:
+        messages = [SystemMessage(content=agent._build_system_prompt(context))]
+        messages.append(HumanMessage(content=user_input))
 
-    llm = agent._get_fresh_llm()
+        llm = agent._get_fresh_llm()
 
-    for _ in range(5):  # max 5 tool rounds
-        response = await _invoke_with_retry(llm, messages)
+        for _ in range(5):  # max 5 tool rounds
+            response = await _invoke_with_retry(llm, messages)
 
-        if hasattr(response, "tool_calls") and response.tool_calls:
-            messages.append(response)
+            if hasattr(response, "tool_calls") and response.tool_calls:
+                messages.append(response)
 
-            for call in response.tool_calls:
-                tool_start = time.time()
-                await _send_ws(websocket, {
-                    "type": "tool_call",
-                    "agent": agent.name,
-                    "tool": call["name"],
-                    "args": {k: str(v)[:200] for k, v in call["args"].items()},
-                })
+                for call in response.tool_calls:
+                    tool_start = time.time()
+                    await _send_ws(websocket, {
+                        "type": "tool_call",
+                        "agent": agent.name,
+                        "tool": call["name"],
+                        "args": {k: str(v)[:200] for k, v in call["args"].items()},
+                    })
 
-                await broadcast_event({
-                    "type": "activity",
-                    "agent": agent.name.capitalize(),
-                    "action": f'Using: {call["name"]}',
-                    "time": "now",
-                })
+                    await broadcast_event({
+                        "type": "activity",
+                        "agent": agent.name.capitalize(),
+                        "action": f'Using: {call["name"]}',
+                        "time": "now",
+                    })
 
-                tool_map = {t.name: t for t in agent.tools}
-                try:
-                    if call["name"] in tool_map:
-                        result = await tool_map[call["name"]].ainvoke(call["args"])
-                    else:
-                        result = f"Unknown tool: {call['name']}"
-                except Exception as exc:
-                    result = f"Tool error: {exc}"
+                    tool_map = {t.name: t for t in agent.tools}
+                    try:
+                        if call["name"] in tool_map:
+                            result = await tool_map[call["name"]].ainvoke(call["args"])
+                        else:
+                            result = f"Unknown tool: {call['name']}"
+                    except Exception as exc:
+                        result = f"Tool error: {exc}"
 
-                tool_duration = int((time.time() - tool_start) * 1000)
-                messages.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
+                    tool_duration = int((time.time() - tool_start) * 1000)
+                    messages.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
 
-                await _send_ws(websocket, {
-                    "type": "tool_result",
-                    "agent": agent.name,
-                    "tool": call["name"],
-                    "result": str(result)[:1000],
-                    "duration_ms": tool_duration,
-                })
-        else:
-            content = response.content if isinstance(response, AIMessage) else str(response)
-            if isinstance(content, list):
-                content = "".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in content])
-            return content
+                    await _send_ws(websocket, {
+                        "type": "tool_result",
+                        "agent": agent.name,
+                        "tool": call["name"],
+                        "result": str(result)[:1000],
+                        "duration_ms": tool_duration,
+                    })
+            else:
+                content = response.content if isinstance(response, AIMessage) else str(response)
+                if isinstance(content, list):
+                    content = "".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in content])
+                return content
 
-    content = response.content if isinstance(response, AIMessage) else str(response)
-    if isinstance(content, list):
-        content = "".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in content])
-    return content
+        content = response.content if isinstance(response, AIMessage) else str(response)
+        if isinstance(content, list):
+            content = "".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in content])
+        return content
+
+    try:
+        return await asyncio.wait_for(_execute(), timeout=60.0)
+    except asyncio.TimeoutError:
+        logger.warning("agent.timeout", agent=agent.name)
+        return f"Agent '{agent.name}' timed out after 60 seconds. Please try a simpler request or smaller file."
 
 # ── Dashboard events WebSocket ────────────────────────────
 

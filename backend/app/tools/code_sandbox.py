@@ -89,12 +89,6 @@ BLOCKED_PYTHON_PATTERNS = [
     "os.remove(",
     "os.rmdir(",
     "os.unlink(",
-    # Block network access
-    "urllib",
-    "requests.get",
-    "requests.post",
-    "httpx.",
-    "socket.",
 ]
 
 BLOCKED_BASH_PATTERNS = [
@@ -103,9 +97,6 @@ BLOCKED_BASH_PATTERNS = [
     "mkfs.",
     "dd if=",
     ":(){",  # fork bomb
-    "wget ",
-    "curl ",
-    "nc ",  # netcat
 ]
 
 

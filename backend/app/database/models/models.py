@@ -95,3 +95,34 @@ class TaskExecution(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
         }
+
+
+class CustomAgent(Base):
+    """User-created custom agents with configurable prompts and tools."""
+    __tablename__ = "custom_agents"
+
+    id = Column(String(12), primary_key=True, default=_new_id)
+    name = Column(String(50), nullable=False, unique=True)
+    emoji = Column(String(10), nullable=False, default="🤖")
+    description = Column(String(200), nullable=True)
+    system_prompt = Column(Text, nullable=False)
+    tools_json = Column(Text, nullable=False, default="[]")  # JSON array of tool names
+    model = Column(String(50), nullable=True)  # Optional model override
+    is_active = Column(Integer, nullable=False, default=1)  # SQLite-compatible boolean
+    created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        import json
+        return {
+            "id": self.id,
+            "name": self.name,
+            "emoji": self.emoji,
+            "description": self.description,
+            "system_prompt": self.system_prompt,
+            "tools": json.loads(self.tools_json) if self.tools_json else [],
+            "model": self.model,
+            "is_active": bool(self.is_active),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }

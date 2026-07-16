@@ -32,7 +32,10 @@ _agent_cache: dict[str, object] = {}
 
 
 def _get_cached_agent(name: str):
-    """Return a cached agent instance by name. Creates one if not cached."""
+    """Return a cached agent instance by name. Creates one if not cached.
+    
+    Checks built-in agents first, then falls back to custom agents from the database.
+    """
     name = name.lower().strip()
     if name in _agent_cache:
         return _agent_cache[name]
@@ -61,12 +64,65 @@ def _get_cached_agent(name: str):
             from app.agents.data_analyst import DataAnalystAgent
             agent = DataAnalystAgent()
             name = "data"
+        else:
+            # Try loading a custom agent from the database
+            agent = _load_custom_agent(name)
     except ImportError as e:
         logger.warning("agent.import_failed", name=name, error=str(e))
 
     if agent:
         _agent_cache[name] = agent
     return agent
+
+
+def _load_custom_agent(name: str):
+    """Load a custom agent from the database (synchronous wrapper)."""
+    import asyncio
+    import json
+    from sqlalchemy import select as sa_select
+    from app.database.session import async_session
+    from app.database.models.models import CustomAgent
+    from app.agents.custom_agent import DynamicCustomAgent
+
+    async def _fetch():
+        async with async_session() as session:
+            result = await session.execute(
+                sa_select(CustomAgent).where(
+                    CustomAgent.name == name,
+                    CustomAgent.is_active == 1,
+                )
+            )
+            return result.scalar_one_or_none()
+
+    try:
+        # Try to get existing event loop
+        try:
+            loop = asyncio.get_running_loop()
+            # We're in an async context — use a thread to run the query
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                db_agent = pool.submit(asyncio.run, _fetch()).result(timeout=5)
+        except RuntimeError:
+            db_agent = asyncio.run(_fetch())
+
+        if db_agent:
+            tools = json.loads(db_agent.tools_json) if db_agent.tools_json else []
+            return DynamicCustomAgent(
+                agent_name=db_agent.name,
+                agent_role=f"{db_agent.emoji} {db_agent.name} — {db_agent.description or 'Custom agent'}",
+                agent_system_prompt=db_agent.system_prompt,
+                tool_names=tools,
+                model=db_agent.model,
+            )
+    except Exception as e:
+        logger.warning("custom_agent.load_failed", name=name, error=str(e))
+    return None
+
+
+def _clear_cached_agent(name: str):
+    """Remove an agent from the cache (called when custom agent is updated/deleted)."""
+    name = name.lower().strip()
+    _agent_cache.pop(name, None)
 
 
 # ── Pydantic schemas ──────────────────────────────────────

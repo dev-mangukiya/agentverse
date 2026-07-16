@@ -8,7 +8,7 @@ class ResearchAgent(BaseAgent):
     name = "research"
     role = "Research Agent — web search and information gathering"
 
-    system_prompt = """You are the Research Agent of AgentVerse.
+    system_prompt = """You are the Research Agent of Cortex AI.
 
 ## Your role:
 You specialize in finding accurate, current information from the internet.

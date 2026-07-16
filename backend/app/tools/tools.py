@@ -72,43 +72,25 @@ async def open_url(url: str) -> str:
 
 
 @tool
-async def execute_python(code: str) -> str:
-    """Execute Python code and return the output. Use this for calculations,
-    data processing, or running scripts. The code runs in a subprocess with
-    a 30-second timeout.
+async def run_code(code: str, language: str = "python") -> str:
+    """Execute code in a secure sandbox and return the output. Supports Python,
+    JavaScript, and Bash. The code runs in an isolated temporary directory with
+    a 30-second timeout. Always test your code using this tool before returning
+    it to the user.
 
     Args:
-        code: The Python code to execute.
+        code: The source code to execute.
+        language: Programming language — 'python', 'javascript', or 'bash'. Defaults to 'python'.
     """
-    logger.info("tool.execute_python", code_length=len(code))
+    from app.tools.code_sandbox import CodeSandbox
 
-    import asyncio
+    logger.info("tool.run_code", language=language, code_length=len(code))
+    result = await CodeSandbox.execute(code, language=language, timeout=30)
+    return result.to_display()
 
-    def _run():
-        return subprocess.run(
-            [sys.executable, "-c", code],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            cwd="/tmp",
-        )
 
-    try:
-        result = await asyncio.to_thread(_run)
-        output_parts = []
-        if result.stdout.strip():
-            output_parts.append(f"**Output:**\n```\n{result.stdout.strip()}\n```")
-        if result.stderr.strip():
-            output_parts.append(f"**Errors:**\n```\n{result.stderr.strip()}\n```")
-        if not output_parts:
-            output_parts.append("Code executed successfully with no output.")
-        if result.returncode != 0:
-            output_parts.append(f"Exit code: {result.returncode}")
-        return "\n\n".join(output_parts)
-    except subprocess.TimeoutExpired:
-        return "Error: Code execution timed out after 30 seconds."
-    except Exception as exc:
-        return f"Error executing code: {exc}"
+# Keep legacy name as alias for backward compatibility
+execute_python = run_code
 
 
 @tool
@@ -196,5 +178,5 @@ async def write_file(file_path: str, content: str) -> str:
 # ── Tool collections per agent role ──────────────────────
 
 RESEARCH_TOOLS = [web_search, open_url, get_current_time]
-CODING_TOOLS = [execute_python, read_file, write_file, calculate]
-GENERAL_TOOLS = [web_search, open_url, execute_python, calculate, get_current_time, read_file, write_file]
+CODING_TOOLS = [run_code, read_file, write_file, calculate]
+GENERAL_TOOLS = [web_search, open_url, run_code, calculate, get_current_time, read_file, write_file]

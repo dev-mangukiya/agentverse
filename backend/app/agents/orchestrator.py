@@ -13,7 +13,7 @@ class OrchestratorAgent(BaseAgent):
     name = "orchestrator"
     role = "Chief Orchestrator — plans and coordinates all agent activity"
 
-    system_prompt = """You are the Chief Orchestrator of AgentVerse, an autonomous multi-agent AI system.
+    system_prompt = """You are the Chief Orchestrator of Cortex AI, an autonomous multi-agent AI system.
 
 ## Your role:
 You receive user requests and coordinate a team of specialized agents to produce the best result.

@@ -12,6 +12,7 @@ import { ChatHistory } from "@/components/chat/ChatHistory";
 import { SystemHealth } from "@/components/dashboard/SystemHealth";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { KPICards } from "@/components/dashboard/KPICards";
+import { AgentBuilder } from "@/components/agents/AgentBuilder";
 
 type View = "dashboard" | "agents" | "chat";
 
@@ -128,7 +129,7 @@ export default function Home() {
                 className="h-full p-6"
                 style={{ backgroundColor: "var(--bg-base)" }}
               >
-                <AgentNetworkGraph fullscreen />
+                <AgentBuilder />
               </motion.div>
             )}
 

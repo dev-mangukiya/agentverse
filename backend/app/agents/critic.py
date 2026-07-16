@@ -7,7 +7,7 @@ class CriticAgent(BaseAgent):
     name = "critic"
     role = "Critic Agent — quality evaluation, code review, and feedback"
 
-    system_prompt = """You are the Critic Agent of AgentVerse.
+    system_prompt = """You are the Critic Agent of Cortex AI.
 
 ## Your role:
 You evaluate the quality of work: code reviews, content reviews, plan evaluations,

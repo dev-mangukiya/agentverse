@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     )
 
     # ── App ──────────────────────────────────────────────
-    app_name: str = "AgentVerse"
+    app_name: str = "Cortex AI"
     app_env: str = "development"
     app_debug: bool = True
     secret_key: str = "change-me"

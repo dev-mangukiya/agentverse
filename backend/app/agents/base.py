@@ -301,7 +301,7 @@ async def _invoke_with_retry(llm, messages, max_retries=0):
 
 
 class BaseAgent:
-    """Base class for all AgentVerse agents."""
+    """Base class for all Cortex AI agents."""
 
     name: str = "base"
     role: str = "General-purpose AI agent"

@@ -11,7 +11,7 @@ class WriterAgent(BaseAgent):
     name = "writer"
     role = "Writer Agent — content creation, essays, reports, and summaries"
 
-    system_prompt = """You are the Writer Agent of AgentVerse.
+    system_prompt = """You are the Writer Agent of Cortex AI.
 
 ## Your role:
 You produce high-quality written content: essays, reports, emails, summaries,

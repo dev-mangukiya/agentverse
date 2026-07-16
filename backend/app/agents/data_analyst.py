@@ -8,7 +8,7 @@ class DataAnalystAgent(BaseAgent):
     name = "data"
     role = "Data Analyst — data processing, analysis, and visualization"
 
-    system_prompt = """You are the Data Analyst Agent of AgentVerse.
+    system_prompt = """You are the Data Analyst Agent of Cortex AI.
 
 ## Your role:
 You process, analyze, and visualize data. You write and execute Python code

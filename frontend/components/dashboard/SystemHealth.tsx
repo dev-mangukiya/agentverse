@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 
 interface HealthService {
   name: string;
-  status: "ok" | "unreachable" | "loading";
+  status: "ok" | "unreachable" | "optional" | "loading";
 }
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
@@ -39,10 +39,13 @@ export function SystemHealth() {
         const data = await res.json();
         setOverall(data.status);
         if (data.services && typeof data.services === "object") {
-          const mapped = Object.entries(data.services).map(([key, value]) => ({
-            name: serviceDisplayNames[key] || key,
-            status: (value as string) === "ok" || (value as string) === "configured" ? "ok" : "unreachable",
-          })) as HealthService[];
+          const mapped = Object.entries(data.services).map(([key, value]) => {
+            const v = value as string;
+            let status: HealthService["status"] = "unreachable";
+            if (v === "ok" || v === "configured") status = "ok";
+            else if (v === "not_running" || v === "not_configured" || v === "no_api_key") status = "optional";
+            return { name: serviceDisplayNames[key] || key, status };
+          }) as HealthService[];
           setServices(mapped);
         }
       } catch {
@@ -61,13 +64,22 @@ export function SystemHealth() {
   const statusColor = (s: string) => {
     if (s === "ok") return "status-dot--ok";
     if (s === "loading") return "status-dot--pending";
+    if (s === "optional") return "";
     return "status-dot--error";
   };
 
   const statusBarColor = (s: string) => {
     if (s === "ok") return "var(--green)";
     if (s === "loading") return "var(--yellow)";
+    if (s === "optional") return "var(--text-faint)";
     return "var(--red)";
+  };
+
+  const statusLabel = (s: string) => {
+    if (s === "ok") return "ok";
+    if (s === "loading") return "checking…";
+    if (s === "optional") return "not configured";
+    return "unreachable";
   };
 
   const okCount = services.filter(s => s.status === "ok").length;
@@ -146,8 +158,8 @@ export function SystemHealth() {
                   }}
                 />
               </div>
-              <span className="text-[10px] font-mono font-medium w-16 text-right" style={{ color: "var(--text-faint)" }}>
-                {svc.status === "loading" ? "checking…" : svc.status}
+              <span className="text-[10px] font-mono font-medium w-20 text-right" style={{ color: "var(--text-faint)" }}>
+                {statusLabel(svc.status)}
               </span>
             </div>
           </motion.div>

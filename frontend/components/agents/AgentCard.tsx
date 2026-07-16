@@ -147,12 +147,12 @@ export function AgentCard({
 
         {/* Info */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-0.5">
-            <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-              {meta.label} Agent
+          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+            <span className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>
+              {meta.label}
             </span>
             <span
-              className="text-[10px] font-semibold px-2 py-0.5 rounded-full transition-all duration-200"
+              className="text-[10px] font-semibold px-2 py-0.5 rounded-full transition-all duration-200 flex-shrink-0"
               style={{
                 backgroundColor: isActive
                   ? `color-mix(in srgb, ${meta.color} 12%, transparent)`
@@ -171,6 +171,14 @@ export function AgentCard({
             >
               {statusInfo.label}
             </span>
+            {/* Timer inline with status */}
+            {isActive && startTime ? (
+              <span className="flex-shrink-0 ml-auto">
+                <ElapsedTimer startTime={startTime} />
+              </span>
+            ) : durationMs !== undefined ? (
+              <span className="agent-timer flex-shrink-0 ml-auto">{(durationMs / 1000).toFixed(1)}s</span>
+            ) : null}
           </div>
 
           <div className="text-xs" style={{ color: "var(--text-muted)" }}>
@@ -216,15 +224,6 @@ export function AgentCard({
               {summary && <span className="ml-1">· {summary.slice(0, 50)}</span>}
             </motion.div>
           )}
-        </div>
-
-        {/* Timer */}
-        <div className="flex-shrink-0 mt-0.5">
-          {isActive && startTime ? (
-            <ElapsedTimer startTime={startTime} />
-          ) : durationMs !== undefined ? (
-            <span className="agent-timer">{(durationMs / 1000).toFixed(1)}s</span>
-          ) : null}
         </div>
       </div>
     </motion.div>

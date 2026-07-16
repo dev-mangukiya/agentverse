@@ -347,7 +347,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
 
                     {/* Node body */}
                     <div
-                      className="w-14 h-14 rounded-2xl flex items-center justify-center text-xl relative overflow-hidden"
+                      className="w-14 h-14 rounded-2xl flex items-center justify-center relative overflow-hidden"
                       style={{
                         backgroundColor: `color-mix(in srgb, ${agent.color} 12%, var(--bg-panel))`,
                         borderWidth: "1.5px",
@@ -368,7 +368,12 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                           background: `linear-gradient(135deg, ${agent.color}10 0%, transparent 60%)`,
                         }}
                       />
-                      <span className="relative z-10">{agentIcons[agent.id] || agent.label[0]}</span>
+                      <span
+                        className="relative z-10"
+                        style={{ fontSize: "20px", lineHeight: 1, width: "24px", height: "24px", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}
+                      >
+                        {agentIcons[agent.id] || agent.label[0]}
+                      </span>
                     </div>
 
                     {/* Status dot */}

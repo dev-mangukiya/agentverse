@@ -627,24 +627,21 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       return;
     }
 
+    const originalInput = input;
     const recognition = new SpeechRecognition();
-    recognition.continuous = true;
+    recognition.continuous = false;
     recognition.interimResults = true;
     recognition.lang = "en-US";
 
     recognition.onresult = (event: any) => {
-      let finalTranscript = "";
+      let currentTranscript = "";
       for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-          finalTranscript += event.results[i][0].transcript;
-        }
+        currentTranscript += event.results[i][0].transcript;
       }
       
-      if (finalTranscript) {
-        setInput(prev => {
-          const sep = prev && !prev.endsWith(" ") ? " " : "";
-          return prev + sep + finalTranscript;
-        });
+      if (currentTranscript) {
+        const sep = originalInput && !originalInput.endsWith(" ") ? " " : "";
+        setInput(originalInput + sep + currentTranscript);
       }
     };
 

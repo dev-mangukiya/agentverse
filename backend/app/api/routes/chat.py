@@ -640,7 +640,7 @@ def _truncate_file_content(content: str, preview_chars: int = 500) -> str:
         return f"{header}\n{truncated}\n[... {line_count} total lines truncated for routing]"
     
     result = re.sub(
-        r'(\[File: [^\]]+\])\n((?:(?!\[File: |\[Attached image: )[\s\S])*)',
+        r'(\[File: [^\]]+\])\n((?:(?!\[File: |\[Attached image: |\[Attached document: )[\s\S])*)',
         truncate_text_block,
         result,
     )
@@ -723,20 +723,38 @@ async def _run_agent_with_streaming(
     async def _execute() -> str:
         messages = [SystemMessage(content=agent._build_system_prompt(context))]
         
-        # Build multimodal content if image attachments are present
-        image_attachments = [
+        # Build multimodal content if binary attachments (images/PDFs) are present
+        binary_attachments = [
             a for a in (attachments or [])
-            if a.get("type") == "image" and a.get("data", "").startswith("data:")
+            if a.get("data", "").startswith("data:")
         ]
         
-        if image_attachments:
-            # Multimodal message: text + images
+        if binary_attachments:
+            # Multimodal message: text + images/documents
             content_parts: list[dict] = [{"type": "text", "text": user_input}]
-            for att in image_attachments:
-                content_parts.append({
-                    "type": "image_url",
-                    "image_url": {"url": att["data"]},
-                })
+            for att in binary_attachments:
+                data_url = att["data"]
+                att_type = att.get("type", "image")
+                
+                if att_type == "image":
+                    content_parts.append({
+                        "type": "image_url",
+                        "image_url": {"url": data_url},
+                    })
+                elif att_type == "document":
+                    # For PDFs: extract base64 and MIME type from data URL
+                    # Format: data:application/pdf;base64,<data>
+                    import re as _re
+                    match = _re.match(r"data:([^;]+);base64,(.*)", data_url, _re.DOTALL)
+                    if match:
+                        mime_type = match.group(1)
+                        b64_data = match.group(2)
+                        content_parts.append({
+                            "type": "media",
+                            "mime_type": mime_type,
+                            "data": b64_data,
+                        })
+                    
             messages.append(HumanMessage(content=content_parts))
         else:
             messages.append(HumanMessage(content=user_input))

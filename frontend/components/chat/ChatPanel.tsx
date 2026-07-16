@@ -120,7 +120,7 @@ function OrbitalThinking({ agentColor }: { agentColor?: string }) {
 }
 
 // ── File upload constants ─────────────────────────────────────
-const MAX_FILE_SIZE = 500 * 1024; // 500KB
+const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
 const MAX_FILES = 5;
 
 const CODE_EXTENSIONS: Record<string, string> = {
@@ -131,22 +131,28 @@ const CODE_EXTENSIONS: Record<string, string> = {
 };
 const TEXT_EXTENSIONS = [".txt", ".csv", ".log", ".xml", ".env"];
 const IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"];
-const ALL_ACCEPT = [...Object.keys(CODE_EXTENSIONS), ...TEXT_EXTENSIONS, ...IMAGE_EXTENSIONS].join(",");
+const DOCUMENT_EXTENSIONS = [".pdf"];
+const ALL_ACCEPT = [
+  ...Object.keys(CODE_EXTENSIONS), ...TEXT_EXTENSIONS,
+  ...IMAGE_EXTENSIONS, ...DOCUMENT_EXTENSIONS,
+].join(",");
 
 interface AttachedFile {
   id: string;
   name: string;
   size: number;
-  type: "code" | "text" | "image";
+  type: "code" | "text" | "image" | "document";
   lang?: string;
-  content: string;      // text content or base64 data URL for images
+  content: string;      // text content, or base64 data URL for images/documents
   preview?: string;     // base64 data URL for image thumbnails
+  mimeType?: string;    // MIME type for binary files
 }
 
 function getFileCategory(name: string): { type: AttachedFile["type"]; lang?: string } {
   const ext = "." + name.split(".").pop()?.toLowerCase();
   if (CODE_EXTENSIONS[ext]) return { type: "code", lang: CODE_EXTENSIONS[ext] };
   if (IMAGE_EXTENSIONS.includes(ext)) return { type: "image" };
+  if (DOCUMENT_EXTENSIONS.includes(ext)) return { type: "document" };
   return { type: "text" };
 }
 
@@ -158,6 +164,7 @@ function formatFileSize(bytes: number): string {
 
 function fileTypeIcon(type: AttachedFile["type"], lang?: string): string {
   if (type === "image") return "🖼️";
+  if (type === "document") return "📕";
   if (type === "code") {
     const icons: Record<string, string> = { python: "🐍", javascript: "📜", typescript: "📘", go: "🔵", rust: "🦀", java: "☕" };
     return icons[lang || ""] || "💻";
@@ -169,18 +176,26 @@ async function readFile(file: File): Promise<AttachedFile> {
   const cat = getFileCategory(file.name);
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  if (cat.type === "image") {
+  // Images and documents (PDF) — read as base64 data URL
+  if (cat.type === "image" || cat.type === "document") {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => {
         const dataUrl = reader.result as string;
-        resolve({ id, name: file.name, size: file.size, type: "image", content: `[Image: ${file.name}]`, preview: dataUrl });
+        const isImage = cat.type === "image";
+        resolve({
+          id, name: file.name, size: file.size, type: cat.type,
+          content: `[${isImage ? "Image" : "Document"}: ${file.name}]`,
+          preview: dataUrl,  // base64 data URL for both images and documents
+          mimeType: file.type || (cat.type === "document" ? "application/pdf" : undefined),
+        });
       };
       reader.onerror = reject;
       reader.readAsDataURL(file);
     });
   }
 
+  // Text and code files — read as text
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -499,7 +514,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         continue;
       }
       const ext = "." + (file.name.split(".").pop()?.toLowerCase() || "");
-      const isSupported = [...Object.keys(CODE_EXTENSIONS), ...TEXT_EXTENSIONS, ...IMAGE_EXTENSIONS].includes(ext);
+      const isSupported = [...Object.keys(CODE_EXTENSIONS), ...TEXT_EXTENSIONS, ...IMAGE_EXTENSIONS, ...DOCUMENT_EXTENSIONS].includes(ext);
       if (!isSupported) {
         setError(`"${file.name}" is not a supported file type.`);
         continue;
@@ -521,6 +536,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     if (files.length === 0) return text;
     const fileParts = files.map(f => {
       if (f.type === "image") return `[Attached image: ${f.name}]`;
+      if (f.type === "document") return `[Attached document: ${f.name}]`;
       if (f.type === "code") return `[File: ${f.name}]\n\`\`\`${f.lang || ""}\n${f.content}\n\`\`\``;
       return `[File: ${f.name}]\n${f.content}`;
     });
@@ -651,23 +667,23 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     const userMsg: Message = { id: Date.now(), role: "user", content, created_at: new Date().toISOString() };
     setMessages((prev) => [...prev, userMsg]);
 
-    // Build attachments array for images (base64 data for multimodal LLM)
-    const imageAttachments = filesToSend
-      .filter(f => f.type === "image" && f.preview)
-      .map(f => ({ name: f.name, type: "image", data: f.preview! }));
+    // Build attachments array for binary files (images + documents like PDF)
+    const binaryAttachments = filesToSend
+      .filter(f => (f.type === "image" || f.type === "document") && f.preview)
+      .map(f => ({ name: f.name, type: f.type, data: f.preview!, mimeType: f.mimeType }));
 
     if (!pendingMessageRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
       const msg: Record<string, unknown> = { type: "message", content };
-      if (imageAttachments.length > 0) msg.attachments = imageAttachments;
+      if (binaryAttachments.length > 0) msg.attachments = binaryAttachments;
       wsRef.current.send(JSON.stringify(msg));
     } else if (!pendingMessageRef.current && wsRef.current?.readyState === WebSocket.CONNECTING) {
       pendingMessageRef.current = content;
-      pendingAttachmentsRef.current = imageAttachments;
+      pendingAttachmentsRef.current = binaryAttachments;
     } else if (!pendingMessageRef.current) {
       setError("Not connected. Reconnecting...");
       if (activeConvId) {
         pendingMessageRef.current = content;
-        pendingAttachmentsRef.current = imageAttachments;
+        pendingAttachmentsRef.current = binaryAttachments;
         if (wsRef.current) { wsRef.current.close(); }
       }
     }
@@ -968,15 +984,15 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                       {msg.role === "user"
                         ? (() => {
                             // Strip file attachment blocks from display
-                            const cleanContent = msg.content.replace(/\n\n\[(?:File|Attached image): [^\]]+\](?:\n```[\s\S]*?```|\n[\s\S]*?(?=\n\n\[|$))?/g, "").trim();
-                            const fileMatches = msg.content.match(/\[(?:File|Attached image): ([^\]]+)\]/g) || [];
+                            const cleanContent = msg.content.replace(/\n\n\[(?:File|Attached image|Attached document): [^\]]+\](?:\n```[\s\S]*?```|\n[\s\S]*?(?=\n\n\[|$))?/g, "").trim();
+                            const fileMatches = msg.content.match(/\[(?:File|Attached image|Attached document): ([^\]]+)\]/g) || [];
                             return (
                               <>
                                 {cleanContent && <span className="break-words">{cleanContent}</span>}
                                 {fileMatches.length > 0 && (
                                   <div className="flex flex-wrap gap-1 mt-1.5">
                                     {fileMatches.map((match, i) => {
-                                      const fileName = match.replace(/\[(?:File|Attached image): /, "").replace("]", "");
+                                      const fileName = match.replace(/\[(?:File|Attached image|Attached document): /, "").replace("]", "");
                                       const cat = getFileCategory(fileName);
                                       return (
                                         <span

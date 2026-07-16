@@ -219,6 +219,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const thinkingAgentRef = useRef("");
   const pendingMessageRef = useRef<string | null>(null);
+  const pendingAttachmentsRef = useRef<Array<{name: string; type: string; data: string}>>([]);
   const skipNextLoadRef = useRef(false);
   const dragCounterRef = useRef(0);
 
@@ -329,8 +330,13 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         }, 30000);
         // Send any pending message immediately — this ref survives re-renders
         if (pendingMessageRef.current) {
-          // ws is guaranteed non-null here — we're inside its own onopen handler
-          ws!.send(JSON.stringify({ type: "message", content: pendingMessageRef.current }));
+          // Include any pending attachments
+          const msg: Record<string, unknown> = { type: "message", content: pendingMessageRef.current };
+          if (pendingAttachmentsRef.current.length > 0) {
+            msg.attachments = pendingAttachmentsRef.current;
+            pendingAttachmentsRef.current = [];
+          }
+          ws!.send(JSON.stringify(msg));
           pendingMessageRef.current = null;
         }
       };
@@ -614,8 +620,9 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
   const handleSend = async (text?: string) => {
     const rawContent = (text || input).trim();
-    const content = buildMessageWithFiles(rawContent, attachedFiles);
-    if ((!rawContent && attachedFiles.length === 0) || isThinking) return;
+    const filesToSend = [...attachedFiles];
+    const content = buildMessageWithFiles(rawContent, filesToSend);
+    if ((!rawContent && filesToSend.length === 0) || isThinking) return;
     setInput("");
     setAttachedFiles([]);
     setError(null);
@@ -644,16 +651,23 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     const userMsg: Message = { id: Date.now(), role: "user", content, created_at: new Date().toISOString() };
     setMessages((prev) => [...prev, userMsg]);
 
+    // Build attachments array for images (base64 data for multimodal LLM)
+    const imageAttachments = filesToSend
+      .filter(f => f.type === "image" && f.preview)
+      .map(f => ({ name: f.name, type: "image", data: f.preview! }));
+
     if (!pendingMessageRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "message", content }));
+      const msg: Record<string, unknown> = { type: "message", content };
+      if (imageAttachments.length > 0) msg.attachments = imageAttachments;
+      wsRef.current.send(JSON.stringify(msg));
     } else if (!pendingMessageRef.current && wsRef.current?.readyState === WebSocket.CONNECTING) {
       pendingMessageRef.current = content;
+      pendingAttachmentsRef.current = imageAttachments;
     } else if (!pendingMessageRef.current) {
       setError("Not connected. Reconnecting...");
       if (activeConvId) {
         pendingMessageRef.current = content;
-        // Force-close the WS — the onclose handler inside the effect will auto-reconnect
-        // and onopen will pick up the pending message from pendingMessageRef
+        pendingAttachmentsRef.current = imageAttachments;
         if (wsRef.current) { wsRef.current.close(); }
       }
     }

@@ -201,8 +201,9 @@ async def chat_websocket(websocket: WebSocket, conversation_id: str):
                 content = data.get("content", "").strip()
                 if not content:
                     continue
+                attachments = data.get("attachments", [])
                 task = asyncio.create_task(
-                    _process_user_message(websocket, conversation_id, content)
+                    _process_user_message(websocket, conversation_id, content, attachments)
                 )
 
             elif data.get("type") == "ping":
@@ -232,6 +233,7 @@ async def _process_user_message(
     websocket: WebSocket,
     conversation_id: str,
     content: str,
+    attachments: list | None = None,
 ) -> None:
     """Process a user message through the multi-agent pipeline.
 
@@ -302,7 +304,7 @@ async def _process_user_message(
         orch_start = time.time()
         # Truncate file content for orchestrator — it only needs to route, not analyze
         orch_content = _truncate_file_content(content)
-        orch_response = await _run_agent_with_streaming(orchestrator, orch_content, history, websocket)
+        orch_response = await _run_agent_with_streaming(orchestrator, orch_content, history, websocket, attachments=attachments)
         orch_duration = int((time.time() - orch_start) * 1000)
 
         await _send_ws(websocket, {
@@ -372,7 +374,7 @@ async def _process_user_message(
                 # Include original user content so sub-agents see file attachments
                 full_task = f"User's original message:\n{content}\n\nYour specific task:\n{task}"
                 start = time.time()
-                result = await _run_agent_with_streaming(agent, full_task, history, websocket)
+                result = await _run_agent_with_streaming(agent, full_task, history, websocket, attachments=attachments)
                 duration = int((time.time() - start) * 1000)
                 await _send_ws(websocket, {
                     "type": "agent_complete",
@@ -468,7 +470,7 @@ async def _process_user_message(
                 agent_start = time.time()
                 # Include original user content so sub-agent sees file attachments
                 full_sub_task = f"User's original message:\n{content}\n\nYour specific task:\n{sub_task}"
-                sub_response = await _run_agent_with_streaming(sub_agent, full_sub_task, history, websocket)
+                sub_response = await _run_agent_with_streaming(sub_agent, full_sub_task, history, websocket, attachments=attachments)
                 agent_duration = int((time.time() - agent_start) * 1000)
 
                 await _send_ws(websocket, {
@@ -511,7 +513,7 @@ async def _process_user_message(
                 })
 
                 agent_start = time.time()
-                sub_response = await _run_agent_with_streaming(sub_agent, content, history, websocket)
+                sub_response = await _run_agent_with_streaming(sub_agent, content, history, websocket, attachments=attachments)
                 agent_duration = int((time.time() - agent_start) * 1000)
 
                 await _send_ws(websocket, {
@@ -706,14 +708,38 @@ async def _get_conversation_context(conversation_id: str) -> str:
         return "Previous conversation:\n" + "\n".join(parts) if parts else ""
 
 
-async def _run_agent_with_streaming(agent, user_input: str, context: str, websocket: WebSocket) -> str:
-    """Run an agent with streamed tool call notifications."""
+async def _run_agent_with_streaming(
+    agent, user_input: str, context: str, websocket: WebSocket,
+    attachments: list | None = None,
+) -> str:
+    """Run an agent with streamed tool call notifications.
+    
+    Supports multimodal input — if attachments contain images with base64 data,
+    they are included as image_url parts in the HumanMessage for Gemini vision.
+    """
     from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, AIMessage
     from app.agents.base import _invoke_with_retry
 
     async def _execute() -> str:
         messages = [SystemMessage(content=agent._build_system_prompt(context))]
-        messages.append(HumanMessage(content=user_input))
+        
+        # Build multimodal content if image attachments are present
+        image_attachments = [
+            a for a in (attachments or [])
+            if a.get("type") == "image" and a.get("data", "").startswith("data:")
+        ]
+        
+        if image_attachments:
+            # Multimodal message: text + images
+            content_parts: list[dict] = [{"type": "text", "text": user_input}]
+            for att in image_attachments:
+                content_parts.append({
+                    "type": "image_url",
+                    "image_url": {"url": att["data"]},
+                })
+            messages.append(HumanMessage(content=content_parts))
+        else:
+            messages.append(HumanMessage(content=user_input))
 
         llm = agent._get_fresh_llm()
 

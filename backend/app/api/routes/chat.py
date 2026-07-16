@@ -730,31 +730,16 @@ async def _run_agent_with_streaming(
         ]
         
         if binary_attachments:
-            # Multimodal message: text + images/documents
+            # Multimodal message: text + binary files
+            # LangChain's Google GenAI adapter reads MIME type from the data URL
+            # (e.g. data:application/pdf;base64,... or data:image/png;base64,...)
+            # and converts to Gemini's inline_data format automatically.
             content_parts: list[dict] = [{"type": "text", "text": user_input}]
             for att in binary_attachments:
-                data_url = att["data"]
-                att_type = att.get("type", "image")
-                
-                if att_type == "image":
-                    content_parts.append({
-                        "type": "image_url",
-                        "image_url": {"url": data_url},
-                    })
-                elif att_type == "document":
-                    # For PDFs: extract base64 and MIME type from data URL
-                    # Format: data:application/pdf;base64,<data>
-                    import re as _re
-                    match = _re.match(r"data:([^;]+);base64,(.*)", data_url, _re.DOTALL)
-                    if match:
-                        mime_type = match.group(1)
-                        b64_data = match.group(2)
-                        content_parts.append({
-                            "type": "media",
-                            "mime_type": mime_type,
-                            "data": b64_data,
-                        })
-                    
+                content_parts.append({
+                    "type": "image_url",
+                    "image_url": {"url": att["data"]},
+                })
             messages.append(HumanMessage(content=content_parts))
         else:
             messages.append(HumanMessage(content=user_input))

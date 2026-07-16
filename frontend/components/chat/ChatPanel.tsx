@@ -210,6 +210,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const recognitionRef = useRef<any>(null);
   const [thinkingAgent, setThinkingAgent] = useState<string>("");
   const [thinkingPhase, setThinkingPhase] = useState<string>("");
   const [toolActivity, setToolActivity] = useState<ToolActivity | null>(null);
@@ -612,6 +614,54 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     setCameraOpen(false);
   };
 
+  const toggleRecording = () => {
+    if (isRecording) {
+      if (recognitionRef.current) recognitionRef.current.stop();
+      setIsRecording(false);
+      return;
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Your browser does not support the Web Speech API.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    recognition.onresult = (event: any) => {
+      let finalTranscript = "";
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          finalTranscript += event.results[i][0].transcript;
+        }
+      }
+      
+      if (finalTranscript) {
+        setInput(prev => {
+          const sep = prev && !prev.endsWith(" ") ? " " : "";
+          return prev + sep + finalTranscript;
+        });
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error("Speech recognition error", event.error);
+      setIsRecording(false);
+    };
+
+    recognition.onend = () => {
+      setIsRecording(false);
+    };
+
+    recognition.start();
+    recognitionRef.current = recognition;
+    setIsRecording(true);
+  };
+
   const capturePhoto = () => {
     const video = videoRef.current;
     if (!video) return;
@@ -637,6 +687,13 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const handleSend = async (text?: string) => {
     const rawContent = (text || input).trim();
     const filesToSend = [...attachedFiles];
+    
+    // Stop recording if active
+    if (isRecording && recognitionRef.current) {
+      recognitionRef.current.stop();
+      setIsRecording(false);
+    }
+    
     const content = buildMessageWithFiles(rawContent, filesToSend);
     if ((!rawContent && filesToSend.length === 0) || isThinking) return;
     setInput("");
@@ -1021,7 +1078,45 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                               </>
                             );
                           })()
-                        : <MarkdownRenderer content={msg.content} />
+                        : (() => {
+                            const hitlMatch = msg.content.match(/\[APPROVAL_REQUIRED:([^:]+):(.*?)\]/);
+                            if (hitlMatch) {
+                              const [fullMatch, action, reason] = hitlMatch;
+                              const textBefore = msg.content.split(fullMatch)[0];
+                              return (
+                                <>
+                                  {textBefore && <MarkdownRenderer content={textBefore} />}
+                                  <div className="mt-4 p-4 rounded-xl border" style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--bg-elevated)" }}>
+                                    <div className="flex items-center gap-2 mb-2 text-yellow-500">
+                                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                                        <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                      </svg>
+                                      <span className="font-bold">Approval Required</span>
+                                    </div>
+                                    <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>
+                                      <strong>Action:</strong> <span className="font-mono">{action}</span><br/>
+                                      <strong>Reason:</strong> {reason}
+                                    </p>
+                                    <div className="flex gap-3">
+                                      <button
+                                        onClick={() => handleSend(`APPROVED action: ${action}`)}
+                                        className="px-4 py-2 bg-green-500/20 text-green-500 hover:bg-green-500/30 rounded-lg text-sm font-semibold transition-colors"
+                                      >
+                                        Approve
+                                      </button>
+                                      <button
+                                        onClick={() => handleSend(`REJECTED action: ${action}`)}
+                                        className="px-4 py-2 bg-red-500/20 text-red-500 hover:bg-red-500/30 rounded-lg text-sm font-semibold transition-colors"
+                                      >
+                                        Reject
+                                      </button>
+                                    </div>
+                                  </div>
+                                </>
+                              );
+                            }
+                            return <MarkdownRenderer content={msg.content} />;
+                          })()
                       }
                     </div>
                   </motion.div>
@@ -1190,6 +1285,20 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                   <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                   <circle cx="12" cy="13" r="4" stroke="currentColor" strokeWidth="1.5"/>
+                </svg>
+              </button>
+              
+              {/* Voice recording button */}
+              <button
+                className={`upload-btn ${isRecording ? 'text-red-500 animate-pulse' : ''}`}
+                onClick={toggleRecording}
+                title="Voice dictation"
+                disabled={isThinking}
+                style={isRecording ? { color: "var(--red)", backgroundColor: "color-mix(in srgb, var(--red) 15%, transparent)" } : {}}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               </button>
 

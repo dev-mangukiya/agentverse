@@ -80,12 +80,12 @@ def _load_custom_agent(name: str):
     import asyncio
     import json
     from sqlalchemy import select as sa_select
-    from app.database.session import async_session
+    from app.database.session import async_session_factory
     from app.database.models.models import CustomAgent
     from app.agents.custom_agent import DynamicCustomAgent
 
     async def _fetch():
-        async with async_session() as session:
+        async with async_session_factory() as session:
             result = await session.execute(
                 sa_select(CustomAgent).where(
                     CustomAgent.name == name,

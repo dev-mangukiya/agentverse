@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from app.database.session import async_session
+from app.database.session import async_session_factory
 from app.database.models.models import CustomAgent
 from app.core.logging import get_logger
 
@@ -22,6 +22,10 @@ AVAILABLE_TOOLS = {
     "write_file": "Write content to files",
     "get_current_time": "Get current date and time",
     "open_url": "Open/provide URLs",
+    "request_user_approval": "Request user approval for sensitive actions",
+    "search_github_repos": "Search public GitHub repositories",
+    "create_linear_issue": "Create an issue in Linear",
+    "send_slack_message": "Send a message to a Slack channel",
 }
 
 # Built-in agents (not editable)
@@ -58,7 +62,7 @@ async def list_agents():
     """List all agents (built-in + custom)."""
     agents = list(BUILTIN_AGENTS)
 
-    async with async_session() as session:
+    async with async_session_factory() as session:
         result = await session.execute(
             select(CustomAgent).order_by(CustomAgent.created_at)
         )
@@ -84,7 +88,7 @@ async def create_agent(data: AgentCreate):
     if invalid_tools:
         raise HTTPException(400, f"Invalid tools: {', '.join(invalid_tools)}")
 
-    async with async_session() as session:
+    async with async_session_factory() as session:
         # Check uniqueness
         existing = await session.execute(
             select(CustomAgent).where(CustomAgent.name == data.name)
@@ -116,7 +120,7 @@ async def update_agent(agent_id: str, data: AgentUpdate):
     if agent_id.startswith("builtin_"):
         raise HTTPException(400, "Cannot edit built-in agents.")
 
-    async with async_session() as session:
+    async with async_session_factory() as session:
         result = await session.execute(
             select(CustomAgent).where(CustomAgent.id == agent_id)
         )
@@ -159,7 +163,7 @@ async def delete_agent(agent_id: str):
     if agent_id.startswith("builtin_"):
         raise HTTPException(400, "Cannot delete built-in agents.")
 
-    async with async_session() as session:
+    async with async_session_factory() as session:
         result = await session.execute(
             select(CustomAgent).where(CustomAgent.id == agent_id)
         )

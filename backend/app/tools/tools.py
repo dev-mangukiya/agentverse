@@ -15,6 +15,10 @@ from pathlib import Path
 from langchain_core.tools import tool
 
 from app.core.logging import get_logger
+from app.tools.hitl import request_user_approval
+from app.tools.github_tools import search_github_repos
+from app.tools.linear_tools import create_linear_issue
+from app.tools.slack_tools import send_slack_message
 
 logger = get_logger(__name__)
 
@@ -178,5 +182,5 @@ async def write_file(file_path: str, content: str) -> str:
 # ── Tool collections per agent role ──────────────────────
 
 RESEARCH_TOOLS = [web_search, open_url, get_current_time]
-CODING_TOOLS = [run_code, read_file, write_file, calculate]
-GENERAL_TOOLS = [web_search, open_url, run_code, calculate, get_current_time, read_file, write_file]
+CODING_TOOLS = [run_code, read_file, write_file, calculate, request_user_approval]
+GENERAL_TOOLS = [web_search, open_url, run_code, calculate, get_current_time, read_file, write_file, request_user_approval, search_github_repos, create_linear_issue, send_slack_message]

@@ -7,6 +7,10 @@ from app.tools.tools import (
     web_search, run_code, calculate, read_file, write_file,
     get_current_time, open_url,
 )
+from app.tools.hitl import request_user_approval
+from app.tools.github_tools import search_github_repos
+from app.tools.linear_tools import create_linear_issue
+from app.tools.slack_tools import send_slack_message
 
 # Map tool names to actual tool functions
 TOOL_REGISTRY = {
@@ -17,6 +21,10 @@ TOOL_REGISTRY = {
     "write_file": write_file,
     "get_current_time": get_current_time,
     "open_url": open_url,
+    "request_user_approval": request_user_approval,
+    "search_github_repos": search_github_repos,
+    "create_linear_issue": create_linear_issue,
+    "send_slack_message": send_slack_message,
 }
 
 

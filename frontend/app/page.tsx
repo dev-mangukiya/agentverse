@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
@@ -30,6 +30,26 @@ export default function Home() {
   const [pipelineActive, setPipelineActive] = useState(false);
   const [pipelineDurationMs, setPipelineDurationMs] = useState<number | undefined>(undefined);
   const [pipelineTotalAgents, setPipelineTotalAgents] = useState<number | undefined>(undefined);
+  const [backendStatus, setBackendStatus] = useState<"online" | "waking" | "offline">("waking");
+
+  // Global keep-alive ping — prevents Render free tier from sleeping (every 13 min)
+  useEffect(() => {
+    const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
+    let mounted = true;
+
+    const ping = async () => {
+      try {
+        const res = await fetch(`${API_URL}/health`, { signal: AbortSignal.timeout(15000) });
+        if (mounted) setBackendStatus(res.ok ? "online" : "offline");
+      } catch {
+        if (mounted) setBackendStatus("waking");
+      }
+    };
+
+    ping(); // Immediate check on mount
+    const interval = setInterval(ping, 13 * 60 * 1000); // Every 13 min
+    return () => { mounted = false; clearInterval(interval); };
+  }, []);
 
   const handleNewChat = useCallback(() => { setActiveConversationId(null); }, []);
   const handleConversationCreated = useCallback((id: string) => {
@@ -93,6 +113,7 @@ export default function Home() {
           onMobileMenuToggle={() => setMobileSidebarOpen(!mobileSidebarOpen)}
           pipelineActive={pipelineActive}
           activeAgents={pipelineAgents.filter(a => ["activated", "thinking", "tool_call"].includes(a.status))}
+          backendStatus={backendStatus}
         />
 
         <div className="flex-1 overflow-hidden">

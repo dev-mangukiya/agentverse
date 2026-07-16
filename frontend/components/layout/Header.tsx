@@ -16,6 +16,7 @@ interface HeaderProps {
   onMobileMenuToggle?: () => void;
   pipelineActive?: boolean;
   activeAgents?: ActiveAgent[];
+  backendStatus?: "online" | "waking" | "offline";
 }
 
 function SunIcon() {
@@ -27,7 +28,7 @@ function SunIcon() {
   );
 }
 
-export function Header({ currentView, onMobileMenuToggle, pipelineActive, activeAgents = [] }: HeaderProps) {
+export function Header({ currentView, onMobileMenuToggle, pipelineActive, activeAgents = [], backendStatus = "online" }: HeaderProps) {
 
   return (
     <header
@@ -115,22 +116,44 @@ export function Header({ currentView, onMobileMenuToggle, pipelineActive, active
 
         {/* Right side */}
         <div className="flex items-center gap-2.5 ml-auto">
-          {/* System Online badge */}
+          {/* System status badge */}
           <div
             className="items-center gap-1.5 px-3 py-1.5 rounded-xl border hidden sm:flex transition-all duration-200"
             style={{
-              backgroundColor: "var(--green-dim)",
-              borderColor: "color-mix(in srgb, var(--green) 15%, transparent)",
+              backgroundColor: backendStatus === "online" ? "var(--green-dim)"
+                : backendStatus === "waking" ? "color-mix(in srgb, var(--yellow, #eab308) 10%, var(--bg-panel))"
+                : "color-mix(in srgb, var(--red) 10%, var(--bg-panel))",
+              borderColor: backendStatus === "online" ? "color-mix(in srgb, var(--green) 15%, transparent)"
+                : backendStatus === "waking" ? "color-mix(in srgb, var(--yellow, #eab308) 15%, transparent)"
+                : "color-mix(in srgb, var(--red) 15%, transparent)",
             }}
           >
-            <span
-              className="w-1.5 h-1.5 rounded-full"
-              style={{
-                backgroundColor: "var(--green)",
-                boxShadow: "0 0 6px var(--green)",
-              }}
-            />
-            <span className="text-xs font-medium" style={{ color: "var(--green)" }}>System Online</span>
+            {backendStatus === "waking" ? (
+              <span
+                className="w-3 h-3 border-[1.5px] rounded-full animate-spin"
+                style={{
+                  borderColor: "color-mix(in srgb, var(--yellow, #eab308) 30%, transparent)",
+                  borderTopColor: "var(--yellow, #eab308)",
+                }}
+              />
+            ) : (
+              <span
+                className="w-1.5 h-1.5 rounded-full"
+                style={{
+                  backgroundColor: backendStatus === "online" ? "var(--green)" : "var(--red)",
+                  boxShadow: backendStatus === "online" ? "0 0 6px var(--green)" : "0 0 6px var(--red)",
+                }}
+              />
+            )}
+            <span className="text-xs font-medium" style={{
+              color: backendStatus === "online" ? "var(--green)"
+                : backendStatus === "waking" ? "var(--yellow, #eab308)"
+                : "var(--red)",
+            }}>
+              {backendStatus === "online" ? "System Online"
+                : backendStatus === "waking" ? "Waking up..."
+                : "Offline"}
+            </span>
           </div>
 
 

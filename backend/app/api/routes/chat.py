@@ -802,10 +802,21 @@ async def _run_agent_with_streaming(
 
         llm = agent._get_fresh_llm()
 
+        last_text_content = ""
+        tool_results_log = []
+
         for _ in range(5):  # max 5 tool rounds
             response = await _invoke_with_retry(llm, messages)
 
             if hasattr(response, "tool_calls") and response.tool_calls:
+                # Gemini often returns text content alongside tool_calls — capture it
+                if isinstance(response, AIMessage) and response.content:
+                    rc = response.content
+                    if isinstance(rc, list):
+                        rc = "".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in rc])
+                    if rc.strip():
+                        last_text_content = rc
+
                 messages.append(response)
 
                 for call in response.tool_calls:
@@ -834,6 +845,7 @@ async def _run_agent_with_streaming(
                         result = f"Tool error: {exc}"
 
                     tool_duration = int((time.time() - tool_start) * 1000)
+                    tool_results_log.append(f"**Tool `{call['name']}`** ({tool_duration}ms):\n{str(result)[:2000]}")
                     messages.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
 
                     await _send_ws(websocket, {
@@ -847,12 +859,26 @@ async def _run_agent_with_streaming(
                 content = response.content if isinstance(response, AIMessage) else str(response)
                 if isinstance(content, list):
                     content = "".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in content])
-                return content
+                if content and content.strip():
+                    return content
+                # If LLM returned empty content after tools, use accumulated text or tool results
+                if last_text_content:
+                    return last_text_content
+                if tool_results_log:
+                    return "\n\n".join(tool_results_log)
+                return "(Agent finished with no text output)"
 
+        # Exhausted tool rounds — return whatever we have
         content = response.content if isinstance(response, AIMessage) else str(response)
         if isinstance(content, list):
             content = "".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in content])
-        return content
+        if content and content.strip():
+            return content
+        if last_text_content:
+            return last_text_content
+        if tool_results_log:
+            return "\n\n".join(tool_results_log)
+        return "(Agent finished with no text output)"
 
     try:
         return await asyncio.wait_for(_execute(), timeout=60.0)

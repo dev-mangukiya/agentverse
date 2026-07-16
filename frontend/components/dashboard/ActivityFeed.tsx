@@ -58,6 +58,23 @@ function formatRelative(iso: string | null): string {
   return d.toLocaleDateString();
 }
 
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/```[\s\S]*?```/g, "[code]")   // code fences
+    .replace(/`([^`]+)`/g, "$1")             // inline code
+    .replace(/\*\*([^*]+)\*\*/g, "$1")       // bold
+    .replace(/\*([^*]+)\*/g, "$1")           // italic
+    .replace(/__([^_]+)__/g, "$1")           // bold alt
+    .replace(/_([^_]+)_/g, "$1")             // italic alt
+    .replace(/^#{1,6}\s+/gm, "")             // headers
+    .replace(/^[-*+]\s+/gm, "• ")            // bullet lists
+    .replace(/^\d+\.\s+/gm, "")              // numbered lists
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // links
+    .replace(/\n{2,}/g, " ")                 // multiple newlines
+    .replace(/\n/g, " ")                     // single newlines
+    .trim();
+}
+
 export function ActivityFeed() {
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -165,7 +182,7 @@ export function ActivityFeed() {
                     <span className="text-[10px]" style={{ color: "var(--text-faint)" }}>{formatRelative(item.created_at)}</span>
                   </div>
                   <p className="text-xs leading-relaxed line-clamp-2" style={{ color: "var(--text-muted)" }}>
-                    {item.content}
+                    {stripMarkdown(item.content)}
                   </p>
                 </div>
               </motion.div>

@@ -13,13 +13,23 @@ interface ActivityItem {
 }
 
 const agentColors: Record<string, string> = {
-  orchestrator: "#4285f4",
-  research: "#34a853",
-  coding: "#ea4335",
-  writer: "#fbbc04",
-  critic: "#06b6d4",
-  memory: "#8b5cf6",
-  data: "#a855f7",
+  orchestrator: "var(--agent-orchestrator)",
+  research: "var(--agent-research)",
+  coding: "var(--agent-coding)",
+  writer: "var(--agent-writer)",
+  critic: "var(--agent-critic)",
+  memory: "var(--agent-memory)",
+  data: "var(--agent-data)",
+};
+
+const agentIcons: Record<string, string> = {
+  orchestrator: "🧠",
+  research: "🔬",
+  coding: "💻",
+  writer: "✍️",
+  critic: "🔍",
+  memory: "🧩",
+  data: "📊",
 };
 
 function getColor(agentName: string): string {
@@ -27,7 +37,15 @@ function getColor(agentName: string): string {
   for (const [key, color] of Object.entries(agentColors)) {
     if (lower.includes(key)) return color;
   }
-  return "#9aa0a6";
+  return "var(--text-muted)";
+}
+
+function getIcon(agentName: string): string {
+  const lower = agentName.toLowerCase();
+  for (const [key, icon] of Object.entries(agentIcons)) {
+    if (lower.includes(key)) return icon;
+  }
+  return "🤖";
 }
 
 function formatRelative(iso: string | null): string {
@@ -64,24 +82,31 @@ export function ActivityFeed() {
   }, []);
 
   return (
-    <div className="glass-panel p-5">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-[#e8eaed]">Recent Activity</h3>
+    <div className="glass-panel p-5 card-shine">
+      <div className="flex items-center justify-between mb-4 relative z-10">
+        <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Recent Activity</h3>
         <div className="flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-[#34a853] animate-pulse" />
-          <span className="text-[10px] text-[#9aa0a6]">Live</span>
+          <span
+            className="w-1.5 h-1.5 rounded-full"
+            style={{
+              backgroundColor: "var(--green)",
+              boxShadow: "0 0 6px var(--green)",
+              animation: "pulse 2s ease-in-out infinite",
+            }}
+          />
+          <span className="text-[10px] font-medium" style={{ color: "var(--text-muted)" }}>Live</span>
         </div>
       </div>
 
-      <div className="space-y-0 max-h-[280px] overflow-y-auto pr-1">
+      <div className="space-y-0 max-h-[280px] overflow-y-auto pr-1 relative z-10">
         {loading && (
           <div className="space-y-3">
             {[1,2,3,4].map(i => (
               <div key={i} className="flex gap-3 py-2">
-                <div className="w-2 h-2 rounded-full bg-white/[0.06] mt-1.5 flex-shrink-0 animate-pulse" />
+                <div className="shimmer-loading w-7 h-7 rounded-lg flex-shrink-0" />
                 <div className="flex-1 space-y-1.5">
-                  <div className="h-3 w-20 rounded bg-white/[0.06] animate-pulse" />
-                  <div className="h-3 w-40 rounded bg-white/[0.04] animate-pulse" />
+                  <div className="shimmer-loading h-3 w-20 rounded" />
+                  <div className="shimmer-loading h-3 w-40 rounded" />
                 </div>
               </div>
             ))}
@@ -89,37 +114,57 @@ export function ActivityFeed() {
         )}
 
         {!loading && activities.length === 0 && (
-          <div className="text-center text-xs text-[#5f6368] py-8">
-            No activity yet — start a chat!
+          <div className="text-center py-8 px-4">
+            <div className="text-2xl mb-2">💬</div>
+            <div className="text-xs" style={{ color: "var(--text-faint)" }}>
+              No activity yet — start a chat!
+            </div>
           </div>
         )}
 
         <AnimatePresence>
           {activities.map((item, i) => {
             const color = getColor(item.agent);
+            const icon = getIcon(item.agent);
             return (
               <motion.div
                 key={`${item.created_at}-${i}`}
-                initial={{ opacity: 0, x: -8 }}
+                initial={{ opacity: 0, x: -12 }}
                 animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.04 }}
-                className="flex gap-3 py-2"
+                transition={{ delay: i * 0.05, duration: 0.3 }}
+                className="flex gap-3 py-2.5 group cursor-default transition-all duration-200 rounded-lg px-1 -mx-1"
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = "var(--bg-hover)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = "transparent";
+                }}
               >
                 <div className="flex flex-col items-center">
                   <div
-                    className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0"
-                    style={{ backgroundColor: color }}
-                  />
+                    className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 text-xs"
+                    style={{
+                      backgroundColor: `color-mix(in srgb, ${color} 12%, var(--bg-panel))`,
+                      border: `1px solid color-mix(in srgb, ${color} 20%, transparent)`,
+                    }}
+                  >
+                    {icon}
+                  </div>
                   {i < activities.length - 1 && (
-                    <div className="w-px flex-1 bg-white/[0.05] mt-1" />
+                    <div
+                      className="w-px flex-1 mt-1.5"
+                      style={{
+                        background: `linear-gradient(180deg, color-mix(in srgb, ${color} 20%, transparent), transparent)`,
+                      }}
+                    />
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-xs font-semibold text-[#c4c7c5]">{item.agent}</span>
-                    <span className="text-[10px] text-[#5f6368]">{formatRelative(item.created_at)}</span>
+                    <span className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>{item.agent}</span>
+                    <span className="text-[10px]" style={{ color: "var(--text-faint)" }}>{formatRelative(item.created_at)}</span>
                   </div>
-                  <p className="text-xs text-[#9aa0a6] leading-relaxed line-clamp-2">
+                  <p className="text-xs leading-relaxed line-clamp-2" style={{ color: "var(--text-muted)" }}>
                     {item.content}
                   </p>
                 </div>

@@ -85,7 +85,7 @@ export function AgentCard({
       >
         <div
           className="agent-avatar agent-avatar--sm"
-          style={{ backgroundColor: `color-mix(in srgb, ${meta.color} 25%, var(--bg-panel))` }}
+          style={{ backgroundColor: `color-mix(in srgb, ${meta.color} 20%, var(--bg-panel))` }}
         >
           <span style={{ fontSize: "10px" }}>{meta.icon}</span>
         </div>
@@ -94,8 +94,12 @@ export function AgentCard({
         </span>
         {isActive && (
           <div
-            className="w-1.5 h-1.5 rounded-full animate-pulse"
-            style={{ backgroundColor: meta.color }}
+            className="w-1.5 h-1.5 rounded-full"
+            style={{
+              backgroundColor: meta.color,
+              boxShadow: `0 0 4px ${meta.color}`,
+              animation: "pulse 1.5s ease-in-out infinite",
+            }}
           />
         )}
         {isComplete && (
@@ -109,20 +113,22 @@ export function AgentCard({
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8 }}
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+      transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
       className={`agent-card ${isActive ? "agent-card--active" : ""} ${isComplete ? "agent-card--complete" : ""}`}
       style={{ "--agent-color": meta.color } as React.CSSProperties}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-3 relative z-10">
         {/* Avatar */}
         <div className="relative">
           <div
             className="agent-avatar"
             style={{
-              backgroundColor: `color-mix(in srgb, ${meta.color} 20%, var(--bg-panel))`,
-              border: `1.5px solid color-mix(in srgb, ${meta.color} 40%, transparent)`,
+              backgroundColor: `color-mix(in srgb, ${meta.color} 15%, var(--bg-panel))`,
+              border: `1.5px solid color-mix(in srgb, ${meta.color} 30%, transparent)`,
+              boxShadow: isActive ? `0 0 16px color-mix(in srgb, ${meta.color} 20%, transparent)` : "none",
+              transition: "box-shadow 0.3s ease",
             }}
           >
             {meta.icon}
@@ -132,7 +138,7 @@ export function AgentCard({
               className="absolute inset-0 rounded-[10px]"
               style={{
                 background: meta.color,
-                opacity: 0.15,
+                opacity: 0.12,
                 animation: "pulseRing 1.5s ease-out infinite",
               }}
             />
@@ -146,10 +152,10 @@ export function AgentCard({
               {meta.label} Agent
             </span>
             <span
-              className="text-[10px] font-medium px-2 py-0.5 rounded-full"
+              className="text-[10px] font-semibold px-2 py-0.5 rounded-full transition-all duration-200"
               style={{
                 backgroundColor: isActive
-                  ? `color-mix(in srgb, ${meta.color} 15%, transparent)`
+                  ? `color-mix(in srgb, ${meta.color} 12%, transparent)`
                   : isComplete
                     ? "var(--green-dim)"
                     : "var(--bg-hover)",
@@ -158,6 +164,9 @@ export function AgentCard({
                   : isComplete
                     ? "var(--green)"
                     : "var(--text-faint)",
+                border: isActive
+                  ? `1px solid color-mix(in srgb, ${meta.color} 15%, transparent)`
+                  : "1px solid transparent",
               }}
             >
               {statusInfo.label}
@@ -174,7 +183,7 @@ export function AgentCard({
           {/* Tool call indicator */}
           {status === "tool_call" && toolName && (
             <motion.div
-              initial={{ opacity: 0, x: -4 }}
+              initial={{ opacity: 0, x: -6 }}
               animate={{ opacity: 1, x: 0 }}
               className="mt-2"
             >
@@ -194,10 +203,18 @@ export function AgentCard({
 
           {/* Duration on complete */}
           {isComplete && durationMs !== undefined && (
-            <div className="text-[10px] mt-1 font-mono" style={{ color: "var(--text-faint)" }}>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="text-[10px] mt-1.5 font-mono flex items-center gap-1"
+              style={{ color: "var(--text-faint)" }}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                <path d="M20 6L9 17l-5-5" stroke="var(--green)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
               Completed in {(durationMs / 1000).toFixed(1)}s
               {summary && <span className="ml-1">· {summary.slice(0, 50)}</span>}
-            </div>
+            </motion.div>
           )}
         </div>
 

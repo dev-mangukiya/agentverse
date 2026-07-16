@@ -1,11 +1,60 @@
 "use client";
 
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
 
 interface MarkdownRendererProps {
   content: string;
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // fallback
+    }
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-all duration-200"
+      style={{
+        color: copied ? "var(--green)" : "var(--text-faint)",
+        backgroundColor: copied ? "var(--green-dim)" : "transparent",
+      }}
+      onMouseEnter={(e) => {
+        if (!copied) e.currentTarget.style.backgroundColor = "var(--bg-hover)";
+      }}
+      onMouseLeave={(e) => {
+        if (!copied) e.currentTarget.style.backgroundColor = "transparent";
+      }}
+    >
+      {copied ? (
+        <>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+            <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          Copied
+        </>
+      ) : (
+        <>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+            <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="1.5"/>
+            <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke="currentColor" strokeWidth="1.5"/>
+          </svg>
+          Copy
+        </>
+      )}
+    </button>
+  );
 }
 
 const components: Components = {
@@ -34,14 +83,42 @@ const components: Components = {
     <ul className="mb-2 last:mb-0 space-y-1 pl-1">{children}</ul>
   ),
   ol: ({ children }) => (
-    <ol className="mb-2 last:mb-0 space-y-1 pl-1 list-decimal list-inside">{children}</ol>
+    <ol className="mb-2 last:mb-0 space-y-1 pl-1 list-none counter-reset-[list-counter]"
+      style={{ counterReset: "list-counter" }}
+    >
+      {children}
+    </ol>
   ),
-  li: ({ children }) => (
-    <li className="flex gap-2 items-start">
-      <span className="mt-2 w-1 h-1 rounded-full flex-shrink-0" style={{ backgroundColor: "var(--brand)" }} />
-      <span className="flex-1">{children}</span>
-    </li>
-  ),
+  li: ({ children, node }) => {
+    // Detect if parent is an <ol> by checking if ordered prop exists
+    const parentTag = node?.position ? undefined : undefined; // Not available in react-markdown
+    // Instead, check if the node's parent is OL by looking for list counter styles
+    // We use a data attribute approach: ol sets a class, li checks for it
+    // Simpler approach: always render both, hide one via CSS
+
+    // Check if this li is inside an ordered list
+    // We can detect this because ol has counter-reset style
+    // Fallback: always show bullet for ul, number for ol
+    // react-markdown passes `ordered` via the list component context
+    // but the li component doesn't get it directly.
+    // Use a workaround: check if children has ordered number prefix
+    return (
+      <li
+        className="flex gap-2 items-start markdown-li"
+        style={{ counterIncrement: "list-counter" }}
+      >
+        <span
+          className="mt-[7px] w-1.5 h-1.5 rounded-full flex-shrink-0 markdown-bullet"
+          style={{ backgroundColor: "var(--brand)" }}
+        />
+        <span
+          className="mt-[1px] text-xs font-semibold flex-shrink-0 markdown-number"
+          style={{ color: "var(--brand)", display: "none", minWidth: "16px" }}
+        />
+        <span className="flex-1">{children}</span>
+      </li>
+    );
+  },
 
   code: ({ className, children }) => {
     const isInline = !className;
@@ -60,20 +137,22 @@ const components: Components = {
       );
     }
     const language = className?.replace("language-", "") || "";
+    const codeText = String(children).replace(/\n$/, "");
     return (
       <div
-        className="my-2 rounded-xl overflow-hidden"
+        className="my-3 rounded-xl overflow-hidden group/code"
         style={{ border: "1px solid var(--border-subtle)" }}
       >
-        {language && (
-          <div
-            className="px-3 py-1"
-            style={{ backgroundColor: "var(--bg-raised)", borderBottom: "1px solid var(--border-subtle)" }}
-          >
-            <span className="text-[10px] font-mono uppercase" style={{ color: "var(--text-faint)" }}>{language}</span>
-          </div>
-        )}
-        <pre className="p-3 overflow-x-auto" style={{ backgroundColor: "var(--bg-panel)" }}>
+        <div
+          className="px-3 py-1.5 flex items-center justify-between"
+          style={{ backgroundColor: "var(--bg-raised)", borderBottom: "1px solid var(--border-subtle)" }}
+        >
+          <span className="text-[10px] font-mono uppercase font-medium" style={{ color: "var(--text-faint)" }}>
+            {language || "code"}
+          </span>
+          <CopyButton text={codeText} />
+        </div>
+        <pre className="p-4 overflow-x-auto" style={{ backgroundColor: "var(--bg-panel)" }}>
           <code className="text-xs font-mono leading-relaxed" style={{ color: "var(--text-secondary)" }}>{children}</code>
         </pre>
       </div>
@@ -109,7 +188,7 @@ const components: Components = {
   hr: () => <hr className="my-3" style={{ borderColor: "var(--border-subtle)" }} />,
 
   table: ({ children }) => (
-    <div className="my-2 overflow-x-auto rounded-lg" style={{ border: "1px solid var(--border-subtle)" }}>
+    <div className="my-3 overflow-x-auto rounded-xl" style={{ border: "1px solid var(--border-subtle)" }}>
       <table className="w-full text-xs">{children}</table>
     </div>
   ),
@@ -131,6 +210,17 @@ const components: Components = {
 export function MarkdownRenderer({ content }: MarkdownRendererProps) {
   return (
     <div className="markdown-body">
+      <style>{`
+        ol.counter-reset-\\[list-counter\\] > .markdown-li .markdown-bullet,
+        .markdown-body ol > .markdown-li .markdown-bullet { display: none !important; }
+        ol.counter-reset-\\[list-counter\\] > .markdown-li .markdown-number,
+        .markdown-body ol > .markdown-li .markdown-number { display: inline-block !important; }
+        ol.counter-reset-\\[list-counter\\] > .markdown-li .markdown-number::before,
+        .markdown-body ol > .markdown-li .markdown-number::before {
+          content: counter(list-counter) ".";
+          color: var(--brand);
+        }
+      `}</style>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {content}
       </ReactMarkdown>

@@ -66,21 +66,21 @@ export function AgentPipeline({
     <div className="pipeline-container h-full flex flex-col">
       {/* Header */}
       <div
-        className="flex items-center justify-between px-4 py-3 flex-shrink-0"
+        className="flex items-center justify-between px-4 py-3.5 flex-shrink-0"
         style={{ borderBottom: "1px solid var(--border-subtle)" }}
       >
         <div className="flex items-center gap-2.5">
           <div className="flex items-center gap-1.5">
             <div
-              className="w-2 h-2 rounded-full"
+              className="w-2 h-2 rounded-full transition-all duration-300"
               style={{
                 backgroundColor: pipelineActive ? "var(--green)" : "var(--text-faint)",
-                boxShadow: pipelineActive ? "0 0 8px var(--green)" : "none",
+                boxShadow: pipelineActive ? "0 0 10px var(--green)" : "none",
                 animation: pipelineActive ? "pulse 1.5s ease-in-out infinite" : "none",
               }}
             />
             <span
-              className="text-xs font-semibold uppercase tracking-wider"
+              className="text-[10px] font-bold uppercase tracking-widest transition-colors duration-300"
               style={{ color: pipelineActive ? "var(--green)" : "var(--text-faint)" }}
             >
               {pipelineActive ? "Pipeline Active" : "Pipeline Idle"}
@@ -101,7 +101,7 @@ export function AgentPipeline({
       <div className="flex-1 overflow-y-auto px-4 py-4">
         <AnimatePresence mode="sync">
           {!hasActivity ? (
-            /* Idle state — show agent roster */
+            /* Idle state — agent constellation */
             <motion.div
               key="idle"
               initial={{ opacity: 0 }}
@@ -109,15 +109,39 @@ export function AgentPipeline({
               exit={{ opacity: 0 }}
               className="flex flex-col items-center justify-center h-full text-center px-4"
             >
-              <div className="mb-6">
-                <div
-                  className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center"
-                  style={{
-                    background: "linear-gradient(135deg, var(--brand) 0%, var(--agent-data) 100%)",
-                    opacity: 0.15,
-                  }}
-                >
-                  <span className="text-2xl" style={{ filter: "brightness(3)" }}>⚡</span>
+              <div className="mb-6 relative">
+                {/* Floating constellation */}
+                <div className="relative w-16 h-16 mx-auto mb-4">
+                  <div
+                    className="absolute inset-0 rounded-2xl flex items-center justify-center"
+                    style={{
+                      background: "linear-gradient(135deg, var(--brand) 0%, var(--agent-data) 100%)",
+                      opacity: 0.12,
+                    }}
+                  />
+                  <span
+                    className="absolute inset-0 flex items-center justify-center text-2xl"
+                    style={{ animation: "constellation 3s ease-in-out infinite" }}
+                  >
+                    ⚡
+                  </span>
+                  {/* Orbiting dots */}
+                  {[0, 1, 2].map((i) => (
+                    <div
+                      key={i}
+                      className="absolute w-1.5 h-1.5 rounded-full"
+                      style={{
+                        top: "50%",
+                        left: "50%",
+                        marginTop: "-3px",
+                        marginLeft: "-3px",
+                        backgroundColor: "var(--brand)",
+                        opacity: 0.4,
+                        animation: `orbit ${3 + i * 0.5}s linear ${i * 0.5}s infinite`,
+                        ["--orbit-radius" as string]: `${24 + i * 6}px`,
+                      }}
+                    />
+                  ))}
                 </div>
                 <h3 className="text-sm font-semibold mb-1" style={{ color: "var(--text-primary)" }}>
                   Agent Orchestration
@@ -128,21 +152,28 @@ export function AgentPipeline({
               </div>
 
               {/* Agent roster */}
-              <div className="w-full space-y-2">
+              <div className="w-full space-y-1.5">
                 {Object.entries(agentMeta).slice(0, 6).map(([key, meta], i) => (
                   <motion.div
                     key={key}
-                    initial={{ opacity: 0, x: -8 }}
+                    initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.06 }}
-                    className="flex items-center gap-3 px-3 py-2 rounded-xl"
+                    transition={{ delay: i * 0.07, duration: 0.3 }}
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group/agent cursor-default"
                     style={{ backgroundColor: "var(--bg-raised)" }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = "var(--bg-elevated)";
+                      e.currentTarget.style.borderColor = `color-mix(in srgb, ${meta.color} 15%, transparent)`;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = "var(--bg-raised)";
+                    }}
                   >
                     <div
                       className="agent-avatar agent-avatar--sm"
                       style={{
-                        backgroundColor: `color-mix(in srgb, ${meta.color} 20%, var(--bg-panel))`,
-                        border: `1px solid color-mix(in srgb, ${meta.color} 25%, transparent)`,
+                        backgroundColor: `color-mix(in srgb, ${meta.color} 15%, var(--bg-panel))`,
+                        border: `1px solid color-mix(in srgb, ${meta.color} 20%, transparent)`,
                       }}
                     >
                       <span style={{ fontSize: "10px" }}>{meta.icon}</span>
@@ -156,8 +187,11 @@ export function AgentPipeline({
                       </div>
                     </div>
                     <div
-                      className="w-1.5 h-1.5 rounded-full"
-                      style={{ backgroundColor: "var(--text-faint)", opacity: 0.5 }}
+                      className="w-1.5 h-1.5 rounded-full transition-all duration-300 group-hover/agent:scale-150"
+                      style={{
+                        backgroundColor: "var(--text-faint)",
+                        opacity: 0.4,
+                      }}
                     />
                   </motion.div>
                 ))}
@@ -187,9 +221,9 @@ export function AgentPipeline({
                 return (
                   <motion.div
                     key={agent.name}
-                    initial={{ opacity: 0, y: 12 }}
+                    initial={{ opacity: 0, y: 16 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: i * 0.08, duration: 0.3 }}
+                    transition={{ delay: i * 0.1, duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
                     className={`pipeline-node ${isActive ? "pipeline-node--active" : ""}`}
                     style={{ "--agent-color": meta?.color || "var(--brand)" } as React.CSSProperties}
                   >
@@ -209,7 +243,7 @@ export function AgentPipeline({
                     {/* Delegation label */}
                     {delegation && (
                       <motion.div
-                        initial={{ opacity: 0, x: -6 }}
+                        initial={{ opacity: 0, x: -8 }}
                         animate={{ opacity: 1, x: 0 }}
                         className="text-[10px] mb-1.5 flex items-center gap-1"
                         style={{ color: "var(--text-faint)" }}
@@ -240,9 +274,9 @@ export function AgentPipeline({
                         {agentTools.map((tool, j) => (
                           <motion.div
                             key={`${tool.tool}-${j}`}
-                            initial={{ opacity: 0, x: -4 }}
+                            initial={{ opacity: 0, x: -6 }}
                             animate={{ opacity: 1, x: 0 }}
-                            transition={{ delay: j * 0.05 }}
+                            transition={{ delay: j * 0.06 }}
                             className={`tool-pill ${tool.status === "calling" ? "tool-pill--active" : ""}`}
                           >
                             <span>{toolIcons[tool.tool] || "🔧"}</span>
@@ -276,23 +310,37 @@ export function AgentPipeline({
               {/* Pipeline complete summary */}
               {!pipelineActive && pipelineDurationMs !== undefined && agents.length > 0 && (
                 <motion.div
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="mt-4 px-4 py-3 rounded-xl text-center"
+                  initial={{ opacity: 0, y: 12, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                  className="mt-4 px-4 py-3.5 rounded-xl text-center relative overflow-hidden"
                   style={{
                     backgroundColor: "var(--green-dim)",
                     border: "1px solid color-mix(in srgb, var(--green) 20%, transparent)",
                   }}
                 >
-                  <div className="flex items-center justify-center gap-2 mb-1">
+                  {/* Sparkle effect */}
+                  {[...Array(4)].map((_, i) => (
+                    <div
+                      key={i}
+                      className="absolute w-1 h-1 rounded-full"
+                      style={{
+                        backgroundColor: "var(--green)",
+                        left: `${20 + i * 20}%`,
+                        top: `${30 + (i % 2) * 40}%`,
+                        animation: `sparkle 2s ease-in-out ${i * 0.3}s infinite`,
+                      }}
+                    />
+                  ))}
+                  <div className="flex items-center justify-center gap-2 mb-1 relative z-10">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                       <path d="M20 6L9 17l-5-5" stroke="var(--green)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
-                    <span className="text-xs font-semibold" style={{ color: "var(--green)" }}>
+                    <span className="text-xs font-bold" style={{ color: "var(--green)" }}>
                       Pipeline Complete
                     </span>
                   </div>
-                  <div className="text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>
+                  <div className="text-[10px] font-mono relative z-10" style={{ color: "var(--text-muted)" }}>
                     {totalAgentsUsed || agents.length} agents · {(pipelineDurationMs / 1000).toFixed(1)}s total
                   </div>
                 </motion.div>

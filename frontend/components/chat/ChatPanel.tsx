@@ -79,6 +79,46 @@ const SUGGESTIONS = [
   { text: "Analyze trends in tech industry", icon: "📊", agent: "data" },
 ];
 
+function OrbitalThinking({ agentColor }: { agentColor?: string }) {
+  const color = agentColor || "var(--brand)";
+  return (
+    <div className="relative w-6 h-6">
+      <div
+        className="absolute inset-0 rounded-full"
+        style={{
+          border: `1.5px solid color-mix(in srgb, ${color} 20%, transparent)`,
+        }}
+      />
+      <div
+        className="absolute w-1.5 h-1.5 rounded-full"
+        style={{
+          backgroundColor: color,
+          boxShadow: `0 0 6px ${color}`,
+          top: "50%",
+          left: "50%",
+          marginTop: "-3px",
+          marginLeft: "-3px",
+          animation: "orbit 1.2s linear infinite",
+          ["--orbit-radius" as string]: "9px",
+        }}
+      />
+      <div
+        className="absolute w-1 h-1 rounded-full"
+        style={{
+          backgroundColor: color,
+          opacity: 0.5,
+          top: "50%",
+          left: "50%",
+          marginTop: "-2px",
+          marginLeft: "-2px",
+          animation: "orbit 1.8s linear infinite reverse",
+          ["--orbit-radius" as string]: "6px",
+        }}
+      />
+    </div>
+  );
+}
+
 export function ChatPanel({ conversationId, onConversationCreated, onMessageSent, onPipelineUpdate }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -404,7 +444,14 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         style={{ borderBottom: "1px solid var(--border-subtle)" }}
       >
         <div className="flex items-center gap-2.5">
-          <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-[#6366f1] to-[#a855f7] flex items-center justify-center text-white text-[10px] font-bold">A</div>
+          <div
+            className="w-6 h-6 rounded-lg flex items-center justify-center text-white text-[10px] font-bold relative overflow-hidden"
+            style={{
+              background: "linear-gradient(135deg, #6366f1 0%, #a855f7 100%)",
+            }}
+          >
+            <span className="relative z-10">A</span>
+          </div>
           <span className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>AgentVerse</span>
 
           {/* Active agents mini bar */}
@@ -412,8 +459,11 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             <motion.div
               initial={{ opacity: 0, x: -8 }}
               animate={{ opacity: 1, x: 0 }}
-              className="flex items-center gap-1 ml-2 px-2 py-1 rounded-full"
-              style={{ backgroundColor: "var(--brand-dim)" }}
+              className="flex items-center gap-1 ml-2 px-2.5 py-1 rounded-xl"
+              style={{
+                backgroundColor: "var(--brand-dim)",
+                border: "1px solid color-mix(in srgb, var(--brand) 10%, transparent)",
+              }}
             >
               {activeAgents.map(name => {
                 const meta = agentMeta[name];
@@ -424,7 +474,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                     animate={{ scale: 1 }}
                     className="w-4 h-4 rounded-md flex items-center justify-center"
                     style={{
-                      backgroundColor: `color-mix(in srgb, ${meta?.color || "var(--brand)"} 25%, transparent)`,
+                      backgroundColor: `color-mix(in srgb, ${meta?.color || "var(--brand)"} 20%, transparent)`,
                       fontSize: "8px",
                     }}
                     title={`${meta?.label || name} active`}
@@ -442,21 +492,25 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
         {conversationId ? (
           <div
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all duration-300"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-medium transition-all duration-300"
             style={{
               backgroundColor: wsConnected ? "var(--green-dim)" : "var(--red-dim)",
               color: wsConnected ? "var(--green)" : "var(--red)",
+              border: `1px solid color-mix(in srgb, ${wsConnected ? "var(--green)" : "var(--red)"} 15%, transparent)`,
             }}
           >
             <span
               className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${!wsConnected && "animate-pulse"}`}
-              style={{ backgroundColor: wsConnected ? "var(--green)" : "var(--red)" }}
+              style={{
+                backgroundColor: wsConnected ? "var(--green)" : "var(--red)",
+                boxShadow: `0 0 4px ${wsConnected ? "var(--green)" : "var(--red)"}`,
+              }}
             />
             {wsConnected ? "Connected" : "Reconnecting…"}
           </div>
         ) : (
           <div
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-medium"
             style={{ backgroundColor: "var(--bg-hover)", color: "var(--text-muted)" }}
           >
             <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: "var(--text-muted)" }} />
@@ -469,33 +523,95 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {isEmpty ? (
           /* Multi-agent welcome screen */
-          <div className="flex flex-col items-center justify-center h-full px-6 pb-8">
-            <div
-              className="w-16 h-16 rounded-3xl flex items-center justify-center mb-6"
-              style={{
-                background: "linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%)",
-                boxShadow: "0 8px 40px rgba(99,102,241,0.3)",
-              }}
-            >
-              <span className="text-2xl">⚡</span>
+          <div className="flex flex-col items-center justify-center h-full px-6 pb-8 relative">
+            {/* Ambient gradient orbs */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+              <div
+                className="absolute w-64 h-64 rounded-full"
+                style={{
+                  top: "15%",
+                  left: "20%",
+                  background: "radial-gradient(circle, rgba(99,102,241,0.08), transparent 70%)",
+                  animation: "floatParticle 8s ease-in-out infinite",
+                }}
+              />
+              <div
+                className="absolute w-48 h-48 rounded-full"
+                style={{
+                  bottom: "20%",
+                  right: "15%",
+                  background: "radial-gradient(circle, rgba(168,85,247,0.06), transparent 70%)",
+                  animation: "floatParticle 10s ease-in-out 2s infinite",
+                }}
+              />
+              <div
+                className="absolute w-32 h-32 rounded-full"
+                style={{
+                  top: "40%",
+                  right: "30%",
+                  background: "radial-gradient(circle, rgba(236,72,153,0.05), transparent 70%)",
+                  animation: "floatParticle 7s ease-in-out 4s infinite",
+                }}
+              />
             </div>
 
-            <h1 className="text-2xl font-bold mb-2 text-center gradient-text">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              transition={{ duration: 0.6, ease: [0.4, 0, 0.2, 1] }}
+              className="relative z-10"
+            >
+              <div
+                className="w-18 h-18 rounded-3xl flex items-center justify-center mb-6 mx-auto relative overflow-hidden"
+                style={{
+                  width: "72px",
+                  height: "72px",
+                  background: "linear-gradient(135deg, #6366f1 0%, #a855f7 40%, #ec4899 100%)",
+                  boxShadow: "0 12px 48px rgba(99,102,241,0.35), 0 0 80px rgba(168,85,247,0.15)",
+                }}
+              >
+                <span className="text-3xl relative z-10">⚡</span>
+                <div
+                  className="absolute inset-0"
+                  style={{
+                    background: "linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.15) 50%, transparent 60%)",
+                    backgroundSize: "200% 100%",
+                    animation: "shine 3s ease-in-out infinite",
+                  }}
+                />
+              </div>
+            </motion.div>
+
+            <motion.h1
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15, duration: 0.5 }}
+              className="text-2xl font-bold mb-2 text-center gradient-text relative z-10"
+            >
               Multi-Agent AI Workforce
-            </h1>
-            <p className="text-sm mb-8 text-center max-w-md" style={{ color: "var(--text-muted)" }}>
+            </motion.h1>
+            <motion.p
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.25, duration: 0.5 }}
+              className="text-sm mb-8 text-center max-w-md relative z-10"
+              style={{ color: "var(--text-muted)" }}
+            >
               Your request is analyzed by the Orchestrator and delegated to specialized agents who collaborate in real-time.
-            </p>
+            </motion.p>
 
             {/* Suggestion cards with agent badges */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-md w-full px-2">
-              {SUGGESTIONS.map((s) => {
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-md w-full px-2 relative z-10">
+              {SUGGESTIONS.map((s, i) => {
                 const meta = agentMeta[s.agent];
                 return (
-                  <button
+                  <motion.button
                     key={s.text}
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.3 + i * 0.08, duration: 0.4 }}
                     onClick={() => handleSend(s.text)}
-                    className="flex items-start gap-3 px-4 py-3 rounded-2xl text-left transition-all duration-200 group"
+                    className="flex items-start gap-3 px-4 py-3.5 rounded-2xl text-left transition-all duration-300 group relative overflow-hidden"
                     style={{
                       backgroundColor: "var(--bg-raised)",
                       border: "1px solid var(--border-muted)",
@@ -503,20 +619,27 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                     onMouseEnter={(e) => {
                       e.currentTarget.style.backgroundColor = "var(--bg-elevated)";
                       e.currentTarget.style.borderColor = `color-mix(in srgb, ${meta?.color || "var(--brand)"} 30%, transparent)`;
+                      e.currentTarget.style.transform = "translateY(-2px)";
+                      e.currentTarget.style.boxShadow = `0 8px 24px rgba(0,0,0,0.12), 0 0 30px -10px color-mix(in srgb, ${meta?.color || "var(--brand)"} 20%, transparent)`;
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.backgroundColor = "var(--bg-raised)";
                       e.currentTarget.style.borderColor = "var(--border-muted)";
+                      e.currentTarget.style.transform = "translateY(0)";
+                      e.currentTarget.style.boxShadow = "none";
                     }}
                   >
                     <span className="text-lg mt-0.5">{s.icon}</span>
                     <div>
-                      <div className="text-sm" style={{ color: "var(--text-secondary)" }}>{s.text}</div>
-                      <div className="text-[10px] mt-1 font-medium" style={{ color: meta?.color || "var(--text-faint)" }}>
-                        → {meta?.label || s.agent} Agent
+                      <div className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>{s.text}</div>
+                      <div className="text-[10px] mt-1.5 font-semibold flex items-center gap-1" style={{ color: meta?.color || "var(--text-faint)" }}>
+                        <svg width="8" height="8" viewBox="0 0 24 24" fill="none">
+                          <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                        {meta?.label || s.agent} Agent
                       </div>
                     </div>
-                  </button>
+                  </motion.button>
                 );
               })}
             </div>
@@ -530,10 +653,10 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                 return (
                   <motion.div
                     key={`${msg.id}-${idx}`}
-                    initial={{ opacity: 0, y: 12 }}
-                    animate={{ opacity: 1, y: 0 }}
+                    initial={{ opacity: 0, y: 16, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0 }}
-                    transition={{ duration: 0.2 }}
+                    transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
                     className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                   >
                     {msg.role !== "user" && (
@@ -541,10 +664,10 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                         className="agent-avatar agent-avatar--sm flex-shrink-0 mr-3 mt-0.5"
                         style={{
                           backgroundColor: meta
-                            ? `color-mix(in srgb, ${meta.color} 25%, var(--bg-panel))`
+                            ? `color-mix(in srgb, ${meta.color} 20%, var(--bg-panel))`
                             : "var(--bg-elevated)",
                           border: meta
-                            ? `1px solid color-mix(in srgb, ${meta.color} 35%, transparent)`
+                            ? `1px solid color-mix(in srgb, ${meta.color} 30%, transparent)`
                             : "1px solid var(--border-muted)",
                         }}
                       >
@@ -559,11 +682,12 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                         ...(msg.role === "user" ? {
                           maxWidth: "75%",
                           padding: "12px 16px",
-                          borderRadius: "18px 18px 4px 18px",
+                          borderRadius: "20px 20px 4px 20px",
                           backgroundColor: "var(--bubble-user-bg)",
                           color: "var(--bubble-user-text)",
                           fontSize: "14px",
                           lineHeight: "1.6",
+                          border: "1px solid color-mix(in srgb, var(--brand) 15%, transparent)",
                         } : msg.role === "system" ? {
                           maxWidth: "80%",
                           padding: "12px 16px",
@@ -582,7 +706,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                     >
                       {/* Agent badge */}
                       {msg.role === "agent" && msg.agent_name && (
-                        <div className="flex items-center gap-2 mb-2">
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
                           <span
                             className="agent-badge"
                             style={{ "--agent-color": meta?.color || "var(--brand)" } as React.CSSProperties}
@@ -614,10 +738,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
             {/* Tool activity */}
             {toolActivity && (
-              <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-3 ml-10">
-                <div
-                  className="tool-pill tool-pill--active"
-                >
+              <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-3 ml-10">
+                <div className="tool-pill tool-pill--active">
                   {toolActivity.status === "calling" ? (
                     <div
                       className="w-3 h-3 border-[1.5px] rounded-full"
@@ -638,37 +760,18 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
               </motion.div>
             )}
 
-            {/* Thinking indicator */}
+            {/* Thinking indicator — orbital animation */}
             {isThinking && !toolActivity && (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-3 ml-10">
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex items-center gap-3 ml-10"
+              >
                 <div className="flex items-center gap-2.5">
                   {(() => {
                     const meta = agentMeta[thinkingAgent?.toLowerCase()];
                     return (
-                      <div
-                        className="agent-avatar agent-avatar--sm"
-                        style={{
-                          backgroundColor: meta
-                            ? `color-mix(in srgb, ${meta.color} 25%, var(--bg-panel))`
-                            : "var(--bg-elevated)",
-                          border: meta
-                            ? `1px solid color-mix(in srgb, ${meta.color} 35%, transparent)`
-                            : "1px solid var(--border-muted)",
-                        }}
-                      >
-                        <div className="flex gap-0.5">
-                          {[0, 1, 2].map(i => (
-                            <span
-                              key={i}
-                              className="w-[3px] h-[3px] rounded-full animate-bounce"
-                              style={{
-                                backgroundColor: meta?.color || "var(--brand)",
-                                animationDelay: `${i * 150}ms`,
-                              }}
-                            />
-                          ))}
-                        </div>
-                      </div>
+                      <OrbitalThinking agentColor={meta?.color} />
                     );
                   })()}
                   <span className="text-xs" style={{ color: "var(--text-muted)" }}>
@@ -687,17 +790,19 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       {/* Error banner */}
       {error && (
         <div className="px-4 pb-2">
-          <div
-            className="max-w-3xl mx-auto px-4 py-2 rounded-xl text-xs flex items-center justify-between"
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="max-w-3xl mx-auto px-4 py-2.5 rounded-xl text-xs flex items-center justify-between"
             style={{
               backgroundColor: "var(--red-dim)",
-              border: "1px solid color-mix(in srgb, var(--red) 25%, transparent)",
+              border: "1px solid color-mix(in srgb, var(--red) 20%, transparent)",
               color: "var(--red)",
             }}
           >
             <span>{error}</span>
             <button onClick={() => setError(null)} className="ml-3 transition-colors hover:opacity-70">✕</button>
-          </div>
+          </motion.div>
         </div>
       )}
 
@@ -705,23 +810,23 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       <div className="px-3 md:px-4 pb-4 md:pb-5 pt-2 flex-shrink-0">
         <div className="w-full max-w-3xl mx-auto">
           <div
-            className="relative flex items-center gap-2 rounded-2xl px-4 py-3 transition-all duration-200"
+            className="relative flex items-center gap-2 rounded-2xl px-4 py-3 transition-all duration-300"
             style={{
               backgroundColor: "var(--input-bg)",
               border: "1px solid var(--input-border)",
-              boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
+              boxShadow: "0 4px 24px rgba(0,0,0,0.12)",
             }}
             onFocusCapture={(e) => {
               const el = e.currentTarget as HTMLElement;
               el.style.borderColor = "var(--input-border-focus)";
               el.style.backgroundColor = "var(--input-bg-focus)";
-              el.style.boxShadow = "0 4px 24px rgba(0,0,0,0.15), 0 0 0 3px var(--brand-dim)";
+              el.style.boxShadow = "0 4px 24px rgba(0,0,0,0.15), 0 0 0 3px var(--brand-dim), 0 0 40px -10px var(--brand-glow)";
             }}
             onBlurCapture={(e) => {
               const el = e.currentTarget as HTMLElement;
               el.style.borderColor = "var(--input-border)";
               el.style.backgroundColor = "var(--input-bg)";
-              el.style.boxShadow = "0 4px 24px rgba(0,0,0,0.15)";
+              el.style.boxShadow = "0 4px 24px rgba(0,0,0,0.12)";
             }}
           >
             <textarea
@@ -754,7 +859,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
               )}
             </button>
           </div>
-          <p className="text-center text-[10px] mt-2" style={{ color: "var(--text-faint)" }}>
+          <p className="text-center text-[10px] mt-2.5 font-medium" style={{ color: "var(--text-faint)" }}>
             Orchestrator routes your request to specialized agents who collaborate in real-time.
           </p>
         </div>

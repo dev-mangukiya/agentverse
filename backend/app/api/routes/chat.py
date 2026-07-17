@@ -330,6 +330,65 @@ async def _process_user_message(
             })
             return
 
+        # ── Fast-path for trivial greetings ──────────────────────
+        # Skip the full orchestrator pipeline for messages that don't need it.
+        trivial_lower = content.strip().lower().rstrip("!?.,:;")
+        GREETINGS = {
+            "hi", "hey", "hello", "hola", "yo", "sup", "hii", "hiii",
+            "good morning", "good afternoon", "good evening", "good night",
+            "gm", "thanks", "thank you", "thx", "ty", "ok", "okay",
+            "bye", "goodbye", "see you", "test", "ping",
+        }
+        if trivial_lower in GREETINGS and not attachments:
+            fast_start = time.time()
+            FAST_RESPONSES = {
+                "hi": "Hello! How can I help you today?",
+                "hey": "Hey there! What can I do for you?",
+                "hello": "Hello! How can I help you today?",
+                "hola": "¡Hola! How can I help you?",
+                "yo": "Hey! What's up?",
+                "sup": "Hey! What's on your mind?",
+                "hii": "Hello! How can I help you today?",
+                "hiii": "Hello! How can I help you today?",
+                "good morning": "Good morning! ☀️ How can I help you today?",
+                "good afternoon": "Good afternoon! How can I help you?",
+                "good evening": "Good evening! What can I do for you?",
+                "good night": "Good night! 🌙 Let me know if you need anything before you go.",
+                "gm": "Good morning! ☀️ How can I help you today?",
+                "thanks": "You're welcome! Let me know if you need anything else.",
+                "thank you": "You're welcome! Happy to help.",
+                "thx": "You're welcome! 😊",
+                "ty": "You're welcome!",
+                "ok": "Got it! Let me know what you'd like to work on.",
+                "okay": "Got it! Let me know what you'd like to work on.",
+                "bye": "Goodbye! 👋 Feel free to come back anytime.",
+                "goodbye": "Goodbye! 👋 Have a great day!",
+                "see you": "See you later! 👋",
+                "test": "I'm here and working! ✅ Ask me anything.",
+                "ping": "Pong! 🏓 System is online and ready.",
+            }
+            fast_response = FAST_RESPONSES.get(trivial_lower, "Hello! How can I help you today?")
+            fast_duration = int((time.time() - fast_start) * 1000)
+
+            # Send minimal pipeline events
+            await _send_ws(websocket, {"type": "pipeline_start", "timestamp": time.time()})
+            await _send_ws(websocket, {"type": "agent_activated", "agent": "orchestrator", "task": "Quick response"})
+            await _send_ws(websocket, {"type": "agent_complete", "agent": "orchestrator", "duration_ms": fast_duration, "summary": "Instant reply"})
+
+            # Save and send
+            async with async_session_factory() as db:
+                agent_msg = Message(conversation_id=conversation_id, role="agent", agent_name="orchestrator", content=fast_response)
+                db.add(agent_msg)
+                stmt = select(Conversation).where(Conversation.id == conversation_id)
+                result = await db.execute(stmt)
+                conv = result.scalar_one_or_none()
+                if conv:
+                    conv.updated_at = datetime.now(timezone.utc)
+                await db.commit()
+                await _send_ws(websocket, {"type": "pipeline_complete", "total_duration_ms": fast_duration, "agents_used": 1, "contributing_agents": []})
+                await _send_ws(websocket, {"type": "response", "agent": "orchestrator", "content": fast_response, "message": agent_msg.to_dict(), "contributing_agents": [], "pipeline_duration_ms": fast_duration})
+            return
+
         # ── Pipeline Start Event ─────────────────────────────────
         await _send_ws(websocket, {
             "type": "pipeline_start",

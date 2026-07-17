@@ -29,6 +29,29 @@ async def lifespan(app: FastAPI):
     import app.database.models.models  # noqa: F401
     await init_db()
     logger.info("agentverse.db_initialized", url=settings.effective_database_url[:50])
+
+    # Background LLM warmup — prime the Gemini connection so the first real
+    # user request doesn't pay the ~30s cold-start penalty.
+    async def _warmup_llm():
+        try:
+            import asyncio
+            await asyncio.sleep(1)  # Let the server finish starting
+            if settings.llm_configured:
+                from app.agents.base import get_llm
+                from langchain_core.messages import HumanMessage
+                llm = get_llm()
+                logger.info("llm.warmup_start")
+                await asyncio.wait_for(
+                    llm.ainvoke([HumanMessage(content="hi")]),
+                    timeout=30,
+                )
+                logger.info("llm.warmup_complete")
+        except Exception as exc:
+            logger.warning("llm.warmup_failed", error=str(exc)[:200])
+
+    import asyncio
+    asyncio.create_task(_warmup_llm())
+
     yield
     logger.info("agentverse.shutdown")
 

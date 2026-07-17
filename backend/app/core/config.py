@@ -69,10 +69,13 @@ class Settings(BaseSettings):
 
     # ── Redis ────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
+    redis_cache_ttl: int = 3600  # LLM response cache TTL in seconds
 
     # ── Vector DB ────────────────────────────────────────
     qdrant_url: str = "http://localhost:6333"
+    qdrant_api_key: str | None = None
     qdrant_collection: str = "agentverse_memory"
+    embedding_model: str = "text-embedding-004"
 
     # ── Tools ────────────────────────────────────────────
     tavily_api_key: str | None = None

@@ -33,22 +33,27 @@ async def health_check(db: AsyncSession = Depends(get_db)) -> dict:
     # LLM provider
     status["llm"] = "configured" if settings.llm_configured else "no_api_key"
 
-    # Redis (optional)
+    # Redis (optional) — use the shared singleton
     try:
-        from redis.asyncio import Redis
-        redis_client = Redis.from_url(settings.redis_url)
-        await redis_client.ping()
-        await redis_client.aclose()
-        status["redis"] = "ok"
+        from app.database.redis_client import get_redis
+        redis = await get_redis()
+        if redis:
+            await redis.ping()
+            status["redis"] = "ok"
+        else:
+            status["redis"] = "not_running"
     except Exception:
         status["redis"] = "not_running"
 
-    # Qdrant (optional)
+    # Qdrant (optional) — use the shared singleton
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(f"{settings.qdrant_url}/readyz")
-            status["qdrant"] = "ok" if resp.status_code == 200 else "not_running"
+        from app.memory.vector_store import _get_qdrant
+        client = await _get_qdrant()
+        if client:
+            await client.get_collections()
+            status["qdrant"] = "ok"
+        else:
+            status["qdrant"] = "not_running"
     except Exception:
         status["qdrant"] = "not_running"
 

@@ -11,6 +11,7 @@ from app.tools.hitl import request_user_approval
 from app.tools.github_tools import search_github_repos
 from app.tools.linear_tools import create_linear_issue
 from app.tools.slack_tools import send_slack_message
+from app.tools.memory_tools import search_memory
 
 # Map tool names to actual tool functions
 TOOL_REGISTRY = {
@@ -25,6 +26,7 @@ TOOL_REGISTRY = {
     "search_github_repos": search_github_repos,
     "create_linear_issue": create_linear_issue,
     "send_slack_message": send_slack_message,
+    "search_memory": search_memory,
 }
 
 

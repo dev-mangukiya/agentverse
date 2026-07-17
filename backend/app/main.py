@@ -30,12 +30,24 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("agentverse.db_initialized", url=settings.effective_database_url[:50])
 
-    # Background LLM warmup — prime the Gemini connection so the first real
-    # user request doesn't pay the ~30s cold-start penalty.
-    async def _warmup_llm():
+    # Background startup tasks — non-blocking
+    async def _startup_tasks():
         try:
             import asyncio
             await asyncio.sleep(1)  # Let the server finish starting
+
+            # 1. Warm up Redis connection
+            from app.database.redis_client import get_redis
+            redis = await get_redis()
+            if redis:
+                logger.info("startup.redis_ready")
+
+            # 2. Ensure Qdrant collection exists
+            from app.memory.vector_store import ensure_collection
+            if await ensure_collection():
+                logger.info("startup.qdrant_ready")
+
+            # 3. Warm up LLM connection
             if settings.llm_configured:
                 from app.agents.base import get_llm
                 from langchain_core.messages import HumanMessage
@@ -47,12 +59,18 @@ async def lifespan(app: FastAPI):
                 )
                 logger.info("llm.warmup_complete")
         except Exception as exc:
-            logger.warning("llm.warmup_failed", error=str(exc)[:200])
+            logger.warning("startup.background_tasks_failed", error=str(exc)[:200])
 
     import asyncio
-    asyncio.create_task(_warmup_llm())
+    asyncio.create_task(_startup_tasks())
 
     yield
+
+    # Cleanup
+    from app.database.redis_client import close_redis
+    from app.memory.vector_store import close_qdrant
+    await close_redis()
+    await close_qdrant()
     logger.info("agentverse.shutdown")
 
 

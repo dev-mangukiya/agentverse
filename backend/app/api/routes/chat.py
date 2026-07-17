@@ -322,6 +322,15 @@ async def _process_user_message(
                 "message": user_msg.to_dict(),
             })
 
+            # Background: embed user message into Qdrant semantic memory
+            async def _store_user_memory():
+                try:
+                    from app.memory.vector_store import store_message
+                    await store_message(conversation_id, "user", content)
+                except Exception:
+                    pass  # Non-critical
+            asyncio.create_task(_store_user_memory())
+
         # Check LLM
         if not settings.llm_configured:
             await _send_ws(websocket, {
@@ -665,6 +674,18 @@ async def _process_user_message(
                 conv.updated_at = datetime.now(timezone.utc)
 
             await db.commit()
+
+            # Background: embed agent response into Qdrant semantic memory
+            _final_agent = final_agent_name
+            _final_resp = final_response
+            _conv_id = conversation_id
+            async def _store_agent_memory():
+                try:
+                    from app.memory.vector_store import store_message
+                    await store_message(_conv_id, "agent", _final_resp, agent_name=_final_agent)
+                except Exception:
+                    pass  # Non-critical
+            asyncio.create_task(_store_agent_memory())
 
             # Pipeline complete event
             await _send_ws(websocket, {

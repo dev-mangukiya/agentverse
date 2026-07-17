@@ -26,6 +26,7 @@ AVAILABLE_TOOLS = {
     "search_github_repos": "Search public GitHub repositories",
     "create_linear_issue": "Create an issue in Linear",
     "send_slack_message": "Send a message to a Slack channel",
+    "search_memory": "Search past conversations and agent knowledge",
 }
 
 # Built-in agents (not editable)

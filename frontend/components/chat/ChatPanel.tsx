@@ -627,31 +627,44 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       return;
     }
 
-    const originalInput = input;
+    let finalTranscript = input;
+    let lastInterim = "";
+
     const recognition = new SpeechRecognition();
-    recognition.continuous = false;
+    recognition.continuous = false; // Stops on silence
     recognition.interimResults = true;
     recognition.lang = "en-US";
 
     recognition.onresult = (event: any) => {
-      let currentTranscript = "";
+      let interimTranscript = "";
+      let newFinal = "";
+      
       for (let i = event.resultIndex; i < event.results.length; ++i) {
-        currentTranscript += event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          newFinal += event.results[i][0].transcript;
+        } else {
+          interimTranscript += event.results[i][0].transcript;
+        }
       }
       
-      if (currentTranscript) {
-        const sep = originalInput && !originalInput.endsWith(" ") ? " " : "";
-        setInput(originalInput + sep + currentTranscript);
-      }
+      finalTranscript += newFinal;
+      lastInterim = interimTranscript;
+      
+      const sep = finalTranscript && !finalTranscript.endsWith(" ") && (newFinal || interimTranscript) ? " " : "";
+      setInput(finalTranscript + sep + interimTranscript);
     };
 
     recognition.onerror = (event: any) => {
       console.error("Speech recognition error", event.error);
       setIsRecording(false);
+      // Clean up the text by removing any stuck interim text on error
+      if (lastInterim) setInput(finalTranscript);
     };
 
     recognition.onend = () => {
       setIsRecording(false);
+      // Clean up any interim text that never finalized
+      if (lastInterim) setInput(finalTranscript);
     };
 
     recognition.start();

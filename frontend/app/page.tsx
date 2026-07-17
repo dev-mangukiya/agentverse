@@ -32,23 +32,38 @@ export default function Home() {
   const [pipelineTotalAgents, setPipelineTotalAgents] = useState<number | undefined>(undefined);
   const [backendStatus, setBackendStatus] = useState<"online" | "waking" | "offline">("waking");
 
-  // Global keep-alive ping — prevents Render free tier from sleeping (every 13 min)
+  // Global keep-alive ping — prevents Render free tier from sleeping
   useEffect(() => {
     const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
     let mounted = true;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
     const ping = async () => {
       try {
-        const res = await fetch(`${API_URL}/health`, { signal: AbortSignal.timeout(15000) });
-        if (mounted) setBackendStatus(res.ok ? "online" : "offline");
+        const res = await fetch(`${API_URL}/health`, { signal: AbortSignal.timeout(10000) });
+        if (mounted) {
+          setBackendStatus(res.ok ? "online" : "offline");
+          // If not yet online, retry quickly
+          if (!res.ok) {
+            retryTimer = setTimeout(ping, 3000);
+          }
+        }
       } catch {
-        if (mounted) setBackendStatus("waking");
+        if (mounted) {
+          setBackendStatus("waking");
+          // Retry every 3s while waking up
+          retryTimer = setTimeout(ping, 3000);
+        }
       }
     };
 
     ping(); // Immediate check on mount
-    const interval = setInterval(ping, 13 * 60 * 1000); // Every 13 min
-    return () => { mounted = false; clearInterval(interval); };
+    const keepAlive = setInterval(ping, 13 * 60 * 1000); // Keep-alive every 13 min
+    return () => {
+      mounted = false;
+      clearInterval(keepAlive);
+      if (retryTimer) clearTimeout(retryTimer);
+    };
   }, []);
 
   const handleNewChat = useCallback(() => { setActiveConversationId(null); }, []);

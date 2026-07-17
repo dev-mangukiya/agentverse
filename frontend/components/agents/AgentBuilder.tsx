@@ -98,6 +98,22 @@ export function AgentBuilder() {
   const handleSave = async () => {
     setSaving(true);
     setError(null);
+
+    // Client-side validation
+    const cleanName = formData.name.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_").replace(/^[^a-z]+/, "").replace(/_+/g, "_");
+    if (!cleanName || cleanName.length < 2) {
+      setError("Name must be at least 2 characters and start with a letter (only lowercase letters, numbers, underscores).");
+      setSaving(false);
+      return;
+    }
+    if (!formData.system_prompt || formData.system_prompt.trim().length < 10) {
+      setError("System prompt must be at least 10 characters.");
+      setSaving(false);
+      return;
+    }
+
+    const payload = { ...formData, name: cleanName };
+
     try {
       const url = editAgent 
         ? `${API_URL}/api/v1/agents/${editAgent.id}`
@@ -106,18 +122,29 @@ export function AgentBuilder() {
       const res = await fetch(url, {
         method: editAgent ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
       
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.detail || `Server error: ${res.status}`);
+        // FastAPI returns { detail: string | array | object }
+        let msg = `Server error: ${res.status}`;
+        if (errData.detail) {
+          if (typeof errData.detail === "string") {
+            msg = errData.detail;
+          } else if (Array.isArray(errData.detail)) {
+            msg = errData.detail.map((d: any) => d.msg || JSON.stringify(d)).join("; ");
+          } else if (typeof errData.detail === "object") {
+            msg = errData.detail.msg || JSON.stringify(errData.detail);
+          }
+        }
+        throw new Error(msg);
       }
       
       await fetchAgents();
       setIsCreating(false);
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || String(err));
     } finally {
       setSaving(false);
     }
@@ -238,12 +265,16 @@ export function AgentBuilder() {
                     <input 
                       type="text" 
                       value={formData.name}
-                      onChange={e => setFormData({...formData, name: e.target.value})}
+                      onChange={e => {
+                        const raw = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "_").replace(/_+/g, "_");
+                        setFormData({...formData, name: raw});
+                      }}
                       disabled={!!editAgent}
                       placeholder="e.g. data_viz_expert"
                       className="w-full bg-black/20 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
                       style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
                     />
+                    <span className="text-[10px] mt-0.5 block" style={{ color: "var(--text-faint)" }}>Lowercase letters, numbers, underscores only</span>
                   </div>
                   <div className="col-span-1">
                     <label className="block text-xs font-semibold mb-1" style={{ color: "var(--text-secondary)" }}>Emoji</label>

@@ -32,7 +32,8 @@ export default function Home() {
   const [pipelineTotalAgents, setPipelineTotalAgents] = useState<number | undefined>(undefined);
   const [backendStatus, setBackendStatus] = useState<"online" | "waking" | "offline">("waking");
 
-  // Global keep-alive ping — prevents Render free tier from sleeping
+  // Keep active browser sessions warm. A GitHub Actions scheduler also pings
+  // the backend while nobody has the app open.
   useEffect(() => {
     const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
     let mounted = true;
@@ -58,7 +59,7 @@ export default function Home() {
     };
 
     ping(); // Immediate check on mount
-    const keepAlive = setInterval(ping, 13 * 60 * 1000); // Keep-alive every 13 min
+    const keepAlive = setInterval(ping, 10 * 60 * 1000); // Stay below Render's 15 min idle window
     return () => {
       mounted = false;
       clearInterval(keepAlive);

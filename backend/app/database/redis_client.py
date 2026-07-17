@@ -24,40 +24,42 @@ async def get_redis():
     global _redis_client, _redis_available
 
     if _redis_client is not None:
-        try:
-            await _redis_client.ping()
-            return _redis_client
-        except Exception:
-            _redis_client = None
-            _redis_available = None
+        return _redis_client
 
     try:
+        import ssl
         from redis.asyncio import Redis
-        import ssl as _ssl
 
         settings = get_settings()
         url = settings.redis_url
 
+        if not url or url == "redis://localhost:6379/0":
+            _redis_available = False
+            return None
+
         # Cloud Redis (Upstash, Render, Redis Cloud) uses rediss:// with TLS
-        # Need to skip cert verification for managed services
         kwargs = dict(
             decode_responses=True,
-            socket_connect_timeout=5,
-            socket_timeout=5,
-            retry_on_timeout=True,
+            socket_connect_timeout=3,
+            socket_timeout=3,
         )
+
         if url.startswith("rediss://"):
-            kwargs["ssl_cert_reqs"] = None  # Skip cert verification for cloud Redis
+            # Create a permissive SSL context for managed Redis
+            ssl_ctx = ssl.create_default_context()
+            ssl_ctx.check_hostname = False
+            ssl_ctx.verify_mode = ssl.CERT_NONE
+            kwargs["ssl"] = ssl_ctx
 
         _redis_client = Redis.from_url(url, **kwargs)
         await _redis_client.ping()
         _redis_available = True
-        logger.info("redis.connected", url=url[:30] + "...")
+        logger.info("redis.connected", url=url[:40] + "...")
         return _redis_client
     except Exception as exc:
         _redis_available = False
         _redis_client = None
-        logger.warning("redis.unavailable", error=str(exc)[:200])
+        logger.warning("redis.unavailable", error=str(exc)[:300])
         return None
 
 

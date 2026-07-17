@@ -30,39 +30,49 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("agentverse.db_initialized", url=settings.effective_database_url[:50])
 
-    # Background startup tasks — non-blocking
-    async def _startup_tasks():
+    # Background startup tasks — run ALL in parallel, non-blocking
+    async def _warmup_redis():
         try:
-            import asyncio
-            await asyncio.sleep(1)  # Let the server finish starting
-
-            # 1. Warm up Redis connection
             from app.database.redis_client import get_redis
-            redis = await get_redis()
-            if redis:
-                logger.info("startup.redis_ready")
+            r = await get_redis()
+            logger.info("startup.redis", status="ok" if r else "skipped")
+        except Exception as exc:
+            logger.warning("startup.redis_failed", error=str(exc)[:100])
 
-            # 2. Ensure Qdrant collection exists
+    async def _warmup_qdrant():
+        try:
             from app.memory.vector_store import ensure_collection
-            if await ensure_collection():
-                logger.info("startup.qdrant_ready")
+            ok = await ensure_collection()
+            logger.info("startup.qdrant", status="ok" if ok else "skipped")
+        except Exception as exc:
+            logger.warning("startup.qdrant_failed", error=str(exc)[:100])
 
-            # 3. Warm up LLM connection
+    async def _warmup_llm():
+        try:
             if settings.llm_configured:
                 from app.agents.base import get_llm
                 from langchain_core.messages import HumanMessage
                 llm = get_llm()
-                logger.info("llm.warmup_start")
                 await asyncio.wait_for(
                     llm.ainvoke([HumanMessage(content="hi")]),
-                    timeout=30,
+                    timeout=15,
                 )
-                logger.info("llm.warmup_complete")
+                logger.info("startup.llm_ready")
         except Exception as exc:
-            logger.warning("startup.background_tasks_failed", error=str(exc)[:200])
+            logger.warning("startup.llm_failed", error=str(exc)[:100])
+
+    async def _run_all_warmups():
+        await asyncio.sleep(0.5)  # Let the server finish binding the port
+        await asyncio.gather(
+            _warmup_redis(),
+            _warmup_qdrant(),
+            _warmup_llm(),
+            return_exceptions=True,
+        )
+        logger.info("startup.warmup_complete")
 
     import asyncio
-    asyncio.create_task(_startup_tasks())
+    asyncio.create_task(_run_all_warmups())
 
     yield
 

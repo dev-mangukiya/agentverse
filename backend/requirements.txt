@@ -37,6 +37,7 @@ ddgs>=9.14.4
 pandas==2.2.3
 openpyxl==3.1.5
 matplotlib==3.9.2
+pypdf>=5.0.0
 
 # ── Auth ───────────────────────────────────────────────
 python-jose[cryptography]==3.3.0

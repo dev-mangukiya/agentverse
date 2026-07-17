@@ -5,6 +5,9 @@ and agent instance caching for speed.
 """
 
 import asyncio
+import base64
+import binascii
+import io
 import json
 import re
 import time
@@ -24,6 +27,11 @@ from app.database.session import get_db, async_session_factory
 logger = get_logger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
 settings = get_settings()
+
+# Keep extracted documents comfortably within the context window while still
+# giving the specialist agent enough source material to answer follow-ups.
+MAX_DOCUMENT_TEXT_CHARS = 50_000
+MAX_PDF_BYTES = 2 * 1024 * 1024
 
 
 # ── Agent instance cache ──────────────────────────────────
@@ -298,6 +306,12 @@ async def _process_user_message(
     pipeline_start = time.time()
 
     try:
+        # Attachments arrive separately from the visible chat text. Convert PDF
+        # bytes to text here so routing, specialist agents, memory, and future
+        # turns all share the same document context. Passing a PDF as an
+        # ``image_url`` is not portable across the supported LLM providers.
+        content = _include_attachment_text(content, attachments)
+
         # ── Save user message to DB ──────────────────────────────
         async with async_session_factory() as db:
             stmt = select(Conversation).where(Conversation.id == conversation_id)
@@ -741,6 +755,76 @@ async def _process_user_message(
 
 # ── File content truncation for routing ────────────────────
 
+def _include_attachment_text(content: str, attachments: list | None) -> str:
+    """Append readable PDF text to a chat message.
+
+    The browser sends PDFs as data URLs. Extracting their text in the backend
+    makes document understanding work for every model provider, rather than
+    relying on provider-specific multimodal PDF support.
+    """
+    document_blocks: list[str] = []
+
+    for attachment in attachments or []:
+        if attachment.get("type") != "document":
+            continue
+
+        name = str(attachment.get("name") or "document.pdf")
+        data_url = attachment.get("data")
+        if not isinstance(data_url, str):
+            continue
+
+        extracted = _extract_pdf_text(data_url)
+        # Keep the UI's existing marker, then place the source text below it.
+        # ChatPanel deliberately hides attachment blocks when rendering a user
+        # bubble, while the database and agents retain the full source text.
+        marker = f"[Attached document: {name}]"
+        if marker in content:
+            content = content.replace(marker, f"{marker}\n{extracted}", 1)
+        else:
+            document_blocks.append(f"{marker}\n{extracted}")
+
+    return content + ("\n\n" + "\n\n".join(document_blocks) if document_blocks else "")
+
+
+def _extract_pdf_text(data_url: str) -> str:
+    """Return a bounded, model-ready text block from a PDF data URL."""
+    try:
+        header, encoded = data_url.split(",", 1)
+        if not header.startswith("data:application/pdf"):
+            return "The attachment was not a valid PDF."
+        pdf_bytes = base64.b64decode(encoded, validate=True)
+        if len(pdf_bytes) > MAX_PDF_BYTES:
+            return f"The PDF is too large to process (maximum {MAX_PDF_BYTES // (1024 * 1024)} MB)."
+
+        from pypdf import PdfReader
+
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        pages = []
+        remaining = MAX_DOCUMENT_TEXT_CHARS
+        for page_number, page in enumerate(reader.pages, start=1):
+            page_text = (page.extract_text() or "").strip()
+            if not page_text:
+                continue
+            page_text = page_text[:remaining]
+            pages.append(f"--- Page {page_number} ---\n{page_text}")
+            remaining -= len(page_text)
+            if remaining <= 0:
+                break
+
+        if not pages:
+            return (
+                "This PDF appears to be scanned or contains no extractable text. "
+                "OCR is required before its contents can be analyzed."
+            )
+
+        suffix = "\n[Document text truncated for context length.]" if remaining <= 0 else ""
+        return "Document text:\n" + "\n\n".join(pages) + suffix
+    except (ValueError, binascii.Error):
+        return "The PDF data could not be decoded."
+    except Exception as exc:
+        logger.warning("attachment.pdf_extraction_failed", error=str(exc))
+        return f"The PDF could not be read: {str(exc)[:160]}"
+
 def _truncate_file_content(content: str, preview_chars: int = 500) -> str:
     """Truncate file attachment content for the orchestrator.
     
@@ -777,6 +861,13 @@ def _truncate_file_content(content: str, preview_chars: int = 500) -> str:
     
     result = re.sub(
         r'(\[File: [^\]]+\])\n((?:(?!\[File: |\[Attached image: |\[Attached document: )[\s\S])*)',
+        truncate_text_block,
+        result,
+    )
+
+    # PDF text uses the document marker so it remains hidden in the chat UI.
+    result = re.sub(
+        r'(\[Attached document: [^\]]+\])\n((?:(?!\[File: |\[Attached image: |\[Attached document: )[\s\S])*)',
         truncate_text_block,
         result,
     )
@@ -859,10 +950,11 @@ async def _run_agent_with_streaming(
     async def _execute() -> str:
         messages = [SystemMessage(content=agent._build_system_prompt(context))]
         
-        # Build multimodal content if binary attachments (images/PDFs) are present
+        # PDFs are converted to text before this function is called. Keep image
+        # attachments multimodal for vision-capable providers.
         binary_attachments = [
             a for a in (attachments or [])
-            if a.get("data", "").startswith("data:")
+            if a.get("type") == "image" and a.get("data", "").startswith("data:")
         ]
         
         if binary_attachments:

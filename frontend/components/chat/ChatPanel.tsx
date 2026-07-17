@@ -512,7 +512,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
     for (const file of toProcess) {
       if (file.size > MAX_FILE_SIZE) {
-        setError(`"${file.name}" exceeds 500KB limit (${formatFileSize(file.size)}).`);
+        setError(`"${file.name}" exceeds the ${formatFileSize(MAX_FILE_SIZE)} limit (${formatFileSize(file.size)}).`);
         continue;
       }
       const ext = "." + (file.name.split(".").pop()?.toLowerCase() || "");
@@ -692,6 +692,12 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     }
     
     const content = buildMessageWithFiles(rawContent, filesToSend);
+    // Build this before creating a conversation. The WebSocket commonly opens
+    // after the conversation is created; keeping attachments in the pending
+    // refs ensures a new-chat upload is not silently sent as filename only.
+    const binaryAttachments = filesToSend
+      .filter(f => (f.type === "image" || f.type === "document") && f.preview)
+      .map(f => ({ name: f.name, type: f.type, data: f.preview!, mimeType: f.mimeType }));
     if ((!rawContent && filesToSend.length === 0) || isThinking) return;
     setInput("");
     setAttachedFiles([]);
@@ -710,6 +716,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         const conv = await res.json();
         activeConvId = conv.id;
         pendingMessageRef.current = content;
+        pendingAttachmentsRef.current = binaryAttachments;
         skipNextLoadRef.current = true;
         onConversationCreated(conv.id);
       } catch {
@@ -720,11 +727,6 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
     const userMsg: Message = { id: Date.now(), role: "user", content, created_at: new Date().toISOString() };
     setMessages((prev) => [...prev, userMsg]);
-
-    // Build attachments array for binary files (images + documents like PDF)
-    const binaryAttachments = filesToSend
-      .filter(f => (f.type === "image" || f.type === "document") && f.preview)
-      .map(f => ({ name: f.name, type: f.type, data: f.preview!, mimeType: f.mimeType }));
 
     if (!pendingMessageRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
       const msg: Record<string, unknown> = { type: "message", content };
@@ -1047,7 +1049,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                       {msg.role === "user"
                         ? (() => {
                             // Strip file attachment blocks from display
-                            const cleanContent = msg.content.replace(/\n\n\[(?:File|Attached image|Attached document): [^\]]+\](?:\n```[\s\S]*?```|\n[\s\S]*?(?=\n\n\[|$))?/g, "").trim();
+                            const cleanContent = msg.content.replace(/(?:^|\n\n)\[(?:File|Attached image|Attached document): [^\]]+\](?:\n```[\s\S]*?```|\n[\s\S]*?(?=\n\n\[|$))?/g, "").trim();
                             const fileMatches = msg.content.match(/\[(?:File|Attached image|Attached document): ([^\]]+)\]/g) || [];
                             return (
                               <>

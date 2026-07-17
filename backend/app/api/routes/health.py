@@ -60,3 +60,32 @@ async def health_check(db: AsyncSession = Depends(get_db)) -> dict:
     # Overall: ok if core services (db + llm) are up
     core_ok = status[db_label] == "ok" and status["llm"] == "configured"
     return {"status": "ok" if core_ok else "degraded", "services": status}
+
+
+@router.get("/debug/redis")
+async def debug_redis() -> dict:
+    """Debug endpoint to diagnose Redis connection issues."""
+    settings = get_settings()
+    url = settings.redis_url
+    result = {
+        "url_prefix": url[:25] + "..." if url else "NOT SET",
+        "url_scheme": url.split("://")[0] if url and "://" in url else "none",
+        "is_tls": url.startswith("rediss://") if url else False,
+    }
+
+    try:
+        from app.database.redis_client import get_redis, _redis_available
+        result["cached_available"] = _redis_available
+        redis = await get_redis()
+        if redis:
+            pong = await redis.ping()
+            result["status"] = "connected"
+            result["ping"] = str(pong)
+        else:
+            result["status"] = "unavailable"
+    except Exception as exc:
+        result["status"] = "error"
+        result["error"] = str(exc)
+        result["error_type"] = type(exc).__name__
+
+    return result

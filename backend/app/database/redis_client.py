@@ -27,39 +27,43 @@ async def get_redis():
         return _redis_client
 
     try:
-        import ssl
         from redis.asyncio import Redis
 
         settings = get_settings()
         url = settings.redis_url
 
-        if not url or url == "redis://localhost:6379/0":
+        if not url:
+            logger.info("redis.no_url_configured")
             _redis_available = False
             return None
 
-        # Cloud Redis (Upstash, Render, Redis Cloud) uses rediss:// with TLS
-        kwargs = dict(
-            decode_responses=True,
-            socket_connect_timeout=3,
-            socket_timeout=3,
-        )
+        logger.info("redis.connecting", url_prefix=url[:20], is_tls=url.startswith("rediss://"))
 
+        # For rediss:// URLs (TLS), skip certificate verification
         if url.startswith("rediss://"):
-            # Create a permissive SSL context for managed Redis
-            ssl_ctx = ssl.create_default_context()
-            ssl_ctx.check_hostname = False
-            ssl_ctx.verify_mode = ssl.CERT_NONE
-            kwargs["ssl"] = ssl_ctx
+            _redis_client = Redis.from_url(
+                url,
+                decode_responses=True,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+                ssl_cert_reqs="none",
+            )
+        else:
+            _redis_client = Redis.from_url(
+                url,
+                decode_responses=True,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+            )
 
-        _redis_client = Redis.from_url(url, **kwargs)
         await _redis_client.ping()
         _redis_available = True
-        logger.info("redis.connected", url=url[:40] + "...")
+        logger.info("redis.connected")
         return _redis_client
     except Exception as exc:
         _redis_available = False
         _redis_client = None
-        logger.warning("redis.unavailable", error=str(exc)[:300])
+        logger.warning("redis.connection_failed", error=str(exc), error_type=type(exc).__name__)
         return None
 
 

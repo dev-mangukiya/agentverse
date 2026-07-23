@@ -221,8 +221,8 @@ export function Sidebar({ currentView, onNavigate, collapsed, onToggle, pipeline
         </motion.div>
       )}
 
-      {/* Collapse toggle */}
-      <div className="px-3 pb-4 flex-shrink-0">
+      {/* Collapse toggle — hidden on mobile drawer */}
+      <div className="px-3 pb-4 flex-shrink-0 sidebar-collapse-toggle">
         <button onClick={onToggle} className="nav-item w-full justify-center" title={collapsed ? "Expand" : "Collapse"}>
           <svg
             width="18" height="18" viewBox="0 0 24 24" fill="none"

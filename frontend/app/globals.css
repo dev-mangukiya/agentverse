@@ -916,3 +916,173 @@
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
+
+/* ─── Safe Area Support (iPhone notch / Dynamic Island / home indicator) ─── */
+.safe-area-body {
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* ─── Disabled textarea visual ─────────────────────────────────────────────── */
+textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ─── Mobile Drawer (Chat History) ─────────────────────────────────────────── */
+.mobile-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: fadeSlideIn 0.15s ease-out;
+}
+
+.mobile-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 61;
+  width: min(300px, 80vw);
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-subtle);
+  transform: translateX(0);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ─── Mobile Bottom Sheet (Pipeline) ──────────────────────────────────────── */
+.mobile-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: fadeSlideIn 0.15s ease-out;
+}
+
+.mobile-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 61;
+  max-height: 70vh;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border-muted);
+  border-radius: 20px 20px 0 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.mobile-sheet-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  margin: 10px auto 6px;
+}
+
+/* ─── Mobile-Only Trigger Buttons ──────────────────────────────────────────── */
+.mobile-trigger-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  min-height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 6px 10px;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.mobile-trigger-btn:hover,
+.mobile-trigger-btn:active {
+  background: var(--bg-elevated);
+  border-color: var(--border-muted);
+  color: var(--text-primary);
+}
+
+/* ─── Mobile Responsive ────────────────────────────────────────────────────── */
+@media (max-width: 767px) {
+  /* Ensure minimum tap target sizes for touch */
+  button, a, [role="button"] {
+    min-height: 36px;
+    min-width: 36px;
+  }
+
+  /* Agent builder: always show edit/delete buttons on mobile */
+  .agent-card-actions {
+    opacity: 1 !important;
+  }
+
+  /* Reduce glass panel border-radius on mobile */
+  .glass-panel { border-radius: 14px; }
+  .glass-panel-premium { border-radius: 16px; }
+
+  /* Camera modal */
+  .camera-modal__inner {
+    padding: 16px;
+    gap: 16px;
+  }
+  .camera-modal__video {
+    max-height: 50vh;
+    border-radius: 12px;
+  }
+
+  /* Input bar: collapse secondary actions */
+  .input-secondary-actions {
+    display: none;
+  }
+  .input-expand-btn {
+    display: flex;
+  }
+
+  /* File chips: scroll horizontally on mobile */
+  .file-chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding: 6px 10px 4px;
+  }
+  .file-chips::-webkit-scrollbar { display: none; }
+
+  /* Sidebar: hide collapse toggle on mobile drawer */
+  .sidebar-collapse-toggle {
+    display: none;
+  }
+}
+
+/* Small phones (< 375px) */
+@media (max-width: 374px) {
+  .send-btn {
+    width: 36px;
+    height: 36px;
+  }
+  .upload-btn {
+    width: 28px;
+    height: 28px;
+  }
+}
+
+/* ─── Input bar safe area padding ──────────────────────────────────────────── */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .input-safe-area {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 12px) !important;
+  }
+}
+

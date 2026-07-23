@@ -84,7 +84,7 @@ export function Header({ currentView, onMobileMenuToggle, pipelineActive, active
                     animation: "pulse 1.5s ease-in-out infinite",
                   }}
                 />
-                <div className="flex items-center gap-1">
+                <div className="hidden sm:flex items-center gap-1">
                   {activeAgents.slice(0, 3).map((agent) => {
                     const meta = agentMeta[agent.name?.toLowerCase()];
                     return (

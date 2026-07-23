@@ -182,7 +182,7 @@ export function AgentBuilder() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 overflow-y-auto pb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4 overflow-y-auto pb-8">
         {agents.map((agent) => (
           <div 
             key={agent.id}
@@ -200,9 +200,9 @@ export function AgentBuilder() {
               </div>
               
               {!agent.is_builtin && (
-                <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
-                  <button onClick={() => openEdit(agent)} className="text-xs px-2 py-1 rounded bg-black/20 hover:bg-black/40">Edit</button>
-                  <button onClick={() => handleDelete(agent.id)} className="text-xs px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/40">Del</button>
+              <div className="agent-card-actions opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                  <button onClick={() => openEdit(agent)} className="text-xs px-2.5 py-1.5 rounded-lg bg-black/20 hover:bg-black/40" style={{ color: "var(--text-secondary)" }}>Edit</button>
+                  <button onClick={() => handleDelete(agent.id)} className="text-xs px-2.5 py-1.5 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/40">Del</button>
                 </div>
               )}
             </div>
@@ -247,8 +247,8 @@ export function AgentBuilder() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="glass-panel p-6 rounded-2xl w-full max-w-2xl relative z-10 max-h-[90vh] overflow-y-auto"
-              style={{ border: "1px solid var(--border-light)", boxShadow: "0 20px 40px rgba(0,0,0,0.4)" }}
+              className="glass-panel p-4 md:p-6 rounded-2xl w-full max-w-2xl relative z-10 max-h-[85vh] overflow-y-auto overscroll-contain"
+              style={{ border: "1px solid var(--border-light)", boxShadow: "0 20px 40px rgba(0,0,0,0.4)", WebkitOverflowScrolling: "touch" }}
             >
               <h2 className="text-xl font-bold mb-4 gradient-text">{editAgent ? "Edit Agent" : "Create Custom Agent"}</h2>
               

@@ -125,14 +125,14 @@ export function KPICards() {
   }, []);
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
       {kpiConfig.map((kpi, i) => (
         <motion.div
           key={kpi.key}
           initial={{ opacity: 0, y: 20, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ delay: i * 0.1, duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
-          className="glass-panel p-5 group card-shine"
+          className="glass-panel p-4 md:p-5 group card-shine"
           style={{ position: "relative" }}
         >
           {/* Decorative gradient orb in background */}

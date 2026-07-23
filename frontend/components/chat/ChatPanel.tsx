@@ -207,6 +207,7 @@ async function readFile(file: File): Promise<AttachedFile> {
 }
 
 export function ChatPanel({ conversationId, onConversationCreated, onMessageSent, onPipelineUpdate }: ChatPanelProps) {
+  const [inputExpanded, setInputExpanded] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
@@ -764,7 +765,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     <div className="flex flex-col h-full" style={{ backgroundColor: "var(--bg-base)" }}>
       {/* Top bar with active agent indicators */}
       <div
-        className="flex items-center justify-between px-5 h-12 flex-shrink-0"
+        className="flex items-center justify-between px-3 md:px-5 h-11 md:h-12 flex-shrink-0"
         style={{ borderBottom: "1px solid var(--border-subtle)" }}
       >
         <div className="flex items-center gap-2.5">
@@ -856,7 +857,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {isEmpty ? (
           /* Multi-agent welcome screen */
-          <div className="flex flex-col items-center justify-center h-full px-6 pb-8 relative">
+          <div className="flex flex-col items-center justify-center h-full px-4 md:px-6 pb-4 md:pb-8 relative">
             {/* Ambient gradient orbs */}
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
               <div
@@ -919,7 +920,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.15, duration: 0.5 }}
-              className="text-2xl font-bold mb-2 text-center gradient-text relative z-10"
+              className="text-xl md:text-2xl font-bold mb-2 text-center gradient-text relative z-10"
             >
               Multi-Agent AI Workforce
             </motion.h1>
@@ -927,14 +928,14 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.25, duration: 0.5 }}
-              className="text-sm mb-8 text-center max-w-md relative z-10"
+              className="text-xs md:text-sm mb-4 md:mb-8 text-center max-w-md relative z-10"
               style={{ color: "var(--text-muted)" }}
             >
               Your request is analyzed by the Orchestrator and delegated to specialized agents who collaborate in real-time.
             </motion.p>
 
             {/* Suggestion cards with agent badges */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-md w-full px-2 relative z-10">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-3 max-w-md w-full px-2 relative z-10">
               {SUGGESTIONS.map((s, i) => {
                 const meta = agentMeta[s.agent];
                 return (
@@ -979,7 +980,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
           </div>
         ) : (
           /* Message list */
-          <div className="w-full max-w-3xl mx-auto px-3 md:px-6 py-6 space-y-6">
+          <div className="w-full max-w-3xl mx-auto px-2 md:px-6 py-4 md:py-6 space-y-4 md:space-y-6">
             <AnimatePresence initial={false}>
               {messages.map((msg, idx) => {
                 const meta = msg.agent_name ? agentMeta[msg.agent_name.toLowerCase()] : null;
@@ -1208,7 +1209,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
       {/* Input bar */}
       <div
-        className="px-3 md:px-4 pb-4 md:pb-5 pt-2 flex-shrink-0"
+        className="px-2 md:px-4 pb-3 md:pb-5 pt-2 flex-shrink-0 input-safe-area"
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
         onDragOver={handleDragOver}
@@ -1274,8 +1275,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             )}
 
             {/* Input row */}
-            <div className="flex items-center gap-2 px-4 py-3">
-              {/* Upload button */}
+            <div className="flex items-center gap-1.5 md:gap-2 px-3 md:px-4 py-2.5 md:py-3">
+              {/* Upload button — always visible */}
               <button
                 className="upload-btn"
                 onClick={() => fileInputRef.current?.click()}
@@ -1287,9 +1288,25 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                 </svg>
               </button>
 
-              {/* Camera button */}
+              {/* Expand button — mobile only, shows camera/mic */}
               <button
-                className="upload-btn"
+                className="upload-btn input-expand-btn"
+                onClick={() => setInputExpanded(!inputExpanded)}
+                title="More actions"
+                disabled={isThinking}
+                style={{
+                  display: "none", // CSS overrides to flex on mobile
+                  ...(inputExpanded ? { color: "var(--brand)", backgroundColor: "var(--brand-dim)" } : {}),
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ transform: inputExpanded ? "rotate(45deg)" : "none", transition: "transform 0.2s" }}>
+                  <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                </svg>
+              </button>
+
+              {/* Camera button — hidden on mobile unless expanded */}
+              <button
+                className={`upload-btn ${inputExpanded ? '' : 'input-secondary-actions'}`}
                 onClick={openCamera}
                 title="Take a photo"
                 disabled={isThinking}
@@ -1300,9 +1317,9 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                 </svg>
               </button>
               
-              {/* Voice recording button */}
+              {/* Voice recording button — hidden on mobile unless expanded */}
               <button
-                className={`upload-btn ${isRecording ? 'text-red-500 animate-pulse' : ''}`}
+                className={`upload-btn ${inputExpanded ? '' : 'input-secondary-actions'} ${isRecording ? 'text-red-500 animate-pulse' : ''}`}
                 onClick={toggleRecording}
                 title="Voice dictation"
                 disabled={isThinking}

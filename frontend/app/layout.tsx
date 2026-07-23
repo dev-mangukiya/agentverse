@@ -15,7 +15,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" data-theme="dark" suppressHydrationWarning>
-      <body>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+        <meta name="theme-color" content="#08080d" />
+      </head>
+      <body className="safe-area-body">
         <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>

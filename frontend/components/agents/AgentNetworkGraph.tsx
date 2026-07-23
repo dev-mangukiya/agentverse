@@ -105,7 +105,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
     return () => clearInterval(interval);
   }, []);
 
-  const height = fullscreen ? "h-full min-h-[600px]" : "h-[520px]";
+  const height = fullscreen ? "h-full min-h-[600px]" : "h-[320px] md:h-[520px]";
   const selectedAgent = agents.find(a => a.id === selected);
 
   // Compute connected agents for hover dimming
@@ -156,7 +156,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
             {loading ? "Loading…" : `${agents.length} agents · ${agents.filter(a => a.status !== "idle").length} active · ${totalMessages} messages`}
           </p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 md:gap-4 flex-wrap">
           {[
             { color: "var(--green)", label: "Online" },
             { color: "var(--yellow)", label: "Active" },
@@ -174,7 +174,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
       </div>
 
       {/* Graph */}
-      <div className="flex-1 relative px-8 pt-4 pb-12" style={{ zIndex: 2 }}>
+      <div className="flex-1 relative px-4 md:px-8 pt-2 md:pt-4 pb-8 md:pb-12" style={{ zIndex: 2 }}>
         {loading ? (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="relative">

@@ -248,6 +248,12 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         recognitionRef.current.abort();
         recognitionRef.current = null;
       }
+      // Also force-release mic on Safari
+      try {
+        navigator.mediaDevices.getUserMedia({ audio: true })
+          .then(s => s.getTracks().forEach(t => t.stop()))
+          .catch(() => {});
+      } catch {}
     };
   }, []);
 
@@ -625,14 +631,28 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     setCameraOpen(false);
   };
 
+  // Force-release the microphone on Safari
+  // Safari's SpeechRecognition holds the mic even after abort/stop
+  // Requesting a new stream and immediately killing it clears the indicator
+  const forceReleaseMic = () => {
+    try {
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(stream => {
+          stream.getTracks().forEach(t => t.stop());
+        })
+        .catch(() => {}); // Ignore errors — user may have revoked permission
+    } catch {
+      // getUserMedia not available
+    }
+  };
+
   const toggleRecording = () => {
     if (isRecording) {
-      // Use abort() instead of stop() — abort() immediately releases the mic
-      // stop() waits to deliver final result, keeping mic indicator active
       if (recognitionRef.current) {
         recognitionRef.current.abort();
         recognitionRef.current = null;
       }
+      forceReleaseMic();
       setIsRecording(false);
       return;
     }
@@ -674,14 +694,14 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       console.error("Speech recognition error", event.error);
       setIsRecording(false);
       recognitionRef.current = null;
-      // Clean up the text by removing any stuck interim text on error
+      forceReleaseMic();
       if (lastInterim) setInput(finalTranscript);
     };
 
     recognition.onend = () => {
       setIsRecording(false);
       recognitionRef.current = null;
-      // Clean up any interim text that never finalized
+      forceReleaseMic();
       if (lastInterim) setInput(finalTranscript);
     };
 
@@ -720,6 +740,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     if (isRecording && recognitionRef.current) {
       recognitionRef.current.abort();
       recognitionRef.current = null;
+      forceReleaseMic();
       setIsRecording(false);
     }
     

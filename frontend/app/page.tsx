@@ -158,7 +158,7 @@ export default function Home() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.25 }}
-                className="h-full overflow-y-auto p-3 md:p-6 space-y-4 md:space-y-6"
+                className="h-full overflow-y-auto p-3 md:p-6 pb-8 md:pb-10 space-y-4 md:space-y-6"
                 style={{ backgroundColor: "var(--bg-base)" }}
               >
                 <KPICards />

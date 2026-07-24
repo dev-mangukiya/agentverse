@@ -191,9 +191,10 @@ export function AgentBuilder() {
               border: agent.is_builtin ? "1px solid color-mix(in srgb, var(--border-subtle) 80%, var(--green))" : "1px solid var(--border-subtle)",
             }}
           >
+            <div className="relative z-10 flex flex-col h-full">
             <div className="flex justify-between items-start mb-3">
               <div 
-                className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shadow-lg"
+                className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shadow-lg flex-shrink-0"
                 style={{ background: "color-mix(in srgb, var(--bg-hover) 80%, transparent)" }}
               >
                 {agent.emoji}
@@ -230,6 +231,7 @@ export function AgentBuilder() {
                 )}
               </div>
             )}
+            </div>
           </div>
         ))}
       </div>

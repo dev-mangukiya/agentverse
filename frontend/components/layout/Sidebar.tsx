@@ -64,27 +64,31 @@ export function Sidebar({ currentView, onNavigate, collapsed, onToggle, pipeline
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0 relative overflow-hidden"
             style={{
-              background: "linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%)",
+              background: "linear-gradient(135deg, #E23636 0%, #b91c1c 40%, #1a3a8a 100%)",
               backgroundSize: "200% 200%",
               animation: "gradientShift 4s ease-in-out infinite",
-              boxShadow: "0 4px 16px rgba(99,102,241,0.3)",
+              boxShadow: "0 4px 16px rgba(226,54,54,0.3)",
             }}
           >
+            {/* Spider-web inspired icon */}
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="relative z-10">
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" stroke="white" strokeWidth="1.2" fill="none"/>
-              <circle cx="12" cy="8" r="1.5" fill="white"/>
-              <circle cx="8" cy="14" r="1.5" fill="white"/>
-              <circle cx="16" cy="14" r="1.5" fill="white"/>
-              <circle cx="12" cy="12" r="2" fill="white" opacity="0.9"/>
-              <line x1="12" y1="10" x2="12" y2="8" stroke="white" strokeWidth="1" opacity="0.7"/>
-              <line x1="10.5" y1="13" x2="8.5" y2="14" stroke="white" strokeWidth="1" opacity="0.7"/>
-              <line x1="13.5" y1="13" x2="15.5" y2="14" stroke="white" strokeWidth="1" opacity="0.7"/>
+              {/* Outer web ring */}
+              <circle cx="12" cy="12" r="10" stroke="white" strokeWidth="1" opacity="0.5"/>
+              {/* Inner web ring */}
+              <circle cx="12" cy="12" r="5.5" stroke="white" strokeWidth="0.8" opacity="0.4"/>
+              {/* Web lines radiating from center */}
+              <line x1="12" y1="2" x2="12" y2="22" stroke="white" strokeWidth="0.8" opacity="0.6"/>
+              <line x1="2" y1="12" x2="22" y2="12" stroke="white" strokeWidth="0.8" opacity="0.6"/>
+              <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" stroke="white" strokeWidth="0.8" opacity="0.5"/>
+              <line x1="19.07" y1="4.93" x2="4.93" y2="19.07" stroke="white" strokeWidth="0.8" opacity="0.5"/>
+              {/* Center dot */}
+              <circle cx="12" cy="12" r="1.8" fill="white" opacity="0.9"/>
             </svg>
             {/* Shine effect */}
             <div
               className="absolute inset-0"
               style={{
-                background: "linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.2) 50%, transparent 60%)",
+                background: "linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.25) 50%, transparent 60%)",
                 backgroundSize: "200% 100%",
                 animation: "shine 3s ease-in-out infinite",
               }}
@@ -97,8 +101,8 @@ export function Sidebar({ currentView, onNavigate, collapsed, onToggle, pipeline
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.2, delay: 0.1 }}
           >
-            <div className="font-semibold text-base tracking-tight gradient-text">Cortex AI</div>
-            <div className="text-[10px] font-medium" style={{ color: "var(--text-faint)" }}>Multi-Agent Platform</div>
+            <div className="font-semibold text-base tracking-tight gradient-text">AgentVerse</div>
+            <div className="text-[10px] font-medium" style={{ color: "var(--text-faint)" }}>Superhero AI Platform</div>
           </motion.div>
         )}
       </div>

@@ -176,7 +176,7 @@ export function AgentBuilder() {
         <button
           onClick={openCreate}
           className="px-4 py-2 rounded-lg text-white text-sm font-medium transition-all whitespace-nowrap flex-shrink-0"
-          style={{ background: "linear-gradient(135deg, #6366f1, #a855f7)", boxShadow: "0 4px 12px rgba(99,102,241,0.2)" }}
+          style={{ background: "linear-gradient(135deg, #E23636, #1a3a8a)", boxShadow: "0 4px 12px rgba(226,54,54,0.2)" }}
         >
           + Create Agent
         </button>
@@ -273,7 +273,7 @@ export function AgentBuilder() {
                       }}
                       disabled={!!editAgent}
                       placeholder="e.g. data_viz_expert"
-                      className="w-full bg-black/20 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-black/20 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500"
                       style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
                     />
                     <span className="text-[10px] mt-0.5 block" style={{ color: "var(--text-faint)" }}>Lowercase letters, numbers, underscores only</span>
@@ -284,7 +284,7 @@ export function AgentBuilder() {
                       type="text" 
                       value={formData.emoji}
                       onChange={e => setFormData({...formData, emoji: e.target.value})}
-                      className="w-full bg-black/20 border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-black/20 border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:border-red-500"
                       style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
                     />
                   </div>
@@ -297,7 +297,7 @@ export function AgentBuilder() {
                     value={formData.description}
                     onChange={e => setFormData({...formData, description: e.target.value})}
                     placeholder="e.g. Creates beautiful charts from datasets"
-                    className="w-full bg-black/20 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-black/20 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500"
                     style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
                   />
                 </div>
@@ -309,7 +309,7 @@ export function AgentBuilder() {
                     onChange={e => setFormData({...formData, system_prompt: e.target.value})}
                     placeholder="You are an expert at..."
                     rows={6}
-                    className="w-full bg-black/20 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 font-mono"
+                    className="w-full bg-black/20 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500 font-mono"
                     style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
                   />
                 </div>
@@ -323,7 +323,7 @@ export function AgentBuilder() {
                           type="checkbox" 
                           checked={formData.tools.includes(toolId)}
                           onChange={() => toggleTool(toolId)}
-                          className="mt-1 rounded border-gray-600 text-indigo-500 focus:ring-indigo-500 bg-black/40"
+                          className="mt-1 rounded border-gray-600 text-red-500 focus:ring-red-500 bg-black/40"
                         />
                         <div>
                           <div className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{toolId}</div>
@@ -346,7 +346,7 @@ export function AgentBuilder() {
                     onClick={handleSave}
                     disabled={saving || !formData.name || !formData.system_prompt}
                     className="px-5 py-2 rounded-lg text-white text-sm font-medium transition-all disabled:opacity-50"
-                    style={{ background: "linear-gradient(135deg, #6366f1, #a855f7)" }}
+                    style={{ background: "linear-gradient(135deg, #E23636, #1a3a8a)" }}
                   >
                     {saving ? "Saving..." : (editAgent ? "Save Changes" : "Create Agent")}
                   </button>

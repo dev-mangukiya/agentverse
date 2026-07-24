@@ -772,21 +772,20 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
           <div
             className="w-6 h-6 rounded-lg flex items-center justify-center text-white relative overflow-hidden"
             style={{
-              background: "linear-gradient(135deg, #6366f1 0%, #a855f7 100%)",
+              background: "linear-gradient(135deg, #E23636 0%, #1a3a8a 100%)",
             }}
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="relative z-10">
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" stroke="white" strokeWidth="1.5" fill="none"/>
-              <circle cx="12" cy="8" r="1.5" fill="white"/>
-              <circle cx="8" cy="14" r="1.5" fill="white"/>
-              <circle cx="16" cy="14" r="1.5" fill="white"/>
-              <circle cx="12" cy="12" r="2" fill="white" opacity="0.9"/>
-              <line x1="12" y1="10" x2="12" y2="8" stroke="white" strokeWidth="1" opacity="0.7"/>
-              <line x1="10.5" y1="13" x2="8.5" y2="14" stroke="white" strokeWidth="1" opacity="0.7"/>
-              <line x1="13.5" y1="13" x2="15.5" y2="14" stroke="white" strokeWidth="1" opacity="0.7"/>
+              <circle cx="12" cy="12" r="10" stroke="white" strokeWidth="1.2" opacity="0.5"/>
+              <circle cx="12" cy="12" r="5.5" stroke="white" strokeWidth="0.8" opacity="0.4"/>
+              <line x1="12" y1="2" x2="12" y2="22" stroke="white" strokeWidth="0.8" opacity="0.6"/>
+              <line x1="2" y1="12" x2="22" y2="12" stroke="white" strokeWidth="0.8" opacity="0.6"/>
+              <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" stroke="white" strokeWidth="0.8" opacity="0.5"/>
+              <line x1="19.07" y1="4.93" x2="4.93" y2="19.07" stroke="white" strokeWidth="0.8" opacity="0.5"/>
+              <circle cx="12" cy="12" r="1.8" fill="white" opacity="0.9"/>
             </svg>
           </div>
-          <span className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Cortex AI</span>
+          <span className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>AgentVerse</span>
 
           {/* Active agents mini bar */}
           {activeAgents.length > 0 && (
@@ -865,7 +864,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                 style={{
                   top: "15%",
                   left: "20%",
-                  background: "radial-gradient(circle, rgba(99,102,241,0.08), transparent 70%)",
+                  background: "radial-gradient(circle, rgba(226,54,54,0.08), transparent 70%)",
                   animation: "floatParticle 8s ease-in-out infinite",
                 }}
               />
@@ -900,8 +899,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                 style={{
                   width: "72px",
                   height: "72px",
-                  background: "linear-gradient(135deg, #6366f1 0%, #a855f7 40%, #ec4899 100%)",
-                  boxShadow: "0 12px 48px rgba(99,102,241,0.35), 0 0 80px rgba(168,85,247,0.15)",
+                  background: "linear-gradient(135deg, #E23636 0%, #b91c1c 40%, #1a3a8a 100%)",
+                  boxShadow: "0 12px 48px rgba(226,54,54,0.35), 0 0 80px rgba(26,58,138,0.15)",
                 }}
               >
                 <span className="text-3xl relative z-10">⚡</span>
@@ -1364,7 +1363,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             </div>
           </div>
           <p className="text-center text-[10px] mt-2.5 font-medium" style={{ color: "var(--text-faint)" }}>
-            Cortex AI routes your request to specialized agents who collaborate in real-time.
+            AgentVerse routes your request to specialized agents who collaborate in real-time.
           </p>
         </div>
       </div>

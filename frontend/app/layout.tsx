@@ -3,9 +3,9 @@ import "./globals.css";
 import { ThemeProvider } from "@/lib/theme";
 
 export const metadata: Metadata = {
-  title: "Cortex AI — Autonomous Multi-Agent AI Workforce",
+  title: "AgentVerse — Superhero Multi-Agent AI Platform",
   description:
-    "A production-style multi-agent AI command center with real-time orchestration, planning, and observable agent communication.",
+    "Your superhero-powered multi-agent AI command center with real-time orchestration, planning, and observable agent collaboration.",
 };
 
 export default function RootLayout({

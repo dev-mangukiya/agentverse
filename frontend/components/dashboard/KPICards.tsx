@@ -44,7 +44,7 @@ const kpiConfig = [
   {
     key: "conversations",
     label: "Total Chats",
-    gradient: "linear-gradient(135deg, #6366f1 0%, #4f46e5 50%, #7c3aed 100%)",
+    gradient: "linear-gradient(135deg, #E23636 0%, #b91c1c 50%, #991b1b 100%)",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
         <path d="M12 3C6.477 3 2 6.925 2 11.75c0 2.278.98 4.35 2.59 5.88L3 21l4.5-1.45A10.3 10.3 0 0 0 12 20.5c5.523 0 10-3.925 10-8.75S17.523 3 12 3Z" stroke="white" strokeWidth="1.5"/>

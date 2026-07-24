@@ -162,7 +162,7 @@ export function Header({ currentView, onMobileMenuToggle, pipelineActive, active
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center relative group/avatar cursor-pointer overflow-hidden"
             style={{
-              background: "linear-gradient(135deg, #6366f1, #a855f7)",
+              background: "linear-gradient(135deg, #E23636, #1a3a8a)",
             }}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="relative z-10">

@@ -219,7 +219,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                   </feMerge>
                 </filter>
                 <marker id="arrowPremium" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-                  <path d="M 0 0 L 6 3 L 0 6 z" fill="rgba(99,102,241,0.3)" />
+                  <path d="M 0 0 L 6 3 L 0 6 z" fill="rgba(226,54,54,0.3)" />
                 </marker>
               </defs>
               {edges.map((edge, i) => {

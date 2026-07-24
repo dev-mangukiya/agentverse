@@ -4,22 +4,23 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ─── Design tokens ──────────────────────────────────────────────────────── */
+/* ─── Design tokens — Spider-Man Superhero Theme ────────────────────────── */
 :root,
 [data-theme="dark"] {
-  /* Backgrounds */
-  --bg-base:        #08080d;
-  --bg-sidebar:     #0c0c13;
-  --bg-panel:       #101018;
-  --bg-raised:      #16161f;
+  /* Backgrounds — dark with subtle crimson undertone */
+  --bg-base:        #0a0a10;
+  --bg-sidebar:     #0d0d15;
+  --bg-panel:       #111118;
+  --bg-raised:      #171720;
   --bg-elevated:    #1e1e2a;
   --bg-hover:       rgba(255,255,255,0.04);
-  --bg-active:      rgba(99,102,241,0.10);
+  --bg-active:      rgba(226,54,54,0.10);
 
   /* Borders */
   --border-subtle:  rgba(255,255,255,0.04);
   --border-muted:   rgba(255,255,255,0.07);
   --border-strong:  rgba(255,255,255,0.12);
+  --border-light:   rgba(255,255,255,0.10);
 
   /* Text */
   --text-primary:   #eaecf0;
@@ -27,17 +28,19 @@
   --text-muted:     #8b8fa3;
   --text-faint:     #5a5e72;
 
-  /* Brand — shifted to indigo/violet for multi-agent feel */
-  --brand:          #6366f1;
-  --brand-hover:    #818cf8;
-  --brand-dim:      rgba(99,102,241,0.10);
-  --brand-text:     #a5b4fc;
-  --brand-glow:     rgba(99,102,241,0.35);
+  /* Brand — Spider-Man Red + Blue */
+  --brand:          #E23636;
+  --brand-hover:    #ef4444;
+  --brand-dim:      rgba(226,54,54,0.10);
+  --brand-text:     #fca5a5;
+  --brand-glow:     rgba(226,54,54,0.35);
+  --brand-blue:     #1a3a8a;
+  --brand-blue-bright: #3b82f6;
 
-  /* Agent Colors */
-  --agent-orchestrator: #6366f1;
+  /* Agent Colors — superhero palette */
+  --agent-orchestrator: #E23636;
   --agent-research:     #10b981;
-  --agent-coding:       #f43f5e;
+  --agent-coding:       #3b82f6;
   --agent-writer:       #f59e0b;
   --agent-critic:       #06b6d4;
   --agent-data:         #a855f7;
@@ -46,14 +49,14 @@
   /* Status */
   --green:          #10b981;
   --green-dim:      rgba(16,185,129,0.10);
-  --red:            #f43f5e;
-  --red-dim:        rgba(244,63,94,0.10);
+  --red:            #E23636;
+  --red-dim:        rgba(226,54,54,0.10);
   --yellow:         #f59e0b;
   --yellow-dim:     rgba(245,158,11,0.10);
 
-  /* User bubble */
-  --bubble-user-bg: #1e1b4b;
-  --bubble-user-text: #c7d2fe;
+  /* User bubble — deep spider blue */
+  --bubble-user-bg: #0f1d3a;
+  --bubble-user-text: #93c5fd;
 
   /* Glass panel */
   --glass-bg:       rgba(16,16,24,0.70);
@@ -64,22 +67,22 @@
   --input-bg:       #131320;
   --input-bg-focus: #181830;
   --input-border:   rgba(255,255,255,0.06);
-  --input-border-focus: rgba(99,102,241,0.5);
+  --input-border-focus: rgba(226,54,54,0.5);
 
   /* Scrollbar */
   --scrollbar-thumb: rgba(255,255,255,0.08);
   --scrollbar-thumb-hover: rgba(255,255,255,0.16);
 
   /* Shadow */
-  --shadow-brand: rgba(99,102,241,0.25);
+  --shadow-brand: rgba(226,54,54,0.25);
 
   /* Pipeline */
   --pipeline-bg:    #0b0b12;
-  --pipeline-line:  rgba(99,102,241,0.18);
-  --pipeline-glow:  rgba(99,102,241,0.40);
+  --pipeline-line:  rgba(226,54,54,0.18);
+  --pipeline-glow:  rgba(226,54,54,0.40);
 
   /* Network */
-  --network-bg:     radial-gradient(ellipse 80% 60% at 50% 50%, rgba(99,102,241,0.06) 0%, transparent 70%);
+  --network-bg:     radial-gradient(ellipse 80% 60% at 50% 50%, rgba(226,54,54,0.05) 0%, rgba(26,58,138,0.03) 50%, transparent 70%);
   --network-grid:   rgba(255,255,255,0.015);
 }
 
@@ -184,9 +187,9 @@
     transform: translateY(-2px);
   }
 
-  /* ── Gradient Text ───────────────────────────────────────────────── */
+  /* ── Gradient Text — Spider-Man red → blue ──────────────────────── */
   .gradient-text {
-    background: linear-gradient(135deg, var(--brand) 0%, #a855f7 40%, #ec4899 80%, #f43f5e 100%);
+    background: linear-gradient(135deg, #E23636 0%, #ef4444 30%, #3b82f6 70%, #1a3a8a 100%);
     background-size: 200% 200%;
     animation: gradientShift 6s ease-in-out infinite;
     -webkit-background-clip: text;

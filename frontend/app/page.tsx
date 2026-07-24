@@ -111,7 +111,7 @@ export default function Home() {
   const activeAgentCount = pipelineAgents.filter(a => ["activated", "thinking", "tool_call"].includes(a.status)).length;
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden" style={{ backgroundColor: "var(--bg-base)" }}>
+    <div className="flex h-screen w-screen max-w-full overflow-hidden" style={{ backgroundColor: "var(--bg-base)" }}>
       {/* Mobile overlay */}
       {mobileSidebarOpen && (
         <div

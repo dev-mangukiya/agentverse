@@ -59,7 +59,7 @@ export function Sidebar({ currentView, onNavigate, collapsed, onToggle, pipeline
       style={{ backgroundColor: "var(--bg-sidebar)", borderRight: "1px solid var(--border-subtle)" }}
     >
       {/* Logo */}
-      <div className="flex items-center gap-3 px-4 h-16 flex-shrink-0">
+      <div className="flex items-center gap-3 px-4 h-16 flex-shrink-0 overflow-hidden">
         <div className="relative group/logo">
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0 relative overflow-hidden"

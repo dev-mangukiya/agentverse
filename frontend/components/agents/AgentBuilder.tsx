@@ -168,14 +168,14 @@ export function AgentBuilder() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h2 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>Agent Network</h2>
+      <div className="flex justify-between items-start mb-6 gap-3 agent-builder-header">
+        <div className="min-w-0">
+          <h2 className="text-xl font-bold truncate" style={{ color: "var(--text-primary)" }}>Agent Network</h2>
           <p className="text-sm" style={{ color: "var(--text-muted)" }}>Manage your autonomous AI workforce</p>
         </div>
         <button
           onClick={openCreate}
-          className="px-4 py-2 rounded-lg text-white text-sm font-medium transition-all"
+          className="px-4 py-2 rounded-lg text-white text-sm font-medium transition-all whitespace-nowrap flex-shrink-0"
           style={{ background: "linear-gradient(135deg, #6366f1, #a855f7)", boxShadow: "0 4px 12px rgba(99,102,241,0.2)" }}
         >
           + Create Agent
@@ -259,8 +259,8 @@ export function AgentBuilder() {
               )}
               
               <div className="space-y-4">
-                <div className="grid grid-cols-4 gap-4">
-                  <div className="col-span-3">
+                <div className="grid grid-cols-[1fr_64px] sm:grid-cols-4 gap-4 agent-form-name-row">
+                  <div className="sm:col-span-3">
                     <label className="block text-xs font-semibold mb-1" style={{ color: "var(--text-secondary)" }}>Agent Name (ID)</label>
                     <input 
                       type="text" 
@@ -276,7 +276,7 @@ export function AgentBuilder() {
                     />
                     <span className="text-[10px] mt-0.5 block" style={{ color: "var(--text-faint)" }}>Lowercase letters, numbers, underscores only</span>
                   </div>
-                  <div className="col-span-1">
+                  <div className="agent-form-emoji-col">
                     <label className="block text-xs font-semibold mb-1" style={{ color: "var(--text-secondary)" }}>Emoji</label>
                     <input 
                       type="text" 

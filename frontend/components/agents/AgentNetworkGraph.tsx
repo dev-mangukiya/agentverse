@@ -123,7 +123,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
   const totalMessages = agents.reduce((s, a) => s + a.message_count, 0);
 
   return (
-    <div className={`glass-panel-premium ${height} relative overflow-hidden flex flex-col`}>
+    <div className={`glass-panel-premium ${height} relative overflow-hidden flex flex-col max-w-full`}>
       {/* Ambient background */}
       <div className="absolute inset-0 network-canvas mesh-gradient network-grid" style={{ zIndex: 0 }} />
 
@@ -147,7 +147,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
       </div>
 
       {/* Header */}
-      <div className="flex items-center justify-between px-6 pt-5 pb-2 flex-shrink-0 relative z-10">
+      <div className="flex items-center justify-between px-3 md:px-6 pt-4 md:pt-5 pb-2 flex-shrink-0 relative z-10">
         <div>
           <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
             Agent Network
@@ -156,7 +156,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
             {loading ? "Loading…" : `${agents.length} agents · ${agents.filter(a => a.status !== "idle").length} active · ${totalMessages} messages`}
           </p>
         </div>
-        <div className="flex items-center gap-2 md:gap-4 flex-wrap">
+        <div className="flex items-center gap-2 md:gap-4 flex-wrap network-legend">
           {[
             { color: "var(--green)", label: "Online" },
             { color: "var(--yellow)", label: "Active" },
@@ -174,7 +174,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
       </div>
 
       {/* Graph */}
-      <div className="flex-1 relative px-4 md:px-8 pt-2 md:pt-4 pb-8 md:pb-12" style={{ zIndex: 2 }}>
+      <div className="flex-1 relative px-2 md:px-8 pt-2 md:pt-4 pb-6 md:pb-12" style={{ zIndex: 2 }}>
         {loading ? (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="relative">
@@ -347,7 +347,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
 
                     {/* Node body */}
                     <div
-                      className="w-14 h-14 rounded-2xl flex items-center justify-center relative overflow-hidden"
+                      className="w-14 h-14 rounded-2xl flex items-center justify-center relative overflow-hidden network-node-body"
                       style={{
                         backgroundColor: `color-mix(in srgb, ${agent.color} 12%, var(--bg-panel))`,
                         borderWidth: "1.5px",
@@ -369,7 +369,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                         }}
                       />
                       <span
-                        className="relative z-10"
+                        className="relative z-10 network-node-icon"
                         style={{ fontSize: "20px", lineHeight: 1, width: "24px", height: "24px", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}
                       >
                         {agentIcons[agent.id] || agent.label[0]}
@@ -389,7 +389,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                     />
 
                     {/* Label below */}
-                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2.5 whitespace-nowrap text-center pointer-events-none">
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2.5 text-center pointer-events-none network-node-label">
                       <div
                         className="text-[11px] font-semibold leading-tight"
                         style={{ color: isNodeHovered || isNodeSelected ? "var(--text-primary)" : "var(--text-secondary)" }}
@@ -397,7 +397,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                         {agent.label}
                       </div>
                       {agent.message_count > 0 && (
-                        <div className="text-[9px] mt-0.5 font-medium" style={{ color: "var(--text-faint)" }}>
+                        <div className="text-[9px] mt-0.5 font-medium network-node-msgs" style={{ color: "var(--text-faint)" }}>
                           {agent.message_count} msgs
                         </div>
                       )}
@@ -434,7 +434,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                 background: `linear-gradient(90deg, ${selectedAgent.color}, ${selectedAgent.color}50, transparent)`,
               }}
             />
-            <div className="px-5 py-4 flex items-center gap-4">
+            <div className="px-3 md:px-5 py-3 md:py-4 flex items-center gap-3 md:gap-4 network-detail-panel">
               <div
                 className="w-11 h-11 rounded-xl flex items-center justify-center text-lg flex-shrink-0 relative overflow-hidden"
                 style={{

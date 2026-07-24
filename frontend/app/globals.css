@@ -91,6 +91,7 @@
     scroll-behavior: smooth;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
   }
 
   body {
@@ -98,6 +99,7 @@
     background-color: var(--bg-base);
     color: var(--text-primary);
     overflow-x: hidden;
+    max-width: 100vw;
     transition: background-color 0.3s ease, color 0.3s ease;
   }
 
@@ -1018,6 +1020,12 @@ textarea:disabled {
 
 /* ─── Mobile Responsive ────────────────────────────────────────────────────── */
 @media (max-width: 767px) {
+  /* Prevent horizontal overflow everywhere */
+  #__next, main, [role="main"] {
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
   /* Ensure minimum tap target sizes for touch */
   button, a, [role="button"] {
     min-height: 36px;
@@ -1032,6 +1040,44 @@ textarea:disabled {
   /* Reduce glass panel border-radius on mobile */
   .glass-panel { border-radius: 14px; }
   .glass-panel-premium { border-radius: 16px; }
+
+  /* Network graph: scale down nodes and labels on mobile */
+  .network-node-body {
+    width: 40px !important;
+    height: 40px !important;
+    border-radius: 12px !important;
+  }
+  .network-node-body .network-node-icon {
+    font-size: 16px !important;
+    width: 20px !important;
+    height: 20px !important;
+  }
+  .network-node-label {
+    max-width: 60px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 9px !important;
+  }
+  .network-node-label .network-node-msgs {
+    display: none !important;
+  }
+
+  /* Selected agent detail panel: stack on mobile */
+  .network-detail-panel {
+    flex-direction: column;
+    gap: 8px !important;
+    padding: 12px !important;
+  }
+  .network-detail-panel .network-detail-stats {
+    text-align: left !important;
+    align-items: flex-start !important;
+  }
+
+  /* Agent network graph header legend: wrap nicely */
+  .network-legend {
+    gap: 4px !important;
+  }
 
   /* Camera modal */
   .camera-modal__inner {
@@ -1065,6 +1111,26 @@ textarea:disabled {
   .sidebar-collapse-toggle {
     display: none;
   }
+
+  /* Agent builder header: wrap on mobile */
+  .agent-builder-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* Agent builder form grid: stack name/emoji vertically on small screens */
+  .agent-form-name-row {
+    grid-template-columns: 1fr auto !important;
+  }
+  .agent-form-name-row .agent-form-emoji-col {
+    width: 64px;
+  }
+
+  /* Prevent any text from pushing containers wider than viewport */
+  h1, h2, h3, h4, h5, h6, p, span, div {
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
 }
 
 /* Small phones (< 375px) */
@@ -1076,6 +1142,15 @@ textarea:disabled {
   .upload-btn {
     width: 28px;
     height: 28px;
+  }
+  /* Even smaller nodes on tiny phones */
+  .network-node-body {
+    width: 34px !important;
+    height: 34px !important;
+  }
+  .network-node-label {
+    max-width: 50px;
+    font-size: 8px !important;
   }
 }
 

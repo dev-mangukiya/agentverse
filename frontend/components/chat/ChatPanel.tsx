@@ -241,6 +241,16 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const skipNextLoadRef = useRef(false);
   const dragCounterRef = useRef(0);
 
+  // Cleanup: ensure mic is released when component unmounts
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+        recognitionRef.current = null;
+      }
+    };
+  }, []);
+
   // Emit pipeline updates
   const emitPipeline = useCallback((active: boolean, durationMs?: number, totalAgentsUsed?: number) => {
     onPipelineUpdate?.({
@@ -617,7 +627,12 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
   const toggleRecording = () => {
     if (isRecording) {
-      if (recognitionRef.current) recognitionRef.current.stop();
+      // Use abort() instead of stop() — abort() immediately releases the mic
+      // stop() waits to deliver final result, keeping mic indicator active
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+        recognitionRef.current = null;
+      }
       setIsRecording(false);
       return;
     }
@@ -658,12 +673,14 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     recognition.onerror = (event: any) => {
       console.error("Speech recognition error", event.error);
       setIsRecording(false);
+      recognitionRef.current = null;
       // Clean up the text by removing any stuck interim text on error
       if (lastInterim) setInput(finalTranscript);
     };
 
     recognition.onend = () => {
       setIsRecording(false);
+      recognitionRef.current = null;
       // Clean up any interim text that never finalized
       if (lastInterim) setInput(finalTranscript);
     };
@@ -699,9 +716,10 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     const rawContent = (text || input).trim();
     const filesToSend = [...attachedFiles];
     
-    // Stop recording if active
+    // Stop recording if active — use abort() to immediately release mic
     if (isRecording && recognitionRef.current) {
-      recognitionRef.current.stop();
+      recognitionRef.current.abort();
+      recognitionRef.current = null;
       setIsRecording(false);
     }
     

@@ -107,9 +107,9 @@ def create_app() -> FastAPI:
         allow_origins=[
             "http://localhost:3000",
             "http://127.0.0.1:3000",
-            "https://agentverse-psi.vercel.app"
+            "https://agentverse-psi.vercel.app",
         ],
-        allow_origin_regex=r"https://.*\.vercel\.app",
+        allow_origin_regex=r"https://.*\.(vercel\.app|onrender\.com)",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

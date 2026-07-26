@@ -1,0 +1,41 @@
+# ── Render Infrastructure-as-Code Blueprint ────────────
+# https://render.com/docs/blueprint-spec
+#
+# Push to main → Render auto-deploys the backend service.
+# First time: Render Dashboard → New Blueprint Instance → select this repo.
+
+services:
+  - type: web
+    name: agentverse-backend
+    runtime: docker
+    repo: https://github.com/dev-mangukiya/agentverse.git
+    branch: main
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEFAULT_MODEL_PROVIDER
+        value: google
+      - key: DEFAULT_MODEL
+        value: gemini-2.5-flash
+      - key: GOOGLE_API_KEY
+        sync: false  # Set manually in Render dashboard
+      - key: TAVILY_API_KEY
+        sync: false  # Set manually in Render dashboard
+      - key: DATABASE_URL
+        sync: false  # Set manually if using external Postgres
+      - key: REDIS_URL
+        sync: false  # Set manually if using external Redis
+      - key: QDRANT_URL
+        sync: false  # Set manually if using Qdrant Cloud
+      - key: QDRANT_API_KEY
+        sync: false

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNotifications } from "./NotificationProvider";
 import type { NotificationType } from "./NotificationProvider";
@@ -24,13 +24,29 @@ function timeAgo(timestamp: number): string {
 export function NotificationCenter() {
   const { notifications, unreadCount, markAllRead, dismiss, clearAll } = useNotifications();
   const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
+
+  // Compute fixed position from bell button rect
+  const updatePosition = useCallback(() => {
+    if (!buttonRef.current) return;
+    const rect = buttonRef.current.getBoundingClientRect();
+    setPos({
+      top: rect.bottom + 8,
+      right: Math.max(8, window.innerWidth - rect.right),
+    });
+  }, []);
 
   // Close on outside click
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        panelRef.current && !panelRef.current.contains(target) &&
+        buttonRef.current && !buttonRef.current.contains(target)
+      ) {
         setOpen(false);
       }
     };
@@ -38,11 +54,25 @@ export function NotificationCenter() {
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
+  // Update position on open and on scroll/resize
+  useEffect(() => {
+    if (!open) return;
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [open, updatePosition]);
+
   return (
-    <div className="relative" ref={panelRef}>
+    <>
       {/* Bell button */}
       <button
+        ref={buttonRef}
         onClick={() => {
+          if (!open) updatePosition();
           setOpen(!open);
           if (!open) markAllRead();
         }}
@@ -94,16 +124,20 @@ export function NotificationCenter() {
         </AnimatePresence>
       </button>
 
-      {/* Dropdown panel */}
+      {/* Dropdown panel — fixed position to escape parent overflow:hidden */}
       <AnimatePresence>
         {open && (
           <motion.div
+            ref={panelRef}
             initial={{ opacity: 0, y: -8, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.95 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
-            className="absolute top-full right-0 mt-2 w-80 max-h-[420px] rounded-xl shadow-2xl overflow-hidden flex flex-col z-50"
+            className="fixed w-80 max-h-[420px] rounded-xl shadow-2xl overflow-hidden flex flex-col"
             style={{
+              top: pos.top,
+              right: pos.right,
+              zIndex: 9999,
               backgroundColor: "var(--bg-panel)",
               border: "1px solid var(--border-muted)",
             }}
@@ -199,6 +233,6 @@ export function NotificationCenter() {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </>
   );
 }

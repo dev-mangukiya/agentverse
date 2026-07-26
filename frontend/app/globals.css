@@ -1239,6 +1239,12 @@ textarea:disabled {
 }
 
 /* ─── Input bar safe area padding ──────────────────────────────────────────── */
+.input-safe-area {
+  position: relative;
+  z-index: 20;
+  background-color: var(--bg-base);
+  will-change: transform;
+}
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
   .input-safe-area {
     padding-bottom: calc(env(safe-area-inset-bottom) + 12px) !important;

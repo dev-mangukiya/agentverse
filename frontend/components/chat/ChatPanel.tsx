@@ -240,6 +240,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputBarRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -312,6 +313,58 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     ta.style.height = "auto";
     ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
   }, [input]);
+
+  // ── Mobile keyboard fix: keep input bar visible ──────────────────────
+  // When the virtual keyboard opens on mobile, the layout viewport doesn't
+  // shrink on all browsers. We listen to visualViewport resize events to
+  // detect the keyboard and push the input bar up using a CSS translate.
+  useEffect(() => {
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    if (!vv) return;
+
+    const onResize = () => {
+      // The difference between window.innerHeight and visualViewport.height
+      // is the space taken by the keyboard.
+      const keyboardHeight = window.innerHeight - vv.height;
+      const bar = inputBarRef.current;
+      if (bar) {
+        if (keyboardHeight > 100) {
+          // Keyboard is open — lift the input bar above it
+          bar.style.transform = `translateY(-${keyboardHeight}px)`;
+          bar.style.transition = "transform 0.15s ease-out";
+          // Scroll messages to bottom so user sees latest
+          requestAnimationFrame(() => {
+            scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+          });
+        } else {
+          // Keyboard is closed
+          bar.style.transform = "";
+          bar.style.transition = "transform 0.15s ease-out";
+        }
+      }
+    };
+
+    vv.addEventListener("resize", onResize);
+    vv.addEventListener("scroll", onResize);
+    return () => {
+      vv.removeEventListener("resize", onResize);
+      vv.removeEventListener("scroll", onResize);
+    };
+  }, []);
+
+  // When the textarea is focused on mobile, scroll the input into view
+  // after a short delay to let the keyboard finish animating.
+  useEffect(() => {
+    const ta = inputRef.current;
+    if (!ta) return;
+    const onFocus = () => {
+      setTimeout(() => {
+        inputBarRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      }, 350);
+    };
+    ta.addEventListener("focus", onFocus);
+    return () => ta.removeEventListener("focus", onFocus);
+  }, []);
 
   // Load conversation messages
   useEffect(() => {
@@ -1275,6 +1328,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
       {/* Input bar */}
       <div
+        ref={inputBarRef}
         className="px-2 md:px-4 pb-3 md:pb-5 pt-2 flex-shrink-0 input-safe-area"
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}

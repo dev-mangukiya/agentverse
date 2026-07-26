@@ -13,6 +13,8 @@ import { SystemHealth } from "@/components/dashboard/SystemHealth";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { KPICards } from "@/components/dashboard/KPICards";
 import { AgentBuilder } from "@/components/agents/AgentBuilder";
+import { AgentAnalytics } from "@/components/dashboard/AgentAnalytics";
+import { AgentComparison } from "@/components/agents/AgentComparison";
 
 type View = "dashboard" | "agents" | "chat";
 
@@ -35,6 +37,7 @@ export default function Home() {
   const [pipelineDurationMs, setPipelineDurationMs] = useState<number | undefined>(undefined);
   const [pipelineTotalAgents, setPipelineTotalAgents] = useState<number | undefined>(undefined);
   const [backendStatus, setBackendStatus] = useState<"online" | "waking" | "offline">("waking");
+  const [agentTab, setAgentTab] = useState<"builder" | "compare">("builder");
 
   // Keep active browser sessions warm. A GitHub Actions scheduler also pings
   // the backend while nobody has the app open.
@@ -162,6 +165,7 @@ export default function Home() {
                 style={{ backgroundColor: "var(--bg-base)" }}
               >
                 <KPICards />
+                <AgentAnalytics />
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
                   <div className="lg:col-span-2"><AgentNetworkGraph /></div>
                   <div className="space-y-4 md:space-y-6">
@@ -179,10 +183,41 @@ export default function Home() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.25 }}
-                className="h-full overflow-y-auto p-3 md:p-6"
+                className="h-full flex flex-col overflow-hidden"
                 style={{ backgroundColor: "var(--bg-base)" }}
               >
-                <AgentBuilder />
+                {/* Tab bar */}
+                <div className="flex items-center gap-1 px-4 md:px-6 pt-4 flex-shrink-0">
+                  {[
+                    { id: "builder" as const, label: "Agent Builder", icon: "🛠️" },
+                    { id: "compare" as const, label: "Compare", icon: "⚖️" },
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setAgentTab(tab.id)}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200"
+                      style={{
+                        backgroundColor: agentTab === tab.id ? "var(--brand-dim)" : "transparent",
+                        color: agentTab === tab.id ? "var(--brand-text)" : "var(--text-muted)",
+                        border: `1px solid ${agentTab === tab.id ? "color-mix(in srgb, var(--brand) 20%, transparent)" : "transparent"}`,
+                      }}
+                    >
+                      <span>{tab.icon}</span>
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+                {/* Tab content */}
+                <div className="flex-1 overflow-y-auto">
+                  {agentTab === "builder" && (
+                    <div className="p-3 md:p-6">
+                      <AgentBuilder />
+                    </div>
+                  )}
+                  {agentTab === "compare" && (
+                    <AgentComparison />
+                  )}
+                </div>
               </motion.div>
             )}
 

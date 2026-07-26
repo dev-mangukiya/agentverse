@@ -86,6 +86,87 @@
   --network-grid:   rgba(255,255,255,0.015);
 }
 
+/* ─── Light Theme ────────────────────────────────────────────────────────── */
+[data-theme="light"] {
+  /* Backgrounds — clean warm whites */
+  --bg-base:        #f8f9fb;
+  --bg-sidebar:     #f0f1f5;
+  --bg-panel:       #ffffff;
+  --bg-raised:      #f4f5f8;
+  --bg-elevated:    #ebedf2;
+  --bg-hover:       rgba(0,0,0,0.04);
+  --bg-active:      rgba(226,54,54,0.08);
+
+  /* Borders */
+  --border-subtle:  rgba(0,0,0,0.06);
+  --border-muted:   rgba(0,0,0,0.10);
+  --border-strong:  rgba(0,0,0,0.16);
+  --border-light:   rgba(0,0,0,0.08);
+
+  /* Text */
+  --text-primary:   #1a1a2e;
+  --text-secondary: #3d3d56;
+  --text-muted:     #6b7085;
+  --text-faint:     #9ca0b0;
+
+  /* Brand — same hues, adjusted for light bg */
+  --brand:          #d42e2e;
+  --brand-hover:    #ef4444;
+  --brand-dim:      rgba(212,46,46,0.08);
+  --brand-text:     #b91c1c;
+  --brand-glow:     rgba(212,46,46,0.20);
+  --brand-blue:     #1e40af;
+  --brand-blue-bright: #3b82f6;
+
+  /* Agent Colors — same as dark (high contrast) */
+  --agent-orchestrator: #dc2626;
+  --agent-research:     #059669;
+  --agent-coding:       #2563eb;
+  --agent-writer:       #d97706;
+  --agent-critic:       #0891b2;
+  --agent-data:         #9333ea;
+  --agent-memory:       #7c3aed;
+
+  /* Status */
+  --green:          #059669;
+  --green-dim:      rgba(5,150,105,0.10);
+  --red:            #dc2626;
+  --red-dim:        rgba(220,38,38,0.08);
+  --yellow:         #d97706;
+  --yellow-dim:     rgba(217,119,6,0.10);
+
+  /* User bubble — soft blue */
+  --bubble-user-bg: #e0edff;
+  --bubble-user-text: #1e40af;
+
+  /* Glass panel — light frosted */
+  --glass-bg:       rgba(255,255,255,0.75);
+  --glass-border:   rgba(0,0,0,0.08);
+  --glass-shine:    rgba(255,255,255,0.5);
+
+  /* Input */
+  --input-bg:       #ffffff;
+  --input-bg-focus: #f8f9fb;
+  --input-border:   rgba(0,0,0,0.10);
+  --input-border-focus: rgba(212,46,46,0.5);
+
+  /* Scrollbar */
+  --scrollbar-thumb: rgba(0,0,0,0.12);
+  --scrollbar-thumb-hover: rgba(0,0,0,0.22);
+
+  /* Shadow */
+  --shadow-brand: rgba(212,46,46,0.15);
+
+  /* Pipeline */
+  --pipeline-bg:    #f0f1f5;
+  --pipeline-line:  rgba(212,46,46,0.15);
+  --pipeline-glow:  rgba(212,46,46,0.25);
+
+  /* Network */
+  --network-bg:     radial-gradient(ellipse 80% 60% at 50% 50%, rgba(212,46,46,0.04) 0%, rgba(30,64,175,0.03) 50%, transparent 70%);
+  --network-grid:   rgba(0,0,0,0.04);
+}
+
 /* ─── Base ───────────────────────────────────────────────────────────────── */
 @layer base {
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1164,3 +1245,40 @@ textarea:disabled {
   }
 }
 
+/* ─── Notification Scroll ──────────────────────────────────────────────── */
+.notification-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.notification-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.notification-scroll::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 2px;
+}
+.notification-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* ─── Shimmer Loading ──────────────────────────────────────────────── */
+.shimmer-loading {
+  background: linear-gradient(90deg,
+    var(--bg-raised) 25%,
+    var(--bg-elevated) 50%,
+    var(--bg-raised) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ─── Line Clamp ──────────────────────────────────────────────── */
+.line-clamp-2 {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}

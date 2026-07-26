@@ -200,3 +200,107 @@ async def get_agents(db: AsyncSession = Depends(get_db)) -> dict:
     ]
 
     return {"agents": agents, "edges": edges}
+
+
+@router.get("/agent-analytics")
+async def get_agent_analytics(db: AsyncSession = Depends(get_db)) -> dict:
+    """Per-agent performance metrics for the analytics dashboard."""
+
+    now = datetime.now(timezone.utc)
+
+    # Per-agent message counts
+    agent_stats_result = await db.execute(
+        select(
+            Message.agent_name,
+            func.count(Message.id).label("total_messages"),
+            func.max(Message.created_at).label("last_active"),
+            func.min(Message.created_at).label("first_seen"),
+        )
+        .where(Message.role == "agent", Message.agent_name.isnot(None))
+        .group_by(Message.agent_name)
+    )
+    agent_rows = agent_stats_result.all()
+
+    agents = []
+    for row in agent_rows:
+        name = row.agent_name
+        meta = _AGENT_META.get(name, {"color": "#9aa0a6", "role": "Agent"})
+
+        # Estimate avg response time from message pairs (user → agent)
+        # This is a rough estimate based on timestamps
+        avg_response_ms = None
+        try:
+            pairs_result = await db.execute(
+                text("""
+                    SELECT AVG(
+                        julianday(a.created_at) - julianday(u.created_at)
+                    ) * 86400000 as avg_ms
+                    FROM messages a
+                    JOIN messages u ON a.conversation_id = u.conversation_id
+                        AND u.role = 'user'
+                        AND u.created_at < a.created_at
+                    WHERE a.role = 'agent' AND a.agent_name = :name
+                    AND u.created_at = (
+                        SELECT MAX(u2.created_at) FROM messages u2
+                        WHERE u2.conversation_id = a.conversation_id
+                        AND u2.role = 'user'
+                        AND u2.created_at < a.created_at
+                    )
+                """),
+                {"name": name},
+            )
+            avg_row = pairs_result.first()
+            if avg_row and avg_row[0]:
+                avg_response_ms = int(avg_row[0])
+        except Exception:
+            pass
+
+        agents.append({
+            "name": name,
+            "label": meta.get("role", name.replace("_", " ").title()),
+            "color": meta.get("color", "#9aa0a6"),
+            "total_messages": row.total_messages,
+            "last_active": row.last_active.isoformat() if row.last_active else None,
+            "first_seen": row.first_seen.isoformat() if row.first_seen else None,
+            "avg_response_ms": avg_response_ms,
+        })
+
+    # Daily message counts for the last 7 days
+    daily = []
+    for i in range(6, -1, -1):
+        day_start = (now - timedelta(days=i)).replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day_start + timedelta(days=1)
+        count_result = await db.execute(
+            select(func.count(Message.id)).where(
+                Message.role == "agent",
+                Message.created_at >= day_start,
+                Message.created_at < day_end,
+            )
+        )
+        daily.append({
+            "date": day_start.strftime("%Y-%m-%d"),
+            "label": day_start.strftime("%a"),
+            "count": count_result.scalar_one(),
+        })
+
+    # Tool usage breakdown (from tool messages)
+    tool_result = await db.execute(
+        select(
+            Message.tool_name,
+            func.count(Message.id).label("usage_count"),
+        )
+        .where(Message.role == "tool", Message.tool_name.isnot(None))
+        .group_by(Message.tool_name)
+        .order_by(func.count(Message.id).desc())
+        .limit(10)
+    )
+    tool_usage = [
+        {"tool": r.tool_name, "count": r.usage_count}
+        for r in tool_result.all()
+    ]
+
+    return {
+        "agents": agents,
+        "daily_messages": daily,
+        "tool_usage": tool_usage,
+    }

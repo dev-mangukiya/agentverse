@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getSessionId } from "@/lib/session";
 
@@ -26,6 +26,10 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<ConversationItem[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchConversations = useCallback(async () => {
     try {
@@ -50,6 +54,53 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
     fetchConversations();
   }, [fetchConversations, refreshTrigger]);
 
+  // Debounced search
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults(null);
+      setSearching(false);
+      return;
+    }
+
+    setSearching(true);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+
+    searchDebounceRef.current = setTimeout(async () => {
+      const q = searchQuery.toLowerCase();
+      // Client-side title filtering first
+      const titleMatches = conversations.filter((c) =>
+        c.title.toLowerCase().includes(q)
+      );
+
+      // Try backend search for content matches
+      try {
+        const res = await fetch(
+          `${API_URL}/api/v1/chat/conversations/search?q=${encodeURIComponent(searchQuery)}`,
+          { headers: { "X-Session-ID": getSessionId() } }
+        );
+        if (res.ok) {
+          const contentMatches: ConversationItem[] = await res.json();
+          // Merge and deduplicate
+          const ids = new Set(titleMatches.map((c) => c.id));
+          const merged = [...titleMatches];
+          for (const m of contentMatches) {
+            if (!ids.has(m.id)) merged.push(m);
+          }
+          setSearchResults(merged);
+        } else {
+          setSearchResults(titleMatches);
+        }
+      } catch {
+        setSearchResults(titleMatches);
+      }
+      setSearching(false);
+    }, 300);
+
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [searchQuery, conversations]);
+
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     try {
@@ -73,6 +124,8 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
     if (hr < 24) return `${hr}h ago`;
     return d.toLocaleDateString();
   };
+
+  const displayList = searchResults !== null ? searchResults : conversations;
 
   return (
     <div className="flex flex-col h-full" style={{ backgroundColor: "var(--bg-sidebar)" }}>
@@ -112,11 +165,58 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
         </button>
       </div>
 
+      {/* Search Input */}
+      <div className="px-3 pb-2 flex-shrink-0">
+        <div className="relative">
+          <svg
+            width="14" height="14" viewBox="0 0 24 24" fill="none"
+            className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+            style={{ color: "var(--text-faint)" }}
+          >
+            <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="1.5"/>
+            <path d="M21 21l-4.35-4.35" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+          <input
+            type="text"
+            placeholder="Search chats..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-8 py-2 rounded-xl text-xs transition-all duration-200 outline-none"
+            style={{
+              backgroundColor: "var(--bg-raised)",
+              border: "1px solid var(--border-subtle)",
+              color: "var(--text-primary)",
+            }}
+            onFocus={(e) => {
+              e.currentTarget.style.borderColor = "var(--input-border-focus)";
+              e.currentTarget.style.backgroundColor = "var(--bg-elevated)";
+            }}
+            onBlur={(e) => {
+              e.currentTarget.style.borderColor = "var(--border-subtle)";
+              e.currentTarget.style.backgroundColor = "var(--bg-raised)";
+            }}
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full flex items-center justify-center transition-colors"
+              style={{ color: "var(--text-faint)" }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-primary)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-faint)"; }}
+            >
+              <svg width="8" height="8" viewBox="0 0 12 12" fill="none">
+                <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Section label */}
-      {conversations.length > 0 && (
+      {displayList.length > 0 && (
         <div className="px-4 py-1.5 flex-shrink-0">
           <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-faint)" }}>
-            Recent
+            {searchResults !== null ? `${searchResults.length} result${searchResults.length !== 1 ? "s" : ""}` : "Recent"}
           </span>
         </div>
       )}
@@ -128,6 +228,12 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
             {[1, 2, 3].map((i) => (
               <div key={i} className="shimmer-loading h-10 rounded-xl" />
             ))}
+          </div>
+        )}
+
+        {searching && (
+          <div className="flex items-center justify-center py-6">
+            <span className="w-4 h-4 border-[1.5px] rounded-full animate-spin" style={{ borderColor: "var(--border-muted)", borderTopColor: "var(--brand)" }} />
           </div>
         )}
 
@@ -144,17 +250,17 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
           </div>
         )}
 
-        {!loading && !fetchError && conversations.length === 0 && (
+        {!loading && !fetchError && !searching && displayList.length === 0 && (
           <div className="text-center py-8 px-4">
-            <div className="text-lg mb-1">💬</div>
+            <div className="text-lg mb-1">{searchResults !== null ? "🔍" : "💬"}</div>
             <div className="text-xs" style={{ color: "var(--text-faint)" }}>
-              Your chats will appear here
+              {searchResults !== null ? "No matching chats found" : "Your chats will appear here"}
             </div>
           </div>
         )}
 
         <AnimatePresence>
-          {conversations.map((conv, i) => {
+          {!searching && displayList.map((conv, i) => {
             const isActive = activeId === conv.id;
             const isHovered = hoveredId === conv.id;
             return (

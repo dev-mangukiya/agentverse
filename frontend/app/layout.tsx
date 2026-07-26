@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/lib/theme";
+import { NotificationProvider } from "@/components/notifications/NotificationProvider";
 
 export const metadata: Metadata = {
   title: "AgentVerse — Superhero Multi-Agent AI Platform",
@@ -20,8 +21,11 @@ export default function RootLayout({
         <meta name="theme-color" content="#08080d" />
       </head>
       <body className="safe-area-body">
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <NotificationProvider>{children}</NotificationProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
 }
+

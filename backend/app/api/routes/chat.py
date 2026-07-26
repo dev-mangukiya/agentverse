@@ -211,6 +211,102 @@ async def delete_conversation(
     return {"deleted": True}
 
 
+@router.get("/conversations/search")
+async def search_conversations(
+    q: str,
+    db: AsyncSession = Depends(get_db),
+    x_session_id: str | None = Header(None),
+) -> list[dict]:
+    """Full-text search across conversation titles and message content."""
+    if not x_session_id or not q.strip():
+        return []
+
+    search_term = f"%{q.strip().lower()}%"
+
+    # Search in conversation titles
+    title_stmt = (
+        select(Conversation)
+        .where(
+            Conversation.session_id == x_session_id,
+            Conversation.title.ilike(search_term),
+        )
+        .order_by(Conversation.updated_at.desc())
+        .limit(20)
+    )
+    title_result = await db.execute(title_stmt)
+    title_convs = title_result.scalars().all()
+
+    # Search in message content
+    from sqlalchemy import distinct
+    content_stmt = (
+        select(Conversation)
+        .join(Message, Message.conversation_id == Conversation.id)
+        .where(
+            Conversation.session_id == x_session_id,
+            Message.content.ilike(search_term),
+        )
+        .order_by(Conversation.updated_at.desc())
+        .limit(20)
+    )
+    content_result = await db.execute(content_stmt)
+    content_convs = content_result.scalars().all()
+
+    # Deduplicate
+    seen_ids: set[str] = set()
+    results: list[dict] = []
+    for conv in list(title_convs) + list(content_convs):
+        if conv.id not in seen_ids:
+            seen_ids.add(conv.id)
+            results.append(conv.to_dict())
+    return results[:20]
+
+
+class CompareRequest(BaseModel):
+    prompt: str
+    agents: list[str]
+
+
+@router.post("/compare")
+async def compare_agents(body: CompareRequest) -> dict:
+    """Run the same prompt through multiple agents in parallel and return results."""
+    from app.agents.base import BaseAgent
+
+    if len(body.agents) < 2 or len(body.agents) > 3:
+        raise HTTPException(status_code=400, detail="Select 2-3 agents")
+
+    valid_agents = {"research", "coding", "writer", "critic", "data"}
+    for a in body.agents:
+        if a not in valid_agents:
+            raise HTTPException(status_code=400, detail=f"Unknown agent: {a}")
+
+    async def run_agent(agent_name: str) -> dict:
+        start = time.time()
+        try:
+            agent = BaseAgent(
+                name=agent_name,
+                system_prompt=f"You are the {agent_name} agent. Respond concisely and helpfully.",
+            )
+            response = await agent.run(body.prompt)
+            duration_ms = int((time.time() - start) * 1000)
+            return {
+                "agent": agent_name,
+                "response": response,
+                "duration_ms": duration_ms,
+            }
+        except Exception as e:
+            duration_ms = int((time.time() - start) * 1000)
+            logger.error("compare.agent_error", agent=agent_name, error=str(e))
+            return {
+                "agent": agent_name,
+                "response": f"Error: {str(e)}",
+                "duration_ms": duration_ms,
+                "error": str(e),
+            }
+
+    results = await asyncio.gather(*[run_agent(a) for a in body.agents])
+    return {"results": list(results)}
+
+
 @router.get("/status")
 async def llm_status() -> dict:
     """Check if LLM is configured and available."""

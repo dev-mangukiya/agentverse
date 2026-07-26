@@ -2,6 +2,9 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { agentMeta } from "@/components/agents/AgentCard";
+import { useTheme } from "@/lib/theme";
+import { useNotifications } from "@/components/notifications/NotificationProvider";
+import { NotificationCenter } from "@/components/notifications/NotificationCenter";
 
 type View = "dashboard" | "agents" | "chat";
 
@@ -29,6 +32,7 @@ function SunIcon() {
 }
 
 export function Header({ currentView, onMobileMenuToggle, pipelineActive, activeAgents = [], backendStatus = "online" }: HeaderProps) {
+  const { theme, toggle: toggleTheme } = useTheme();
 
   return (
     <header
@@ -156,7 +160,57 @@ export function Header({ currentView, onMobileMenuToggle, pipelineActive, active
             </span>
           </div>
 
+          {/* Theme toggle */}
+          <button
+            onClick={toggleTheme}
+            className="w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 relative overflow-hidden"
+            style={{
+              backgroundColor: "var(--bg-hover)",
+              color: "var(--text-muted)",
+              border: "1px solid var(--border-subtle)",
+            }}
+            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+            title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = "var(--bg-elevated)";
+              e.currentTarget.style.borderColor = "var(--border-muted)";
+              e.currentTarget.style.color = "var(--text-primary)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = "var(--bg-hover)";
+              e.currentTarget.style.borderColor = "var(--border-subtle)";
+              e.currentTarget.style.color = "var(--text-muted)";
+            }}
+          >
+            <AnimatePresence mode="wait">
+              {theme === "dark" ? (
+                <motion.div
+                  key="sun"
+                  initial={{ rotate: -90, opacity: 0, scale: 0.5 }}
+                  animate={{ rotate: 0, opacity: 1, scale: 1 }}
+                  exit={{ rotate: 90, opacity: 0, scale: 0.5 }}
+                  transition={{ duration: 0.25, ease: "easeInOut" }}
+                >
+                  <SunIcon />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="moon"
+                  initial={{ rotate: 90, opacity: 0, scale: 0.5 }}
+                  animate={{ rotate: 0, opacity: 1, scale: 1 }}
+                  exit={{ rotate: -90, opacity: 0, scale: 0.5 }}
+                  transition={{ duration: 0.25, ease: "easeInOut" }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </button>
 
+          {/* Notification Center */}
+          <NotificationCenter />
 
           {/* User Avatar */}
           <div

@@ -5,6 +5,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { getSessionId } from "@/lib/session";
 import { agentMeta } from "@/components/agents/AgentCard";
+import { useNotifications } from "@/components/notifications/NotificationProvider";
+import { ExportMenu } from "./ExportMenu";
+import { PromptTemplates } from "./PromptTemplates";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 const WS_BASE = API_URL.replace("http", "ws");
@@ -213,6 +216,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const [isThinking, setIsThinking] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const recognitionRef = useRef<any>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
   const [thinkingAgent, setThinkingAgent] = useState<string>("");
   const [thinkingPhase, setThinkingPhase] = useState<string>("");
   const [toolActivity, setToolActivity] = useState<ToolActivity | null>(null);
@@ -222,6 +226,12 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+
+  // Notifications
+  const { addNotification } = useNotifications();
+  const notifyRef = useRef(addNotification);
+  notifyRef.current = addNotification;
 
   // Pipeline state
   const pipelineAgentsRef = useRef<PipelineAgent[]>([]);
@@ -248,12 +258,10 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         recognitionRef.current.abort();
         recognitionRef.current = null;
       }
-      // Also force-release mic on Safari
-      try {
-        navigator.mediaDevices.getUserMedia({ audio: true })
-          .then(s => s.getTracks().forEach(t => t.stop()))
-          .catch(() => {});
-      } catch {}
+      if (micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach(t => t.stop());
+        micStreamRef.current = null;
+      }
     };
   }, []);
 
@@ -455,6 +463,15 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                 : a
             );
             cb.emitPipeline(false, data.total_duration_ms, data.agents_used);
+            // Fire notification
+            if (notifyRef.current) {
+              const dur = data.total_duration_ms ? `${(data.total_duration_ms / 1000).toFixed(1)}s` : "";
+              notifyRef.current({
+                type: "agent-complete",
+                title: "Pipeline Complete",
+                message: `${data.agents_used || 1} agent${(data.agents_used || 1) > 1 ? "s" : ""} finished${dur ? ` in ${dur}` : ""}`,
+              });
+            }
             break;
 
           case "response":
@@ -480,6 +497,14 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             setError(data.content);
             setMessages(prev => [...prev, { id: Date.now(), role: "system", content: `⚠️ ${data.content}` }]);
             cb.emitPipeline(false);
+            // Fire error notification
+            if (notifyRef.current) {
+              notifyRef.current({
+                type: "error",
+                title: "Error",
+                message: data.content?.slice(0, 120),
+              });
+            }
             break;
 
           case "pong":
@@ -631,28 +656,22 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     setCameraOpen(false);
   };
 
-  // Force-release the microphone on Safari
-  // Safari's SpeechRecognition holds the mic even after abort/stop
-  // Requesting a new stream and immediately killing it clears the indicator
-  const forceReleaseMic = () => {
-    try {
-      navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(stream => {
-          stream.getTracks().forEach(t => t.stop());
-        })
-        .catch(() => {}); // Ignore errors — user may have revoked permission
-    } catch {
-      // getUserMedia not available
+  // Stop mic stream and recognition — releases the mic indicator
+  const stopMicAndRecognition = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.abort();
+      recognitionRef.current = null;
+    }
+    // Stop the mic stream we own — this is what actually clears Safari's mic indicator
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach(t => t.stop());
+      micStreamRef.current = null;
     }
   };
 
-  const toggleRecording = () => {
+  const toggleRecording = async () => {
     if (isRecording) {
-      if (recognitionRef.current) {
-        recognitionRef.current.abort();
-        recognitionRef.current = null;
-      }
-      forceReleaseMic();
+      stopMicAndRecognition();
       setIsRecording(false);
       return;
     }
@@ -663,11 +682,24 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       return;
     }
 
+    // Step 1: Acquire mic stream ourselves so WE control when it's released
+    // Safari's SpeechRecognition creates an internal stream we can't stop,
+    // but if we also hold a getUserMedia stream and stop it, Safari sees
+    // zero active audio tracks and releases the mic indicator.
+    let ownStream: MediaStream | null = null;
+    try {
+      ownStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micStreamRef.current = ownStream;
+    } catch (err) {
+      console.warn("Mic access denied, falling back to speech-only", err);
+      // Continue without our own stream — SpeechRecognition will request its own
+    }
+
     let finalTranscript = input;
     let lastInterim = "";
 
     const recognition = new SpeechRecognition();
-    recognition.continuous = false; // Stops on silence
+    recognition.continuous = false;
     recognition.interimResults = true;
     recognition.lang = "en-US";
 
@@ -692,16 +724,14 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
     recognition.onerror = (event: any) => {
       console.error("Speech recognition error", event.error);
+      stopMicAndRecognition();
       setIsRecording(false);
-      recognitionRef.current = null;
-      forceReleaseMic();
       if (lastInterim) setInput(finalTranscript);
     };
 
     recognition.onend = () => {
+      stopMicAndRecognition();
       setIsRecording(false);
-      recognitionRef.current = null;
-      forceReleaseMic();
       if (lastInterim) setInput(finalTranscript);
     };
 
@@ -736,11 +766,9 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     const rawContent = (text || input).trim();
     const filesToSend = [...attachedFiles];
     
-    // Stop recording if active — use abort() to immediately release mic
-    if (isRecording && recognitionRef.current) {
-      recognitionRef.current.abort();
-      recognitionRef.current = null;
-      forceReleaseMic();
+    // Stop recording if active
+    if (isRecording) {
+      stopMicAndRecognition();
       setIsRecording(false);
     }
     
@@ -1264,6 +1292,13 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             onChange={(e) => { if (e.target.files) processFiles(e.target.files); e.target.value = ""; }}
           />
 
+          {/* Export + Templates row */}
+          <div className="flex items-center justify-between px-2 mb-1">
+            <div className="flex items-center gap-1">
+              <ExportMenu messages={messages} />
+            </div>
+          </div>
+
           <div
             className="relative rounded-2xl transition-all duration-300 overflow-hidden"
             style={{
@@ -1369,6 +1404,19 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                 </svg>
               </button>
 
+              {/* Template button */}
+              <button
+                className={`upload-btn ${inputExpanded ? '' : 'input-secondary-actions'}`}
+                onClick={() => setShowTemplates(!showTemplates)}
+                title="Prompt templates"
+                disabled={isThinking}
+                style={showTemplates ? { color: "var(--brand)", backgroundColor: "var(--brand-dim)" } : {}}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <path d="M4 5h16M4 5v14a2 2 0 002 2h12a2 2 0 002-2V5M10 10h4M10 14h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+
               <textarea
                 ref={inputRef}
                 value={input}
@@ -1401,6 +1449,17 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
               </button>
             </div>
           </div>
+
+          {/* Prompt Templates Panel */}
+          <AnimatePresence>
+            {showTemplates && (
+              <PromptTemplates
+                onInsert={(prompt) => setInput(prompt)}
+                onClose={() => setShowTemplates(false)}
+              />
+            )}
+          </AnimatePresence>
+
           <p className="text-center text-[10px] mt-2.5 font-medium" style={{ color: "var(--text-faint)" }}>
             AgentVerse routes your request to specialized agents who collaborate in real-time.
           </p>

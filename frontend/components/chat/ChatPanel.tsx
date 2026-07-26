@@ -217,6 +217,174 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const [isRecording, setIsRecording] = useState(false);
   const recognitionRef = useRef<any>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
+  const isRecordingRef = useRef(false); // guard against double-start race conditions
+
+  // ── Robust mic cleanup ────────────────────────────────────────────────
+  // This is the ONE function that releases everything. Every code path
+  // (manual stop, onend, onerror, component unmount, send) calls this.
+  const forceReleaseMic = useCallback(() => {
+    // 1. Stop recognition
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort(); } catch { /* swallow */ }
+      recognitionRef.current = null;
+    }
+    // 2. Stop every track on our owned stream
+    if (micStreamRef.current) {
+      try {
+        micStreamRef.current.getTracks().forEach(t => {
+          t.stop();
+          t.enabled = false;
+        });
+      } catch { /* swallow */ }
+      micStreamRef.current = null;
+    }
+    // 3. Safari workaround: request a fresh stream then immediately stop it.
+    //    This forces Safari to release the mic indicator even if its internal
+    //    SpeechRecognition stream is still lingering.
+    if (typeof navigator !== "undefined" && navigator.mediaDevices) {
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(s => s.getTracks().forEach(t => t.stop()))
+        .catch(() => { /* permission denied or no mic — fine */ });
+    }
+    // 4. Reset state
+    isRecordingRef.current = false;
+    setIsRecording(false);
+  }, []);
+
+  // Cleanup on unmount — guarantees mic is always released
+  useEffect(() => {
+    return () => {
+      forceReleaseMic();
+    };
+  }, [forceReleaseMic]);
+
+  const toggleRecording = async () => {
+    // ── STOP ─────────────────────────────────────────────────────────────
+    if (isRecording || isRecordingRef.current) {
+      forceReleaseMic();
+      return;
+    }
+
+    // ── START ────────────────────────────────────────────────────────────
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Your browser does not support voice input.");
+      return;
+    }
+
+    // Prevent double-start
+    if (isRecordingRef.current) return;
+    isRecordingRef.current = true;
+
+    // Acquire our own mic stream so we control the release
+    try {
+      const ownStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micStreamRef.current = ownStream;
+    } catch (err) {
+      console.warn("Mic permission denied:", err);
+      isRecordingRef.current = false;
+      alert("Microphone access is required for voice input. Please allow microphone access in your browser settings.");
+      return;
+    }
+
+    let finalTranscript = input;
+    let lastInterim = "";
+    let silenceTimer: ReturnType<typeof setTimeout> | null = null;
+    let maxTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const clearTimers = () => {
+      if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null; }
+      if (maxTimer) { clearTimeout(maxTimer); maxTimer = null; }
+    };
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;       // Don't stop on first pause
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+    recognition.maxAlternatives = 1;
+
+    // Reset silence timer on every result
+    const resetSilenceTimer = () => {
+      if (silenceTimer) clearTimeout(silenceTimer);
+      silenceTimer = setTimeout(() => {
+        // 5s of silence → auto-stop
+        try { recognition.stop(); } catch { /* already stopped */ }
+      }, 5000);
+    };
+
+    recognition.onresult = (event: any) => {
+      resetSilenceTimer();
+
+      let interimChunk = "";
+      let finalChunk = "";
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalChunk += transcript;
+        } else {
+          interimChunk += transcript;
+        }
+      }
+
+      if (finalChunk) {
+        const sep = finalTranscript && !finalTranscript.endsWith(" ") ? " " : "";
+        finalTranscript += sep + finalChunk;
+      }
+      lastInterim = interimChunk;
+
+      // Show combined text in the input box
+      const sep = finalTranscript && !finalTranscript.endsWith(" ") && lastInterim ? " " : "";
+      setInput(finalTranscript + sep + lastInterim);
+    };
+
+    recognition.onerror = (event: any) => {
+      console.warn("SpeechRecognition error:", event.error);
+      clearTimers();
+      // "no-speech" is harmless — user just didn't say anything
+      if (event.error === "no-speech" || event.error === "aborted") {
+        // Keep whatever text we have
+      } else {
+        // Actual error (network, not-allowed, etc.)
+        console.error("Speech recognition failed:", event.error);
+      }
+      // Commit interim text if we have it
+      if (lastInterim) {
+        const sep = finalTranscript && !finalTranscript.endsWith(" ") ? " " : "";
+        setInput(finalTranscript + sep + lastInterim);
+      }
+      forceReleaseMic();
+    };
+
+    recognition.onend = () => {
+      clearTimers();
+      // Commit any remaining interim text as final
+      if (lastInterim) {
+        const sep = finalTranscript && !finalTranscript.endsWith(" ") ? " " : "";
+        finalTranscript += sep + lastInterim;
+        lastInterim = "";
+        setInput(finalTranscript);
+      }
+      forceReleaseMic();
+    };
+
+    // Safety: max 60 seconds recording
+    maxTimer = setTimeout(() => {
+      try { recognition.stop(); } catch { /* already stopped */ }
+    }, 60000);
+
+    // Start initial silence timer
+    resetSilenceTimer();
+
+    try {
+      recognition.start();
+      recognitionRef.current = recognition;
+      setIsRecording(true);
+    } catch (err) {
+      console.error("Failed to start recognition:", err);
+      clearTimers();
+      forceReleaseMic();
+    }
+  };
   const [thinkingAgent, setThinkingAgent] = useState<string>("");
   const [thinkingPhase, setThinkingPhase] = useState<string>("");
   const [toolActivity, setToolActivity] = useState<ToolActivity | null>(null);
@@ -252,19 +420,6 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const skipNextLoadRef = useRef(false);
   const dragCounterRef = useRef(0);
 
-  // Cleanup: ensure mic is released when component unmounts
-  useEffect(() => {
-    return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.abort();
-        recognitionRef.current = null;
-      }
-      if (micStreamRef.current) {
-        micStreamRef.current.getTracks().forEach(t => t.stop());
-        micStreamRef.current = null;
-      }
-    };
-  }, []);
 
   // Emit pipeline updates
   const emitPipeline = useCallback((active: boolean, durationMs?: number, totalAgentsUsed?: number) => {
@@ -709,89 +864,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     setCameraOpen(false);
   };
 
-  // Stop mic stream and recognition — releases the mic indicator
-  const stopMicAndRecognition = () => {
-    if (recognitionRef.current) {
-      recognitionRef.current.abort();
-      recognitionRef.current = null;
-    }
-    // Stop the mic stream we own — this is what actually clears Safari's mic indicator
-    if (micStreamRef.current) {
-      micStreamRef.current.getTracks().forEach(t => t.stop());
-      micStreamRef.current = null;
-    }
-  };
 
-  const toggleRecording = async () => {
-    if (isRecording) {
-      stopMicAndRecognition();
-      setIsRecording(false);
-      return;
-    }
-
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert("Your browser does not support the Web Speech API.");
-      return;
-    }
-
-    // Step 1: Acquire mic stream ourselves so WE control when it's released
-    // Safari's SpeechRecognition creates an internal stream we can't stop,
-    // but if we also hold a getUserMedia stream and stop it, Safari sees
-    // zero active audio tracks and releases the mic indicator.
-    let ownStream: MediaStream | null = null;
-    try {
-      ownStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      micStreamRef.current = ownStream;
-    } catch (err) {
-      console.warn("Mic access denied, falling back to speech-only", err);
-      // Continue without our own stream — SpeechRecognition will request its own
-    }
-
-    let finalTranscript = input;
-    let lastInterim = "";
-
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
-
-    recognition.onresult = (event: any) => {
-      let interimTranscript = "";
-      let newFinal = "";
-      
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-          newFinal += event.results[i][0].transcript;
-        } else {
-          interimTranscript += event.results[i][0].transcript;
-        }
-      }
-      
-      finalTranscript += newFinal;
-      lastInterim = interimTranscript;
-      
-      const sep = finalTranscript && !finalTranscript.endsWith(" ") && (newFinal || interimTranscript) ? " " : "";
-      setInput(finalTranscript + sep + interimTranscript);
-    };
-
-    recognition.onerror = (event: any) => {
-      console.error("Speech recognition error", event.error);
-      stopMicAndRecognition();
-      setIsRecording(false);
-      if (lastInterim) setInput(finalTranscript);
-    };
-
-    recognition.onend = () => {
-      stopMicAndRecognition();
-      setIsRecording(false);
-      if (lastInterim) setInput(finalTranscript);
-    };
-
-    recognition.start();
-    recognitionRef.current = recognition;
-    setIsRecording(true);
-  };
 
   const capturePhoto = () => {
     const video = videoRef.current;
@@ -820,9 +893,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     const filesToSend = [...attachedFiles];
     
     // Stop recording if active
-    if (isRecording) {
-      stopMicAndRecognition();
-      setIsRecording(false);
+    if (isRecording || isRecordingRef.current) {
+      forceReleaseMic();
     }
     
     const content = buildMessageWithFiles(rawContent, filesToSend);

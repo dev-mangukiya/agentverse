@@ -342,7 +342,16 @@ class BaseAgent:
                     messages.append(result)
                 response = await _invoke_with_retry(llm, messages)
 
-            content = response.content if isinstance(response, AIMessage) else str(response)
+            raw = response.content if isinstance(response, AIMessage) else str(response)
+            # Gemini with bound tools may return content as a list of parts
+            # e.g. [{"type": "text", "text": "..."}] instead of a plain string
+            if isinstance(raw, list):
+                content = "\n".join(
+                    part.get("text", "") if isinstance(part, dict) else str(part)
+                    for part in raw
+                ).strip()
+            else:
+                content = str(raw) if raw else ""
             logger.info(f"agent.{self.name}.complete", output_length=len(content))
             return content if content else "The agent processed your request but produced no text output."
 

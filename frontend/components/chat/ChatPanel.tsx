@@ -1363,28 +1363,38 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                 className="flex items-center gap-3 ml-10"
               >
                 <div className="flex items-center gap-3">
-                  {/* Animated gradient bar */}
-                  <div
-                    className="relative overflow-hidden"
-                    style={{
-                      width: "24px",
-                      height: "24px",
-                      borderRadius: "8px",
-                      background: "linear-gradient(135deg, var(--aurora-1), var(--aurora-2), var(--aurora-3), var(--aurora-4))",
-                      backgroundSize: "300% 300%",
-                      animation: "gradientShift 2s ease-in-out infinite",
-                      boxShadow: "0 0 12px rgba(99,102,241,0.3)",
-                    }}
-                  >
-                    <div
-                      className="absolute inset-0"
-                      style={{
-                        background: "linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.25) 50%, transparent 60%)",
-                        backgroundSize: "200% 100%",
-                        animation: "shine 1.5s ease-in-out infinite",
-                      }}
-                    />
-                  </div>
+                  {/* Agent icon with animated gradient background */}
+                  {(() => {
+                    const meta = agentMeta[thinkingAgent?.toLowerCase()];
+                    return (
+                      <div
+                        className="relative overflow-hidden flex items-center justify-center"
+                        style={{
+                          width: "28px",
+                          height: "28px",
+                          borderRadius: "10px",
+                          background: meta?.color
+                            ? `linear-gradient(135deg, ${meta.color}, color-mix(in srgb, ${meta.color} 60%, var(--aurora-3)))`
+                            : "linear-gradient(135deg, var(--aurora-1), var(--aurora-2), var(--aurora-3), var(--aurora-4))",
+                          backgroundSize: "300% 300%",
+                          animation: "gradientShift 2s ease-in-out infinite",
+                          boxShadow: `0 0 14px ${meta?.color || "rgba(99,102,241,0.3)"}60`,
+                        }}
+                      >
+                        <span className="relative z-10" style={{ fontSize: "14px" }}>
+                          {meta?.icon || "🤖"}
+                        </span>
+                        <div
+                          className="absolute inset-0"
+                          style={{
+                            background: "linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.25) 50%, transparent 60%)",
+                            backgroundSize: "200% 100%",
+                            animation: "shine 1.5s ease-in-out infinite",
+                          }}
+                        />
+                      </div>
+                    );
+                  })()}
                   <span className="text-xs font-medium gradient-text">
                     {thinkingPhase === "planning" && "Orchestrator is analyzing your request..."}
                     {thinkingPhase === "synthesizing" && "Orchestrator is combining agent results..."}

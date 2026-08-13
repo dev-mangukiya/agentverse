@@ -238,15 +238,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       } catch { /* swallow */ }
       micStreamRef.current = null;
     }
-    // 3. Safari workaround: request a fresh stream then immediately stop it.
-    //    This forces Safari to release the mic indicator even if its internal
-    //    SpeechRecognition stream is still lingering.
-    if (typeof navigator !== "undefined" && navigator.mediaDevices) {
-      navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(s => s.getTracks().forEach(t => t.stop()))
-        .catch(() => { /* permission denied or no mic — fine */ });
-    }
-    // 4. Reset state
+    // 3. Reset state
     isRecordingRef.current = false;
     setIsRecording(false);
   }, []);

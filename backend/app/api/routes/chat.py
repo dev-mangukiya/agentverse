@@ -269,23 +269,31 @@ class CompareRequest(BaseModel):
 @router.post("/compare")
 async def compare_agents(body: CompareRequest) -> dict:
     """Run the same prompt through multiple agents in parallel and return results."""
-    from app.agents.base import BaseAgent
+    from app.agents.research import ResearchAgent
+    from app.agents.coding import CodingAgent
+    from app.agents.writer import WriterAgent
+    from app.agents.critic import CriticAgent
+    from app.agents.data_analyst import DataAnalystAgent
+
+    agent_classes = {
+        "research": ResearchAgent,
+        "coding": CodingAgent,
+        "writer": WriterAgent,
+        "critic": CriticAgent,
+        "data": DataAnalystAgent,
+    }
 
     if len(body.agents) < 2 or len(body.agents) > 3:
         raise HTTPException(status_code=400, detail="Select 2-3 agents")
 
-    valid_agents = {"research", "coding", "writer", "critic", "data"}
     for a in body.agents:
-        if a not in valid_agents:
+        if a not in agent_classes:
             raise HTTPException(status_code=400, detail=f"Unknown agent: {a}")
 
     async def run_agent(agent_name: str) -> dict:
         start = time.time()
         try:
-            agent = BaseAgent(
-                name=agent_name,
-                system_prompt=f"You are the {agent_name} agent. Respond concisely and helpfully.",
-            )
+            agent = agent_classes[agent_name]()
             response = await agent.run(body.prompt)
             duration_ms = int((time.time() - start) * 1000)
             return {

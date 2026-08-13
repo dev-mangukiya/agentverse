@@ -111,10 +111,12 @@ export function AgentComparison() {
                 onClick={() => toggleAgent(agent.id)}
                 className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-200"
                 style={{
-                  backgroundColor: isSelected ? `${agent.color}15` : "var(--bg-raised)",
-                  border: `1.5px solid ${isSelected ? agent.color : "var(--border-subtle)"}`,
+                  background: isSelected ? `${agent.color}15` : "var(--glass-bg)",
+                  backdropFilter: "blur(12px)",
+                  WebkitBackdropFilter: "blur(12px)",
+                  border: `1.5px solid ${isSelected ? agent.color : "var(--glass-border)"}`,
                   color: isSelected ? agent.color : "var(--text-muted)",
-                  boxShadow: isSelected ? `0 0 12px ${agent.color}20` : "none",
+                  boxShadow: isSelected ? `0 0 16px ${agent.color}20` : "none",
                 }}
               >
                 <span>{agent.icon}</span>
@@ -181,7 +183,7 @@ export function AgentComparison() {
       <div className="flex-1 overflow-y-auto px-6 py-4">
         {loading && (
           <div className="flex items-center justify-center py-16">
-            <div className="flex flex-col items-center gap-3">
+            <div className="flex flex-col items-center gap-4">
               <div className="flex gap-2">
                 {selectedAgents.map((id) => {
                   const agent = AVAILABLE_AGENTS.find((a) => a.id === id)!;
@@ -198,7 +200,22 @@ export function AgentComparison() {
                   );
                 })}
               </div>
-              <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+              {/* Gemini-style shimmer bar */}
+              <div
+                className="rounded-full overflow-hidden"
+                style={{ width: "180px", height: "4px", backgroundColor: "var(--bg-raised)" }}
+              >
+                <div
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    background: "linear-gradient(90deg, transparent, var(--aurora-1), var(--aurora-2), var(--aurora-3), transparent)",
+                    backgroundSize: "200% 100%",
+                    animation: "shimmer 1.5s ease-in-out infinite",
+                  }}
+                />
+              </div>
+              <span className="text-xs font-medium gradient-text">
                 Running agents in parallel...
               </span>
             </div>
@@ -229,16 +246,23 @@ export function AgentComparison() {
                   transition={{ delay: i * 0.1 }}
                   className="rounded-2xl overflow-hidden flex flex-col"
                   style={{
-                    backgroundColor: "var(--bg-raised)",
-                    border: `1px solid ${agent?.color || "var(--border-subtle)"}30`,
+                    background: "var(--glass-bg)",
+                    backdropFilter: "blur(20px) saturate(1.3)",
+                    WebkitBackdropFilter: "blur(20px) saturate(1.3)",
+                    border: `1px solid ${agent?.color || "var(--glass-border)"}30`,
                   }}
                 >
+                  {/* Gradient top accent */}
+                  <div style={{
+                    height: "3px",
+                    background: `linear-gradient(90deg, ${agent?.color || "var(--brand)"}80, ${agent?.color || "var(--brand)"}20, transparent)`,
+                  }} />
                   {/* Agent header */}
                   <div
                     className="flex items-center justify-between px-4 py-3"
                     style={{
-                      background: `linear-gradient(135deg, ${agent?.color || "#666"}10, transparent)`,
-                      borderBottom: `1px solid ${agent?.color || "var(--border-subtle)"}20`,
+                      background: `linear-gradient(135deg, ${agent?.color || "#666"}08, transparent)`,
+                      borderBottom: `1px solid ${agent?.color || "var(--border-subtle)"}15`,
                     }}
                   >
                     <div className="flex items-center gap-2">

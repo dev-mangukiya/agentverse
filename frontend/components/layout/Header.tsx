@@ -38,9 +38,9 @@ export function Header({ currentView, onMobileMenuToggle, pipelineActive, active
     <header
       className="relative flex-shrink-0"
       style={{
-        backgroundColor: "color-mix(in srgb, var(--bg-base) 80%, transparent)",
-        backdropFilter: "blur(16px) saturate(1.2)",
-        WebkitBackdropFilter: "blur(16px) saturate(1.2)",
+        backgroundColor: "color-mix(in srgb, var(--bg-base) 75%, transparent)",
+        backdropFilter: "blur(24px) saturate(1.5)",
+        WebkitBackdropFilter: "blur(24px) saturate(1.5)",
         borderBottom: "1px solid var(--border-subtle)",
       }}
     >
@@ -216,7 +216,9 @@ export function Header({ currentView, onMobileMenuToggle, pipelineActive, active
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center relative group/avatar cursor-pointer overflow-hidden"
             style={{
-              background: "linear-gradient(135deg, #E23636, #1a3a8a)",
+              background: "linear-gradient(135deg, #6366f1, #8b5cf6, #06b6d4)",
+              backgroundSize: "200% 200%",
+              animation: "gradientShift 4s ease-in-out infinite",
             }}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="relative z-10">
@@ -236,7 +238,7 @@ export function Header({ currentView, onMobileMenuToggle, pipelineActive, active
         </div>
       </div>
 
-      {/* Animated gradient bar under header when pipeline is active */}
+      {/* Animated aurora gradient bar under header when pipeline is active */}
       <AnimatePresence>
         {pipelineActive && (
           <motion.div
@@ -246,7 +248,7 @@ export function Header({ currentView, onMobileMenuToggle, pipelineActive, active
             transition={{ duration: 0.5, ease: "easeInOut" }}
             className="absolute bottom-0 left-0 right-0 h-[2px]"
             style={{
-              background: "linear-gradient(90deg, var(--brand) 0%, #a855f7 30%, #ec4899 60%, #f59e0b 80%, var(--brand) 100%)",
+              background: "linear-gradient(90deg, var(--aurora-1) 0%, var(--aurora-2) 25%, var(--aurora-3) 50%, var(--aurora-4) 75%, var(--aurora-5) 100%)",
               backgroundSize: "200% 100%",
               animation: "gradientShift 3s linear infinite",
               transformOrigin: "left",

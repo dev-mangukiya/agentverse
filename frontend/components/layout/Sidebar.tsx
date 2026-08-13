@@ -56,7 +56,12 @@ export function Sidebar({ currentView, onNavigate, collapsed, onToggle, pipeline
       animate={{ width: collapsed ? 72 : 260 }}
       transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
       className="relative flex flex-col h-full overflow-hidden z-10"
-      style={{ backgroundColor: "var(--bg-sidebar)", borderRight: "1px solid var(--border-subtle)" }}
+      style={{
+        backgroundColor: "var(--bg-sidebar)",
+        borderRight: "1px solid var(--border-subtle)",
+        backdropFilter: "blur(20px) saturate(1.3)",
+        WebkitBackdropFilter: "blur(20px) saturate(1.3)",
+      }}
     >
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 h-16 flex-shrink-0 overflow-hidden">
@@ -64,25 +69,29 @@ export function Sidebar({ currentView, onNavigate, collapsed, onToggle, pipeline
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0 relative overflow-hidden"
             style={{
-              background: "linear-gradient(135deg, #E23636 0%, #b91c1c 40%, #1a3a8a 100%)",
+              background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 40%, #06b6d4 100%)",
               backgroundSize: "200% 200%",
               animation: "gradientShift 4s ease-in-out infinite",
-              boxShadow: "0 4px 16px rgba(226,54,54,0.3)",
+              boxShadow: "0 4px 16px rgba(99,102,241,0.3)",
             }}
           >
-            {/* Spider-web inspired icon */}
+            {/* Constellation / neural network icon */}
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="relative z-10">
-              {/* Outer web ring */}
-              <circle cx="12" cy="12" r="10" stroke="white" strokeWidth="1" opacity="0.5"/>
-              {/* Inner web ring */}
-              <circle cx="12" cy="12" r="5.5" stroke="white" strokeWidth="0.8" opacity="0.4"/>
-              {/* Web lines radiating from center */}
-              <line x1="12" y1="2" x2="12" y2="22" stroke="white" strokeWidth="0.8" opacity="0.6"/>
-              <line x1="2" y1="12" x2="22" y2="12" stroke="white" strokeWidth="0.8" opacity="0.6"/>
-              <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" stroke="white" strokeWidth="0.8" opacity="0.5"/>
-              <line x1="19.07" y1="4.93" x2="4.93" y2="19.07" stroke="white" strokeWidth="0.8" opacity="0.5"/>
-              {/* Center dot */}
-              <circle cx="12" cy="12" r="1.8" fill="white" opacity="0.9"/>
+              {/* Center node */}
+              <circle cx="12" cy="12" r="2.5" fill="white" opacity="0.95"/>
+              {/* Satellite nodes */}
+              <circle cx="5" cy="6" r="1.5" fill="white" opacity="0.7"/>
+              <circle cx="19" cy="6" r="1.5" fill="white" opacity="0.7"/>
+              <circle cx="5" cy="18" r="1.5" fill="white" opacity="0.7"/>
+              <circle cx="19" cy="18" r="1.5" fill="white" opacity="0.7"/>
+              {/* Connection lines */}
+              <line x1="12" y1="12" x2="5" y2="6" stroke="white" strokeWidth="0.8" opacity="0.5"/>
+              <line x1="12" y1="12" x2="19" y2="6" stroke="white" strokeWidth="0.8" opacity="0.5"/>
+              <line x1="12" y1="12" x2="5" y2="18" stroke="white" strokeWidth="0.8" opacity="0.5"/>
+              <line x1="12" y1="12" x2="19" y2="18" stroke="white" strokeWidth="0.8" opacity="0.5"/>
+              {/* Cross connections */}
+              <line x1="5" y1="6" x2="19" y2="6" stroke="white" strokeWidth="0.5" opacity="0.3"/>
+              <line x1="5" y1="18" x2="19" y2="18" stroke="white" strokeWidth="0.5" opacity="0.3"/>
             </svg>
             {/* Shine effect */}
             <div
@@ -102,7 +111,7 @@ export function Sidebar({ currentView, onNavigate, collapsed, onToggle, pipeline
             transition={{ duration: 0.2, delay: 0.1 }}
           >
             <div className="font-semibold text-base tracking-tight gradient-text">AgentVerse</div>
-            <div className="text-[10px] font-medium" style={{ color: "var(--text-faint)" }}>Superhero AI Platform</div>
+            <div className="text-[10px] font-medium" style={{ color: "var(--text-faint)" }}>Multi-Agent AI Platform</div>
           </motion.div>
         )}
       </div>
@@ -175,6 +184,7 @@ export function Sidebar({ currentView, onNavigate, collapsed, onToggle, pipeline
                       color: "var(--text-primary)",
                       border: "1px solid var(--border-muted)",
                       boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+                      backdropFilter: "blur(12px)",
                     }}
                   >
                     {item.label}

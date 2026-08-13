@@ -144,9 +144,23 @@ const components: Components = {
         style={{ border: "1px solid var(--border-subtle)" }}
       >
         <div
-          className="px-3 py-1.5 flex items-center justify-between"
+          className="px-3 py-1.5 flex items-center justify-between relative overflow-hidden"
           style={{ backgroundColor: "var(--bg-raised)", borderBottom: "1px solid var(--border-subtle)" }}
         >
+          {/* Gradient accent line */}
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              height: "2px",
+              background: "linear-gradient(90deg, var(--aurora-1), var(--aurora-2), var(--aurora-3), var(--aurora-4))",
+              backgroundSize: "200% 100%",
+              animation: "shimmer 3s ease-in-out infinite",
+              opacity: 0.6,
+            }}
+          />
           <span className="text-[10px] font-mono uppercase font-medium" style={{ color: "var(--text-faint)" }}>
             {language || "code"}
           </span>

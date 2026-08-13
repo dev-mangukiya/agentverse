@@ -152,7 +152,7 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
           <div
             className="w-5 h-5 rounded-lg flex items-center justify-center flex-shrink-0 relative overflow-hidden"
             style={{
-              background: "linear-gradient(135deg, #E23636, #1a3a8a)",
+              background: "linear-gradient(135deg, #6366f1, #8b5cf6, #06b6d4)",
             }}
           >
             <svg width="11" height="11" viewBox="0 0 12 12" fill="none">

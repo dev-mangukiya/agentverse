@@ -956,7 +956,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
           <div
             className="w-6 h-6 rounded-lg flex items-center justify-center text-white relative overflow-hidden"
             style={{
-              background: "linear-gradient(135deg, #E23636 0%, #1a3a8a 100%)",
+              background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #06b6d4 100%)",
             }}
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="relative z-10">
@@ -1048,7 +1048,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                 style={{
                   top: "15%",
                   left: "20%",
-                  background: "radial-gradient(circle, rgba(226,54,54,0.08), transparent 70%)",
+                  background: "radial-gradient(circle, rgba(99,102,241,0.10), transparent 70%)",
                   animation: "floatParticle 8s ease-in-out infinite",
                 }}
               />
@@ -1057,7 +1057,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                 style={{
                   bottom: "20%",
                   right: "15%",
-                  background: "radial-gradient(circle, rgba(168,85,247,0.06), transparent 70%)",
+                  background: "radial-gradient(circle, rgba(139,92,246,0.08), transparent 70%)",
                   animation: "floatParticle 10s ease-in-out 2s infinite",
                 }}
               />
@@ -1066,7 +1066,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                 style={{
                   top: "40%",
                   right: "30%",
-                  background: "radial-gradient(circle, rgba(236,72,153,0.05), transparent 70%)",
+                  background: "radial-gradient(circle, rgba(6,182,212,0.06), transparent 70%)",
                   animation: "floatParticle 7s ease-in-out 4s infinite",
                 }}
               />
@@ -1083,15 +1083,17 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                 style={{
                   width: "72px",
                   height: "72px",
-                  background: "linear-gradient(135deg, #E23636 0%, #b91c1c 40%, #1a3a8a 100%)",
-                  boxShadow: "0 12px 48px rgba(226,54,54,0.35), 0 0 80px rgba(26,58,138,0.15)",
+                  background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 40%, #06b6d4 100%)",
+                  backgroundSize: "200% 200%",
+                  animation: "gradientShift 4s ease-in-out infinite",
+                  boxShadow: "0 12px 48px rgba(99,102,241,0.35), 0 0 80px rgba(139,92,246,0.15)",
                 }}
               >
-                <span className="text-3xl relative z-10">⚡</span>
+                <span className="text-3xl relative z-10">✦</span>
                 <div
                   className="absolute inset-0"
                   style={{
-                    background: "linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.15) 50%, transparent 60%)",
+                    background: "linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.18) 50%, transparent 60%)",
                     backgroundSize: "200% 100%",
                     animation: "shine 3s ease-in-out infinite",
                   }}
@@ -1130,18 +1132,20 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                     onClick={() => handleSend(s.text)}
                     className="flex items-start gap-3 px-4 py-3.5 rounded-2xl text-left transition-all duration-300 group relative overflow-hidden"
                     style={{
-                      backgroundColor: "var(--bg-raised)",
-                      border: "1px solid var(--border-muted)",
+                      background: "var(--glass-bg)",
+                      backdropFilter: "blur(16px) saturate(1.2)",
+                      WebkitBackdropFilter: "blur(16px) saturate(1.2)",
+                      border: "1px solid var(--glass-border)",
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = "var(--bg-elevated)";
+                      e.currentTarget.style.background = "var(--bg-elevated)";
                       e.currentTarget.style.borderColor = `color-mix(in srgb, ${meta?.color || "var(--brand)"} 30%, transparent)`;
                       e.currentTarget.style.transform = "translateY(-2px)";
                       e.currentTarget.style.boxShadow = `0 8px 24px rgba(0,0,0,0.12), 0 0 30px -10px color-mix(in srgb, ${meta?.color || "var(--brand)"} 20%, transparent)`;
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = "var(--bg-raised)";
-                      e.currentTarget.style.borderColor = "var(--border-muted)";
+                      e.currentTarget.style.background = "var(--glass-bg)";
+                      e.currentTarget.style.borderColor = "var(--glass-border)";
                       e.currentTarget.style.transform = "translateY(0)";
                       e.currentTarget.style.boxShadow = "none";
                     }}
@@ -1193,18 +1197,24 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                     )}
 
                     <div
-                      className="overflow-hidden"
+                      className={`overflow-hidden ${
+                        msg.role === "agent" && isThinking && idx === messages.length - 1
+                          ? "gemini-gradient-border gemini-shimmer"
+                          : ""
+                      }`}
                       style={{
                         overflowWrap: "anywhere",
                         ...(msg.role === "user" ? {
                           maxWidth: "75%",
                           padding: "12px 16px",
                           borderRadius: "20px 20px 4px 20px",
-                          backgroundColor: "var(--bubble-user-bg)",
+                          background: "var(--bubble-user-bg)",
+                          backdropFilter: "blur(12px)",
+                          WebkitBackdropFilter: "blur(12px)",
                           color: "var(--bubble-user-text)",
                           fontSize: "14px",
                           lineHeight: "1.6",
-                          border: "1px solid color-mix(in srgb, var(--brand) 15%, transparent)",
+                          border: "1px solid var(--bubble-user-border)",
                         } : msg.role === "system" ? {
                           maxWidth: "80%",
                           padding: "12px 16px",
@@ -1218,6 +1228,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                           color: "var(--text-primary)",
                           fontSize: "14px",
                           lineHeight: "1.7",
+                          paddingLeft: "12px",
                         }),
                       }}
                     >
@@ -1344,21 +1355,37 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
               </motion.div>
             )}
 
-            {/* Thinking indicator — orbital animation */}
+            {/* Thinking indicator — Gemini-style gradient shimmer */}
             {isThinking && !toolActivity && (
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="flex items-center gap-3 ml-10"
               >
-                <div className="flex items-center gap-2.5">
-                  {(() => {
-                    const meta = agentMeta[thinkingAgent?.toLowerCase()];
-                    return (
-                      <OrbitalThinking agentColor={meta?.color} />
-                    );
-                  })()}
-                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                <div className="flex items-center gap-3">
+                  {/* Animated gradient bar */}
+                  <div
+                    className="relative overflow-hidden"
+                    style={{
+                      width: "24px",
+                      height: "24px",
+                      borderRadius: "8px",
+                      background: "linear-gradient(135deg, var(--aurora-1), var(--aurora-2), var(--aurora-3), var(--aurora-4))",
+                      backgroundSize: "300% 300%",
+                      animation: "gradientShift 2s ease-in-out infinite",
+                      boxShadow: "0 0 12px rgba(99,102,241,0.3)",
+                    }}
+                  >
+                    <div
+                      className="absolute inset-0"
+                      style={{
+                        background: "linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.25) 50%, transparent 60%)",
+                        backgroundSize: "200% 100%",
+                        animation: "shine 1.5s ease-in-out infinite",
+                      }}
+                    />
+                  </div>
+                  <span className="text-xs font-medium gradient-text">
                     {thinkingPhase === "planning" && "Orchestrator is analyzing your request..."}
                     {thinkingPhase === "synthesizing" && "Orchestrator is combining agent results..."}
                     {thinkingPhase === "executing" && `${agentMeta[thinkingAgent?.toLowerCase()]?.label || thinkingAgent} is working...`}
@@ -1420,20 +1447,22 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
           <div
             className="relative rounded-2xl transition-all duration-300 overflow-hidden"
             style={{
-              backgroundColor: "var(--input-bg)",
+              background: "var(--input-bg)",
+              backdropFilter: "blur(24px) saturate(1.4)",
+              WebkitBackdropFilter: "blur(24px) saturate(1.4)",
               border: "1px solid var(--input-border)",
               boxShadow: "0 4px 24px rgba(0,0,0,0.12)",
             }}
             onFocusCapture={(e) => {
               const el = e.currentTarget as HTMLElement;
-              el.style.borderColor = "var(--input-border-focus)";
-              el.style.backgroundColor = "var(--input-bg-focus)";
-              el.style.boxShadow = "0 4px 24px rgba(0,0,0,0.15), 0 0 0 3px var(--brand-dim), 0 0 40px -10px var(--brand-glow)";
+              el.style.animation = "auroraBorder 3s ease-in-out infinite";
+              el.style.background = "var(--input-bg-focus)";
             }}
             onBlurCapture={(e) => {
               const el = e.currentTarget as HTMLElement;
+              el.style.animation = "none";
               el.style.borderColor = "var(--input-border)";
-              el.style.backgroundColor = "var(--input-bg)";
+              el.style.background = "var(--input-bg)";
               el.style.boxShadow = "0 4px 24px rgba(0,0,0,0.12)";
             }}
           >

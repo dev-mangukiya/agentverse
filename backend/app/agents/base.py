@@ -330,8 +330,12 @@ class BaseAgent:
         try:
             response = await _invoke_with_retry(llm, messages)
 
-            # Handle tool calls
-            if hasattr(response, "tool_calls") and response.tool_calls:
+            # Handle tool calls — loop up to max_rounds in case the LLM
+            # needs multiple rounds (e.g., search → refine → search again)
+            max_rounds = 5
+            for _ in range(max_rounds):
+                if not (hasattr(response, "tool_calls") and response.tool_calls):
+                    break
                 tool_results = await self._execute_tool_calls(response.tool_calls)
                 messages.append(response)
                 for result in tool_results:
@@ -340,7 +344,7 @@ class BaseAgent:
 
             content = response.content if isinstance(response, AIMessage) else str(response)
             logger.info(f"agent.{self.name}.complete", output_length=len(content))
-            return content
+            return content if content else "The agent processed your request but produced no text output."
 
         except Exception as exc:
             logger.error(f"agent.{self.name}.error", error=str(exc))

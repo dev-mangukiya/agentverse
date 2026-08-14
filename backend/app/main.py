@@ -13,6 +13,7 @@ from app.api.routes.health import router as health_router
 from app.api.routes.chat import router as chat_router
 from app.api.routes.stats import router as stats_router
 from app.api.routes.custom_agents import router as agents_router
+from app.api.routes.auth import router as auth_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
 from app.database.session import init_db
@@ -121,6 +122,7 @@ def create_app() -> FastAPI:
     application.include_router(chat_router, prefix=settings.api_v1_prefix)
     application.include_router(stats_router, prefix=settings.api_v1_prefix)
     application.include_router(agents_router, prefix=settings.api_v1_prefix)
+    application.include_router(auth_router, prefix=settings.api_v1_prefix)
 
     return application
 

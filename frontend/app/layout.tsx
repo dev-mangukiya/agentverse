@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/lib/theme";
 import { NotificationProvider } from "@/components/notifications/NotificationProvider";
+import { AuthProvider } from "@/lib/auth";
 
 export const metadata: Metadata = {
   title: "AgentVerse — Superhero Multi-Agent AI Platform",
@@ -22,7 +23,9 @@ export default function RootLayout({
       </head>
       <body className="safe-area-body">
         <ThemeProvider>
-          <NotificationProvider>{children}</NotificationProvider>
+          <AuthProvider>
+            <NotificationProvider>{children}</NotificationProvider>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

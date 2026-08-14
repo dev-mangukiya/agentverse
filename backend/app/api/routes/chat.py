@@ -23,6 +23,7 @@ from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.database.models.models import Conversation, Message
 from app.database.session import get_db, async_session_factory
+from app.api.routes.auth import decode_token
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -128,18 +129,40 @@ class ConversationCreate(BaseModel):
 
 # ── REST endpoints ────────────────────────────────────────
 
+def _resolve_owner(
+    authorization: str | None = None,
+    x_session_id: str | None = None,
+) -> tuple[str | None, str | None]:
+    """Return (user_id, session_id) from request headers.
+    
+    If a valid JWT is present, user_id takes priority.
+    Otherwise falls back to anonymous session_id.
+    """
+    user_id = None
+    if authorization and authorization.startswith("Bearer "):
+        user_id = decode_token(authorization[7:])
+    return user_id, x_session_id
+
+
+def _scope_query(stmt, user_id: str | None, session_id: str | None):
+    """Add owner filter to a Conversation query."""
+    if user_id:
+        return stmt.where(Conversation.user_id == user_id)
+    if session_id:
+        return stmt.where(Conversation.session_id == session_id)
+    return stmt.where(Conversation.id == None)  # No identity → match nothing
+
+
 @router.get("/conversations")
 async def list_conversations(
     db: AsyncSession = Depends(get_db),
     x_session_id: str | None = Header(None),
+    authorization: str | None = Header(None),
 ) -> list[dict]:
-    """List conversations for a session, most recent first."""
+    """List conversations for authenticated user or anonymous session."""
+    user_id, session_id = _resolve_owner(authorization, x_session_id)
     stmt = select(Conversation).order_by(Conversation.updated_at.desc())
-    if x_session_id:
-        stmt = stmt.where(Conversation.session_id == x_session_id)
-    else:
-        # No session ID = show nothing (don't leak other users' chats)
-        return []
+    stmt = _scope_query(stmt, user_id, session_id)
     result = await db.execute(stmt)
     conversations = result.scalars().all()
     return [c.to_dict() for c in conversations]
@@ -150,14 +173,16 @@ async def create_conversation(
     body: ConversationCreate | None = None,
     db: AsyncSession = Depends(get_db),
     x_session_id: str | None = Header(None),
+    authorization: str | None = Header(None),
 ) -> dict:
-    """Create a new conversation scoped to a session."""
+    """Create a new conversation scoped to user or session."""
+    user_id, session_id = _resolve_owner(authorization, x_session_id)
     title = (body.title if body and body.title else "New conversation")
-    conv = Conversation(title=title, session_id=x_session_id)
+    conv = Conversation(title=title, session_id=session_id, user_id=user_id)
     db.add(conv)
     await db.commit()
     await db.refresh(conv)
-    logger.info("chat.conversation.created", id=conv.id, session=x_session_id)
+    logger.info("chat.conversation.created", id=conv.id, user_id=user_id, session=session_id)
     return conv.to_dict()
 
 
@@ -167,9 +192,11 @@ async def search_conversations(
     q: str,
     db: AsyncSession = Depends(get_db),
     x_session_id: str | None = Header(None),
+    authorization: str | None = Header(None),
 ) -> list[dict]:
     """Full-text search across conversation titles and message content."""
-    if not x_session_id or not q.strip():
+    user_id, session_id = _resolve_owner(authorization, x_session_id)
+    if (not user_id and not session_id) or not q.strip():
         return []
 
     search_term = f"%{q.strip().lower()}%"
@@ -177,13 +204,11 @@ async def search_conversations(
     # Search in conversation titles
     title_stmt = (
         select(Conversation)
-        .where(
-            Conversation.session_id == x_session_id,
-            Conversation.title.ilike(search_term),
-        )
+        .where(Conversation.title.ilike(search_term))
         .order_by(Conversation.updated_at.desc())
         .limit(20)
     )
+    title_stmt = _scope_query(title_stmt, user_id, session_id)
     title_result = await db.execute(title_stmt)
     title_convs = title_result.scalars().all()
 
@@ -192,13 +217,11 @@ async def search_conversations(
     content_stmt = (
         select(Conversation)
         .join(Message, Message.conversation_id == Conversation.id)
-        .where(
-            Conversation.session_id == x_session_id,
-            Message.content.ilike(search_term),
-        )
+        .where(Message.content.ilike(search_term))
         .order_by(Conversation.updated_at.desc())
         .limit(20)
     )
+    content_stmt = _scope_query(content_stmt, user_id, session_id)
     content_result = await db.execute(content_stmt)
     content_convs = content_result.scalars().all()
 
@@ -217,11 +240,12 @@ async def get_conversation(
     conversation_id: str,
     db: AsyncSession = Depends(get_db),
     x_session_id: str | None = Header(None),
+    authorization: str | None = Header(None),
 ) -> dict:
-    """Get a conversation with all its messages (session-scoped)."""
+    """Get a conversation with all its messages."""
+    user_id, session_id = _resolve_owner(authorization, x_session_id)
     stmt = select(Conversation).where(Conversation.id == conversation_id)
-    if x_session_id:
-        stmt = stmt.where(Conversation.session_id == x_session_id)
+    stmt = _scope_query(stmt, user_id, session_id)
     result = await db.execute(stmt)
     conv = result.scalar_one_or_none()
     if not conv:
@@ -234,11 +258,12 @@ async def delete_conversation(
     conversation_id: str,
     db: AsyncSession = Depends(get_db),
     x_session_id: str | None = Header(None),
+    authorization: str | None = Header(None),
 ) -> dict:
-    """Delete a conversation and all its messages (session-scoped)."""
+    """Delete a conversation and all its messages."""
+    user_id, session_id = _resolve_owner(authorization, x_session_id)
     stmt = select(Conversation).where(Conversation.id == conversation_id)
-    if x_session_id:
-        stmt = stmt.where(Conversation.session_id == x_session_id)
+    stmt = _scope_query(stmt, user_id, session_id)
     result = await db.execute(stmt)
     conv = result.scalar_one_or_none()
     if not conv:

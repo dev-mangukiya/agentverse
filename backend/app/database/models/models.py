@@ -17,15 +17,38 @@ def _new_id() -> str:
     return uuid.uuid4().hex[:12]
 
 
+class User(Base):
+    """Registered user — optional; anonymous sessions work without one."""
+    __tablename__ = "users"
+
+    id = Column(String(12), primary_key=True, default=_new_id)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    name = Column(String(100), nullable=True)
+    password_hash = Column(String(255), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+    conversations = relationship("Conversation", back_populates="user", lazy="dynamic")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "email": self.email,
+            "name": self.name,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class Conversation(Base):
     __tablename__ = "conversations"
 
     id = Column(String(12), primary_key=True, default=_new_id)
     session_id = Column(String(64), nullable=True, index=True)
+    user_id = Column(String(12), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     title = Column(String(200), nullable=False, default="New conversation")
     created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 
+    user = relationship("User", back_populates="conversations")
     messages = relationship(
         "Message",
         back_populates="conversation",

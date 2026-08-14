@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { getSessionId } from "@/lib/session";
+import { getAuthHeaders } from "@/lib/auth";
 import { agentMeta } from "@/components/agents/AgentCard";
 import { useNotifications } from "@/components/notifications/NotificationProvider";
 import { ExportMenu } from "./ExportMenu";
@@ -482,7 +483,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     const load = async () => {
       try {
         const res = await fetch(`${API_URL}/api/v1/chat/conversations/${conversationId}`, {
-          headers: { "X-Session-ID": getSessionId() },
+          headers: getAuthHeaders(),
         });
         if (res.ok) {
           const data = await res.json();
@@ -869,7 +870,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       try {
         const res = await fetch(`${API_URL}/api/v1/chat/conversations`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "X-Session-ID": getSessionId() },
+          headers: { "Content-Type": "application/json", ...getAuthHeaders() },
           body: JSON.stringify({ title: content.slice(0, 80) }),
         });
         const conv = await res.json();

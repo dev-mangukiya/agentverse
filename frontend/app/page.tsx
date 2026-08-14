@@ -149,6 +149,10 @@ export default function Home() {
           pipelineActive={pipelineActive}
           activeAgents={pipelineAgents.filter(a => ["activated", "thinking", "tool_call"].includes(a.status))}
           backendStatus={backendStatus}
+          onAuthChange={() => {
+            setActiveConversationId(null);
+            setHistoryRefresh((n) => n + 1);
+          }}
         />
 
         <div className="flex-1 overflow-hidden">

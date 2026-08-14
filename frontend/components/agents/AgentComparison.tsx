@@ -3,7 +3,7 @@
 import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
-import { getSessionId } from "@/lib/session";
+import { getAuthHeaders } from "@/lib/auth";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -50,7 +50,7 @@ export function AgentComparison() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Session-ID": getSessionId(),
+          ...getAuthHeaders(),
         },
         body: JSON.stringify({
           prompt: prompt.trim(),

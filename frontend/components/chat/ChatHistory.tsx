@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { getSessionId } from "@/lib/session";
+import { getAuthHeaders } from "@/lib/auth";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -35,7 +35,7 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
     try {
       setFetchError(false);
       const res = await fetch(`${API_URL}/api/v1/chat/conversations`, {
-        headers: { "X-Session-ID": getSessionId() },
+        headers: getAuthHeaders(),
       });
       if (res.ok) {
         const data = await res.json();
@@ -76,7 +76,7 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
       try {
         const res = await fetch(
           `${API_URL}/api/v1/chat/conversations/search?q=${encodeURIComponent(searchQuery)}`,
-          { headers: { "X-Session-ID": getSessionId() } }
+          { headers: getAuthHeaders() }
         );
         if (res.ok) {
           const contentMatches: ConversationItem[] = await res.json();
@@ -106,7 +106,7 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
     try {
       await fetch(`${API_URL}/api/v1/chat/conversations/${id}`, {
         method: "DELETE",
-        headers: { "X-Session-ID": getSessionId() },
+        headers: getAuthHeaders(),
       });
       setConversations((prev) => prev.filter((c) => c.id !== id));
       if (activeId === id) onNewChat();

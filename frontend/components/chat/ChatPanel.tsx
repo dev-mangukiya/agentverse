@@ -185,18 +185,16 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   // This is the ONE function that releases everything. Every code path
   // (manual stop, onend, onerror, component unmount, send) calls this.
   const forceReleaseMic = useCallback(() => {
-    // 1. Stop recognition FIRST — Safari's SpeechRecognition holds its own
-    //    internal mic handle that isn't released by just stopping our stream.
+    // 1. Stop recognition FIRST
     if (recognitionRef.current) {
       try { recognitionRef.current.abort(); } catch { /* swallow */ }
       try { recognitionRef.current.stop(); } catch { /* swallow */ }
       recognitionRef.current = null;
     }
-    // 2. Stop every track on our owned stream
-    const stream = micStreamRef.current;
-    if (stream) {
+    // 2. Stop every track on our owned stream (if any)
+    if (micStreamRef.current) {
       try {
-        stream.getTracks().forEach(t => {
+        micStreamRef.current.getTracks().forEach(t => {
           t.stop();
           t.enabled = false;
         });
@@ -207,19 +205,19 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     isRecordingRef.current = false;
     setIsRecording(false);
 
-    // 4. Safety net: some browsers (especially Safari) hold onto the mic
-    //    even after track.stop(). Re-iterate after a short delay.
-    if (stream) {
-      setTimeout(() => {
-        try {
-          stream.getTracks().forEach(t => {
-            if (t.readyState !== "ended") {
-              t.stop();
-              t.enabled = false;
-            }
+    // 4. Safari workaround: Safari's SpeechRecognition holds an internal mic
+    //    session that persists after .stop()/.abort(). The only reliable fix
+    //    is to acquire a NEW getUserMedia stream and immediately stop it —
+    //    this "resets" Safari's audio session and releases the mic indicator.
+    if (typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(resetStream => {
+          resetStream.getTracks().forEach(t => {
+            t.stop();
+            t.enabled = false;
           });
-        } catch { /* swallow */ }
-      }, 300);
+        })
+        .catch(() => { /* permission denied or unavailable — fine */ });
     }
   }, []);
 

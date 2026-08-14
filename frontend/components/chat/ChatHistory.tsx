@@ -12,6 +12,7 @@ interface ConversationItem {
   created_at: string;
   updated_at: string;
   message_count: number;
+  is_pinned?: boolean;
 }
 
 interface ChatHistoryProps {
@@ -110,6 +111,32 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
       });
       setConversations((prev) => prev.filter((c) => c.id !== id));
       if (activeId === id) onNewChat();
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const handlePin = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    try {
+      const res = await fetch(`${API_URL}/api/v1/chat/conversations/${id}/pin`, {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setConversations((prev) => {
+          const updated = prev.map((c) =>
+            c.id === id ? { ...c, is_pinned: data.is_pinned } : c
+          );
+          // Re-sort: pinned first, then by updated_at
+          return updated.sort((a, b) => {
+            if (a.is_pinned && !b.is_pinned) return -1;
+            if (!a.is_pinned && b.is_pinned) return 1;
+            return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+          });
+        });
+      }
     } catch {
       /* ignore */
     }
@@ -295,28 +322,50 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="flex-shrink-0 opacity-40">
                     <path d="M12 3C6.477 3 2 6.925 2 11.75c0 2.278.98 4.35 2.59 5.88L3 21l4.5-1.45A10.3 10.3 0 0 0 12 20.5c5.523 0 10-3.925 10-8.75S17.523 3 12 3Z" stroke="currentColor" strokeWidth="1.5"/>
                   </svg>
+                  {conv.is_pinned && (
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" className="flex-shrink-0" style={{ color: "var(--brand)" }}>
+                      <path d="M16 2l5 5-5.5 5.5 3 3L12 22l-1-7-7-1 6.5-6.5 3 3z" />
+                    </svg>
+                  )}
                   <span className="truncate flex-1 text-sm">{conv.title}</span>
                   {isHovered && (
-                    <motion.button
-                      initial={{ opacity: 0, scale: 0.5 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      onClick={(e) => handleDelete(e, conv.id)}
-                      className="flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center transition-all"
-                      style={{ color: "var(--text-muted)", backgroundColor: "var(--bg-hover)" }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.color = "var(--red)";
-                        e.currentTarget.style.backgroundColor = "var(--red-dim)";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.color = "var(--text-muted)";
-                        e.currentTarget.style.backgroundColor = "var(--bg-hover)";
-                      }}
-                      title="Delete"
-                    >
-                      <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
-                        <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                      </svg>
-                    </motion.button>
+                    <>
+                      <motion.button
+                        initial={{ opacity: 0, scale: 0.5 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        onClick={(e) => handlePin(e, conv.id)}
+                        className="flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center transition-all"
+                        style={{
+                          color: conv.is_pinned ? "var(--brand)" : "var(--text-muted)",
+                          backgroundColor: conv.is_pinned ? "var(--brand-dim)" : "var(--bg-hover)",
+                        }}
+                        title={conv.is_pinned ? "Unpin" : "Pin"}
+                      >
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill={conv.is_pinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.5">
+                          <path d="M16 2l5 5-5.5 5.5 3 3L12 22l-1-7-7-1 6.5-6.5 3 3z" />
+                        </svg>
+                      </motion.button>
+                      <motion.button
+                        initial={{ opacity: 0, scale: 0.5 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        onClick={(e) => handleDelete(e, conv.id)}
+                        className="flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center transition-all"
+                        style={{ color: "var(--text-muted)", backgroundColor: "var(--bg-hover)" }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.color = "var(--red)";
+                          e.currentTarget.style.backgroundColor = "var(--red-dim)";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.color = "var(--text-muted)";
+                          e.currentTarget.style.backgroundColor = "var(--bg-hover)";
+                        }}
+                        title="Delete"
+                      >
+                        <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                          <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                        </svg>
+                      </motion.button>
+                    </>
                   )}
                 </button>
               </motion.div>

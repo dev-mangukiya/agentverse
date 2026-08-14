@@ -45,6 +45,7 @@ class Conversation(Base):
     session_id = Column(String(64), nullable=True, index=True)
     user_id = Column(String(12), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     title = Column(String(200), nullable=False, default="New conversation")
+    is_pinned = Column(Integer, nullable=False, default=0)  # SQLite-compatible boolean
     created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 
@@ -61,6 +62,7 @@ class Conversation(Base):
         d = {
             "id": self.id,
             "title": self.title,
+            "is_pinned": bool(self.is_pinned) if self.is_pinned else False,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "message_count": len(self.messages) if self.messages else 0,
@@ -79,6 +81,7 @@ class Message(Base):
     agent_name = Column(String(50), nullable=True)
     content = Column(Text, nullable=False)
     tool_name = Column(String(50), nullable=True)
+    feedback = Column(String(10), nullable=True)  # "up", "down", or null
     created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
     conversation = relationship("Conversation", back_populates="messages")
@@ -91,6 +94,7 @@ class Message(Base):
             "agent_name": self.agent_name,
             "content": self.content,
             "tool_name": self.tool_name,
+            "feedback": self.feedback,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 

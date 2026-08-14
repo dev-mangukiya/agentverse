@@ -22,6 +22,7 @@ interface Message {
   created_at?: string;
   contributing_agents?: string[];
   pipeline_duration_ms?: number;
+  feedback?: "up" | "down" | null;
 }
 
 interface ToolActivity {
@@ -74,6 +75,7 @@ interface ChatPanelProps {
     durationMs?: number;
     totalAgentsUsed?: number;
   }) => void;
+  inputRef?: React.RefObject<HTMLTextAreaElement | null>;
 }
 
 const SUGGESTIONS = [
@@ -168,11 +170,12 @@ async function readFile(file: File): Promise<AttachedFile> {
   });
 }
 
-export function ChatPanel({ conversationId, onConversationCreated, onMessageSent, onPipelineUpdate }: ChatPanelProps) {
+export function ChatPanel({ conversationId, onConversationCreated, onMessageSent, onPipelineUpdate, inputRef: externalInputRef }: ChatPanelProps) {
   const [inputExpanded, setInputExpanded] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
+  const streamingMessageRef = useRef<{ agent: string; content: string; id: number } | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const recognitionRef = useRef<any>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
@@ -384,6 +387,13 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Sync external ref (for keyboard shortcuts from parent)
+  useEffect(() => {
+    if (externalInputRef && inputRef.current) {
+      (externalInputRef as React.MutableRefObject<HTMLTextAreaElement | null>).current = inputRef.current;
+    }
+  });
   const inputBarRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -666,7 +676,20 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             setThinkingAgent("");
             thinkingAgentRef.current = "";
             setThinkingPhase("");
-            if (data.message) {
+            if (streamingMessageRef.current) {
+              // A streaming message already exists — replace it with the final version
+              const streamId = streamingMessageRef.current.id;
+              streamingMessageRef.current = null;
+              if (data.message) {
+                setMessages(prev => prev.map(m =>
+                  m.id === streamId ? { ...data.message, contributing_agents: data.contributing_agents, pipeline_duration_ms: data.pipeline_duration_ms } : m
+                ));
+              } else {
+                setMessages(prev => prev.map(m =>
+                  m.id === streamId ? { ...m, id: data.message?.id || m.id, content: data.content, contributing_agents: data.contributing_agents, pipeline_duration_ms: data.pipeline_duration_ms } : m
+                ));
+              }
+            } else if (data.message) {
               setMessages(prev => [...prev, { ...data.message, contributing_agents: data.contributing_agents, pipeline_duration_ms: data.pipeline_duration_ms }]);
             } else {
               setMessages(prev => [...prev, { id: Date.now(), role: "agent", agent_name: data.agent, content: data.content, contributing_agents: data.contributing_agents, pipeline_duration_ms: data.pipeline_duration_ms }]);
@@ -694,6 +717,37 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             break;
 
           case "pong":
+            break;
+
+          case "stream_start":
+            // Begin accumulating a streaming response
+            streamingMessageRef.current = {
+              agent: data.agent || "orchestrator",
+              content: "",
+              id: Date.now(),
+            };
+            // Add a placeholder message
+            setMessages(prev => [...prev, {
+              id: streamingMessageRef.current!.id,
+              role: "agent" as const,
+              agent_name: data.agent || "orchestrator",
+              content: "",
+            }]);
+            break;
+
+          case "stream_token":
+            if (streamingMessageRef.current) {
+              streamingMessageRef.current.content += data.token;
+              const currentContent = streamingMessageRef.current.content;
+              const currentId = streamingMessageRef.current.id;
+              setMessages(prev => prev.map(m =>
+                m.id === currentId ? { ...m, content: currentContent } : m
+              ));
+            }
+            break;
+
+          case "stream_end":
+            streamingMessageRef.current = null;
             break;
         }
       };
@@ -1308,9 +1362,80 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                                 </>
                               );
                             }
-                            return <MarkdownRenderer content={msg.content} />;
+                            const cleanedContent = msg.content.replace(/\[DOWNLOAD_LINK:[^\]]+\]/g, "").trim();
+                            return <MarkdownRenderer content={cleanedContent} />;
                           })()
                       }
+
+                      {/* Feedback buttons + download links for agent messages */}
+                      {msg.role === "agent" && (
+                        <div className="flex items-center gap-1 mt-2 pt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+                          {/* Download link detection */}
+                          {msg.content.match(/\[DOWNLOAD_LINK:([^:]+):([^\]]+)\]/) && (() => {
+                            const m = msg.content.match(/\[DOWNLOAD_LINK:([^:]+):([^\]]+)\]/);
+                            if (!m) return null;
+                            const [, fileId, fileName] = m;
+                            return (
+                              <a
+                                href={`${API_URL}/api/v1/documents/download/${fileId}`}
+                                download={fileName}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 mr-auto"
+                                style={{
+                                  backgroundColor: "var(--brand-dim)",
+                                  color: "var(--brand)",
+                                  border: "1px solid color-mix(in srgb, var(--brand) 20%, transparent)",
+                                }}
+                                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "color-mix(in srgb, var(--brand) 20%, transparent)"; }}
+                                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "var(--brand-dim)"; }}
+                              >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                                  <polyline points="7 10 12 15 17 10" />
+                                  <line x1="12" y1="15" x2="12" y2="3" />
+                                </svg>
+                                Download {fileName}
+                              </a>
+                            );
+                          })()}
+
+                          {/* Thumbs up/down */}
+                          <div className="flex items-center gap-0.5 ml-auto">
+                            {(["up", "down"] as const).map(fb => (
+                              <button
+                                key={fb}
+                                onClick={async () => {
+                                  try {
+                                    await fetch(`${API_URL}/api/v1/chat/messages/${msg.id}/feedback`, {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+                                      body: JSON.stringify({ feedback: fb }),
+                                    });
+                                    setMessages(prev => prev.map(m =>
+                                      m.id === msg.id ? { ...m, feedback: fb } : m
+                                    ));
+                                  } catch { /* silently fail */ }
+                                }}
+                                className="p-1.5 rounded-lg transition-all duration-200"
+                                style={{
+                                  color: msg.feedback === fb
+                                    ? fb === "up" ? "var(--green)" : "var(--red)"
+                                    : "var(--text-faint)",
+                                  backgroundColor: msg.feedback === fb
+                                    ? fb === "up" ? "color-mix(in srgb, var(--green) 12%, transparent)" : "color-mix(in srgb, var(--red) 12%, transparent)"
+                                    : "transparent",
+                                }}
+                                title={fb === "up" ? "Helpful" : "Not helpful"}
+                              >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill={msg.feedback === fb ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+                                  style={fb === "down" ? { transform: "rotate(180deg)" } : {}}
+                                >
+                                  <path d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3zM7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3" />
+                                </svg>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </motion.div>
                 );

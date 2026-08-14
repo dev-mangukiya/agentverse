@@ -73,6 +73,14 @@ async def _get_cached_agent(name: str):
             from app.agents.data_analyst import DataAnalystAgent
             agent = DataAnalystAgent()
             name = "data"
+        elif name in ("doc_reader", "document_reader", "reader"):
+            from app.agents.doc_reader import DocReaderAgent
+            agent = DocReaderAgent()
+            name = "doc_reader"
+        elif name in ("doc_generator", "document_generator", "generator"):
+            from app.agents.doc_generator import DocGeneratorAgent
+            agent = DocGeneratorAgent()
+            name = "doc_generator"
         else:
             # Try loading a custom agent from the database
             agent = await _load_custom_agent(name)
@@ -161,7 +169,7 @@ async def list_conversations(
 ) -> list[dict]:
     """List conversations for authenticated user or anonymous session."""
     user_id, session_id = _resolve_owner(authorization, x_session_id)
-    stmt = select(Conversation).order_by(Conversation.updated_at.desc())
+    stmt = select(Conversation).order_by(Conversation.is_pinned.desc(), Conversation.updated_at.desc())
     stmt = _scope_query(stmt, user_id, session_id)
     result = await db.execute(stmt)
     conversations = result.scalars().all()
@@ -274,6 +282,81 @@ async def delete_conversation(
     return {"deleted": True}
 
 
+class FeedbackBody(BaseModel):
+    feedback: str  # "up" or "down"
+
+
+@router.post("/messages/{message_id}/feedback")
+async def set_message_feedback(
+    message_id: int,
+    body: FeedbackBody,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Set thumbs up/down feedback on a message."""
+    if body.feedback not in ("up", "down"):
+        raise HTTPException(status_code=400, detail="Feedback must be 'up' or 'down'")
+    stmt = select(Message).where(Message.id == message_id)
+    result = await db.execute(stmt)
+    msg = result.scalar_one_or_none()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+    msg.feedback = body.feedback
+    await db.commit()
+    logger.info("chat.feedback", message_id=message_id, feedback=body.feedback)
+    return {"message_id": message_id, "feedback": body.feedback}
+
+
+@router.patch("/conversations/{conversation_id}/pin")
+async def toggle_pin(
+    conversation_id: str,
+    db: AsyncSession = Depends(get_db),
+    x_session_id: str | None = Header(None),
+    authorization: str | None = Header(None),
+) -> dict:
+    """Toggle the pinned status of a conversation."""
+    user_id, session_id = _resolve_owner(authorization, x_session_id)
+    stmt = select(Conversation).where(Conversation.id == conversation_id)
+    stmt = _scope_query(stmt, user_id, session_id)
+    result = await db.execute(stmt)
+    conv = result.scalar_one_or_none()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    conv.is_pinned = 0 if conv.is_pinned else 1
+    await db.commit()
+    logger.info("chat.pin_toggled", id=conversation_id, pinned=bool(conv.is_pinned))
+    return {"id": conversation_id, "is_pinned": bool(conv.is_pinned)}
+
+
+@router.get("/conversations/{conversation_id}/export")
+async def export_conversation(
+    conversation_id: str,
+    db: AsyncSession = Depends(get_db),
+    x_session_id: str | None = Header(None),
+    authorization: str | None = Header(None),
+) -> dict:
+    """Export a conversation as Markdown text."""
+    user_id, session_id = _resolve_owner(authorization, x_session_id)
+    stmt = select(Conversation).where(Conversation.id == conversation_id)
+    stmt = _scope_query(stmt, user_id, session_id)
+    result = await db.execute(stmt)
+    conv = result.scalar_one_or_none()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    md = f"# {conv.title}\n\n"
+    md += f"*Exported from AgentVerse on {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}*\n\n---\n\n"
+
+    for msg in (conv.messages or []):
+        if msg.role == "user":
+            md += f"## You\n\n{msg.content}\n\n"
+        elif msg.role == "agent":
+            agent = msg.agent_name or "Agent"
+            agent = agent.replace("_", " ").title()
+            md += f"## {agent}\n\n{msg.content}\n\n"
+
+    return {"markdown": md, "title": conv.title}
+
+
 class CompareRequest(BaseModel):
     prompt: str
     agents: list[str]
@@ -287,6 +370,8 @@ async def compare_agents(body: CompareRequest) -> dict:
     from app.agents.writer import WriterAgent
     from app.agents.critic import CriticAgent
     from app.agents.data_analyst import DataAnalystAgent
+    from app.agents.doc_reader import DocReaderAgent
+    from app.agents.doc_generator import DocGeneratorAgent
 
     agent_classes = {
         "research": ResearchAgent,
@@ -294,6 +379,8 @@ async def compare_agents(body: CompareRequest) -> dict:
         "writer": WriterAgent,
         "critic": CriticAgent,
         "data": DataAnalystAgent,
+        "doc_reader": DocReaderAgent,
+        "doc_generator": DocGeneratorAgent,
     }
 
     if len(body.agents) < 2 or len(body.agents) > 3:
@@ -1190,8 +1277,145 @@ async def _run_agent_with_streaming(
             return "\n\n".join(tool_results_log)
         return "(Agent finished with no text output)"
 
+    async def _execute_streaming() -> str:
+        """Same as _execute but streams the final response token-by-token."""
+        messages = [SystemMessage(content=agent._build_system_prompt(context))]
+
+        binary_attachments = [
+            a for a in (attachments or [])
+            if a.get("type") == "image" and a.get("data", "").startswith("data:")
+        ]
+
+        if binary_attachments:
+            content_parts: list[dict] = [{"type": "text", "text": user_input}]
+            for att in binary_attachments:
+                content_parts.append({
+                    "type": "image_url",
+                    "image_url": {"url": att["data"]},
+                })
+            messages.append(HumanMessage(content=content_parts))
+        else:
+            messages.append(HumanMessage(content=user_input))
+
+        llm = agent._get_fresh_llm()
+        last_text_content = ""
+        tool_results_log = []
+
+        for round_idx in range(5):
+            response = await _invoke_with_retry(llm, messages)
+
+            if hasattr(response, "tool_calls") and response.tool_calls:
+                if isinstance(response, AIMessage) and response.content:
+                    rc = response.content
+                    if isinstance(rc, list):
+                        rc = "".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in rc])
+                    if rc.strip():
+                        last_text_content = rc
+
+                messages.append(response)
+
+                for call in response.tool_calls:
+                    tool_start = time.time()
+                    await _send_ws(websocket, {
+                        "type": "tool_call",
+                        "agent": agent.name,
+                        "tool": call["name"],
+                        "args": {k: str(v)[:200] for k, v in call["args"].items()},
+                    })
+
+                    await broadcast_event({
+                        "type": "activity",
+                        "agent": agent.name.capitalize(),
+                        "action": f'Using: {call["name"]}',
+                        "time": "now",
+                    })
+
+                    tool_map = {t.name: t for t in agent.tools}
+                    try:
+                        if call["name"] in tool_map:
+                            result = await tool_map[call["name"]].ainvoke(call["args"])
+                        else:
+                            result = f"Unknown tool: {call['name']}"
+                    except Exception as exc:
+                        result = f"Tool error: {exc}"
+
+                    tool_duration = int((time.time() - tool_start) * 1000)
+                    tool_results_log.append(f"**Tool `{call['name']}`** ({tool_duration}ms):\n{str(result)[:2000]}")
+                    messages.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
+
+                    await _send_ws(websocket, {
+                        "type": "tool_result",
+                        "agent": agent.name,
+                        "tool": call["name"],
+                        "result": str(result)[:1000],
+                        "duration_ms": tool_duration,
+                    })
+            else:
+                # Final response — try to stream it token-by-token
+                content = response.content if isinstance(response, AIMessage) else str(response)
+                if isinstance(content, list):
+                    content = "".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in content])
+
+                if content and content.strip():
+                    # Stream the already-generated content in chunks
+                    await _stream_text(websocket, agent.name, content)
+                    return content
+                if last_text_content:
+                    await _stream_text(websocket, agent.name, last_text_content)
+                    return last_text_content
+                if tool_results_log:
+                    combined = "\n\n".join(tool_results_log)
+                    return combined
+                return "(Agent finished with no text output)"
+
+        # Exhausted rounds
+        content = response.content if isinstance(response, AIMessage) else str(response)
+        if isinstance(content, list):
+            content = "".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in content])
+        if content and content.strip():
+            return content
+        if last_text_content:
+            return last_text_content
+        if tool_results_log:
+            return "\n\n".join(tool_results_log)
+        return "(Agent finished with no text output)"
+
+    async def _stream_text(ws: WebSocket, agent_name: str, text: str):
+        """Send text to the client in small chunks to simulate streaming."""
+        # Send a stream_start event
+        await _send_ws(ws, {
+            "type": "stream_start",
+            "agent": agent_name,
+        })
+
+        # Stream in chunks of ~20 chars (word-boundary aware)
+        chunk_size = 20
+        i = 0
+        while i < len(text):
+            end = min(i + chunk_size, len(text))
+            # Try to break at a space if not at end
+            if end < len(text):
+                space_idx = text.rfind(" ", i, end + 5)
+                if space_idx > i:
+                    end = space_idx + 1
+            chunk = text[i:end]
+            await _send_ws(ws, {
+                "type": "stream_token",
+                "agent": agent_name,
+                "token": chunk,
+            })
+            i = end
+            # Small delay for visual streaming effect
+            await asyncio.sleep(0.015)
+
+        # Send stream_end
+        await _send_ws(ws, {
+            "type": "stream_end",
+            "agent": agent_name,
+        })
+
     try:
-        return await asyncio.wait_for(_execute(), timeout=120.0)
+        return await asyncio.wait_for(_execute_streaming(), timeout=120.0)
     except asyncio.TimeoutError:
         logger.warning("agent.timeout", agent=agent.name)
         return f"Agent '{agent.name}' timed out after 120 seconds. Please try a simpler request or smaller file."

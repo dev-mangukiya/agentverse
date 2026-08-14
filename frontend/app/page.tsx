@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
@@ -17,6 +17,7 @@ import { AgentAnalytics } from "@/components/dashboard/AgentAnalytics";
 import { AgentComparison } from "@/components/agents/AgentComparison";
 import { WelcomeModal } from "@/components/auth/WelcomeModal";
 import { useKeepAlive } from "@/hooks/useKeepAlive";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 
 type View = "dashboard" | "agents" | "chat";
 
@@ -115,6 +116,28 @@ export default function Home() {
   }, []);
 
   const activeAgentCount = pipelineAgents.filter(a => ["activated", "thinking", "tool_call"].includes(a.status)).length;
+
+  // Global chat input ref for Cmd+K focus
+  const chatInputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Keyboard shortcuts
+  const shortcutActions = useMemo(() => ({
+    focusInput: () => {
+      if (currentView !== "chat") setCurrentView("chat");
+      setTimeout(() => chatInputRef.current?.focus(), 50);
+    },
+    newChat: () => {
+      setCurrentView("chat");
+      setActiveConversationId(null);
+    },
+    toggleSidebar: () => setSidebarCollapsed(c => !c),
+    closeModal: () => {
+      setMobileSidebarOpen(false);
+      setMobileHistoryOpen(false);
+      setMobilePipelineOpen(false);
+    },
+  }), [currentView]);
+  useKeyboardShortcuts(shortcutActions);
 
   return (
     <div className="flex w-screen max-w-full overflow-hidden" style={{ backgroundColor: "var(--bg-base)", height: "100dvh" }}>
@@ -304,6 +327,7 @@ export default function Home() {
                     onConversationCreated={handleConversationCreated}
                     onMessageSent={handleMessageSent}
                     onPipelineUpdate={handlePipelineUpdate}
+                    inputRef={chatInputRef}
                   />
                 </div>
 

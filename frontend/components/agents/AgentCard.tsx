@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
-import { BrainIcon, MicroscopeIcon, CodeIcon, PenIcon, SearchIcon, BarChartIcon, PuzzleIcon, BotIcon } from "../icons/Icons";
+import { BrainIcon, MicroscopeIcon, CodeIcon, PenIcon, SearchIcon, BarChartIcon, PuzzleIcon, BotIcon, FileTextIcon, FilePlusIcon } from "../icons/Icons";
 
 type AgentStatus = "idle" | "activated" | "thinking" | "tool_call" | "complete" | "error";
 
@@ -27,16 +27,20 @@ const agentIcons: Record<string, React.ReactNode> = {
   critic:       <SearchIcon size={16} />,
   data:         <BarChartIcon size={16} />,
   memory:       <PuzzleIcon size={16} />,
+  doc_reader:   <FileTextIcon size={16} />,
+  doc_generator: <FilePlusIcon size={16} />,
 };
 
 const agentMeta: Record<string, { icon: React.ReactNode; color: string; label: string; role: string }> = {
-  orchestrator: { icon: agentIcons.orchestrator, color: "var(--agent-orchestrator)", label: "Orchestrator", role: "Planning & Coordination" },
-  research:     { icon: agentIcons.research, color: "var(--agent-research)", label: "Research", role: "Web Search & Analysis" },
-  coding:       { icon: agentIcons.coding, color: "var(--agent-coding)", label: "Coding", role: "Code & Execution" },
-  writer:       { icon: agentIcons.writer, color: "var(--agent-writer)", label: "Writer", role: "Content & Reports" },
-  critic:       { icon: agentIcons.critic, color: "var(--agent-critic)", label: "Critic", role: "Quality & Review" },
-  data:         { icon: agentIcons.data, color: "var(--agent-data)", label: "Data Analyst", role: "Data & Insights" },
-  memory:       { icon: agentIcons.memory, color: "var(--agent-memory)", label: "Memory", role: "RAG & Vector Store" },
+  orchestrator:  { icon: agentIcons.orchestrator, color: "var(--agent-orchestrator)", label: "Orchestrator", role: "Planning & Coordination" },
+  research:      { icon: agentIcons.research, color: "var(--agent-research)", label: "Research", role: "Web Search & Analysis" },
+  coding:        { icon: agentIcons.coding, color: "var(--agent-coding)", label: "Coding", role: "Code & Execution" },
+  writer:        { icon: agentIcons.writer, color: "var(--agent-writer)", label: "Writer", role: "Content & Reports" },
+  critic:        { icon: agentIcons.critic, color: "var(--agent-critic)", label: "Critic", role: "Quality & Review" },
+  data:          { icon: agentIcons.data, color: "var(--agent-data)", label: "Data Analyst", role: "Data & Insights" },
+  memory:        { icon: agentIcons.memory, color: "var(--agent-memory)", label: "Memory", role: "RAG & Vector Store" },
+  doc_reader:    { icon: agentIcons.doc_reader, color: "#f97316", label: "Doc Reader", role: "Document Analysis & Q&A" },
+  doc_generator: { icon: agentIcons.doc_generator, color: "#14b8a6", label: "Doc Generator", role: "Document Generation" },
 };
 
 const statusConfig: Record<AgentStatus, { label: string; animation: boolean }> = {

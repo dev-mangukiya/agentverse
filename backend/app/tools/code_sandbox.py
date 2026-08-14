@@ -153,7 +153,7 @@ class CodeSandbox:
             )
 
         # Create isolated temp directory
-        sandbox_dir = tempfile.mkdtemp(prefix="cortex_sandbox_")
+        sandbox_dir = tempfile.mkdtemp(prefix="agentverse_sandbox_")
         logger.info("sandbox.created", dir=sandbox_dir, language=language)
 
         try:

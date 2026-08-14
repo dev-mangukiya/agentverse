@@ -1,6 +1,6 @@
-# Cortex AI
+# AgentVerse
 
-**Cortex AI** (formerly AgentVerse) is an autonomous multi-agent AI workforce platform. It allows users to manage a network of specialized AI agents that collaborate to solve complex tasks. 
+**AgentVerse** is an autonomous multi-agent AI workforce platform. It allows users to manage a network of specialized AI agents that collaborate to solve complex tasks. 
 
 ## Features
 
@@ -25,7 +25,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-### Frontend (Next.js + Tailwind)
+### Frontend (Next.js)
 
 ```bash
 cd frontend
@@ -54,19 +54,17 @@ SLACK_BOT_TOKEN=your_slack_bot_token
 ## Keeping the Render backend warm
 
 The production backend is deployed on Render's Free tier, which sleeps after
-15 minutes without traffic. The included GitHub Actions workflow pings its
-health endpoint every 10 minutes so users do not pay the cold-start delay.
+15 minutes without traffic. The system uses three layers to prevent cold starts:
 
-If the backend URL changes, set the repository variable
-`BACKEND_HEALTH_URL` to its full `/health` URL in GitHub. You can also run the
-**Keep Render backend awake** workflow manually after a deploy to wake the
-service immediately. Keeping a Free Render instance awake all month uses
-almost all of its 750 included instance-hours; moving the backend to a paid
-Render instance is the durable production option.
+1. **Frontend heartbeat** — pings backend every 4 minutes while any user has the app open
+2. **GitHub Actions** — cron job pings health endpoint every 5 minutes
+3. **Recommended** — set up a free UptimeRobot monitor for 24/7 external reliability
+
+If the backend URL changes, update it in `.github/workflows/keep-alive.yml`.
 
 ## Architecture
 
-Cortex AI uses a hierarchical agent architecture. The **Orchestrator Agent** receives the initial user request, decomposes it, and delegates tasks to specialized agents (Research, Coding, Writer, Critic, Data Analyst, or Custom Agents). The platform supports parallel delegation and tool execution.
+AgentVerse uses a hierarchical agent architecture. The **Orchestrator Agent** receives the initial user request, decomposes it, and delegates tasks to specialized agents (Research, Coding, Writer, Critic, Data Analyst, or Custom Agents). The platform supports parallel delegation and tool execution.
 
 ## License
 MIT

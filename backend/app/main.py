@@ -1,4 +1,4 @@
-"""Cortex AI FastAPI application entrypoint.
+"""AgentVerse FastAPI application entrypoint.
 
 Run with: uvicorn app.main:app --reload
 """

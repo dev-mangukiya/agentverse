@@ -8,7 +8,7 @@ class CodingAgent(BaseAgent):
     name = "coding"
     role = "Coding Agent — code generation, execution, and debugging"
 
-    system_prompt = """You are the Coding Agent of Cortex AI.
+    system_prompt = """You are the Coding Agent of AgentVerse.
 
 ## Your role:
 You write, debug, and execute code. You are an expert software engineer

@@ -40,6 +40,10 @@ class AuthResponse(BaseModel):
     user: dict
 
 
+class GoogleAuthRequest(BaseModel):
+    credential: str  # Google ID token from GSI
+
+
 # ── Password hashing ─────────────────────────────────────
 
 from passlib.context import CryptContext
@@ -186,3 +190,68 @@ async def get_me(
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return {"user": user.to_dict()}
+
+
+@router.post("/google")
+async def google_auth(
+    body: GoogleAuthRequest,
+    db: AsyncSession = Depends(get_db),
+    x_session_id: str | None = Header(None),
+) -> dict:
+    """Authenticate with Google Sign-In. Creates account if needed."""
+    import httpx
+
+    # Verify the Google ID token via Google's tokeninfo endpoint
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"https://oauth2.googleapis.com/tokeninfo?id_token={body.credential}",
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                raise HTTPException(status_code=401, detail="Invalid Google token")
+            token_info = resp.json()
+    except httpx.HTTPError:
+        raise HTTPException(status_code=401, detail="Failed to verify Google token")
+
+    # Validate audience matches our client ID
+    client_id = settings.google_oauth_client_id
+    if client_id and token_info.get("aud") != client_id:
+        raise HTTPException(status_code=401, detail="Token audience mismatch")
+
+    email = token_info.get("email", "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="Email not provided by Google")
+
+    name = token_info.get("name") or token_info.get("given_name") or email.split("@")[0]
+
+    # Find or create user
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        # Create new user with a random password hash (OAuth-only user)
+        import secrets
+        user = User(
+            email=email,
+            name=name,
+            password_hash=_hash_password(secrets.token_urlsafe(32)),
+        )
+        db.add(user)
+        await db.flush()
+        logger.info("auth.google.register", user_id=user.id, email=email)
+    else:
+        # Update name if not set
+        if not user.name and name:
+            user.name = name
+        logger.info("auth.google.login", user_id=user.id, email=email)
+
+    # Migrate anonymous chats
+    migrated = await _migrate_session_chats(db, user.id, x_session_id)
+    await db.commit()
+
+    return {
+        "token": _create_token(user.id),
+        "user": user.to_dict(),
+        "migrated_chats": migrated,
+    }

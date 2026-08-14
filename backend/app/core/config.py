@@ -83,6 +83,7 @@ class Settings(BaseSettings):
     # ── Auth ─────────────────────────────────────────────
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440
+    google_oauth_client_id: str | None = None  # For "Sign in with Google"
 
     # ── Agent limits ─────────────────────────────────────
     max_retries: int = 2

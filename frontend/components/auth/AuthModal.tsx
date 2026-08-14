@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/lib/auth";
+
+const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
 
 interface AuthModalProps {
   open: boolean;
@@ -11,14 +13,16 @@ interface AuthModalProps {
 }
 
 export function AuthModal({ open, onClose, onSuccess }: AuthModalProps) {
-  const { login, register } = useAuth();
+  const { login, register, googleLogin } = useAuth();
   const [tab, setTab] = useState<"login" | "register">("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const emailRef = useRef<HTMLInputElement>(null);
+  const googleBtnRef = useRef<HTMLDivElement>(null);
 
   // Focus email on open
   useEffect(() => {
@@ -27,6 +31,75 @@ export function AuthModal({ open, onClose, onSuccess }: AuthModalProps) {
       setTimeout(() => emailRef.current?.focus(), 200);
     }
   }, [open, tab]);
+
+  // Load Google GSI script
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID || typeof window === "undefined") return;
+
+    const existing = document.getElementById("google-gsi-script");
+    if (existing) return;
+
+    const script = document.createElement("script");
+    script.id = "google-gsi-script";
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    document.head.appendChild(script);
+  }, []);
+
+  // Initialize Google button when modal opens
+  useEffect(() => {
+    if (!open || !GOOGLE_CLIENT_ID) return;
+
+    const initGoogle = () => {
+      const google = (window as any).google;
+      if (!google?.accounts?.id) {
+        // Script not loaded yet, retry
+        setTimeout(initGoogle, 200);
+        return;
+      }
+
+      google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleGoogleCallback,
+        auto_select: false,
+      });
+
+      if (googleBtnRef.current) {
+        // Clear previous render
+        googleBtnRef.current.innerHTML = "";
+        google.accounts.id.renderButton(googleBtnRef.current, {
+          type: "standard",
+          theme: "outline",
+          size: "large",
+          width: "100%",
+          text: "continue_with",
+          shape: "pill",
+          logo_alignment: "center",
+        });
+      }
+    };
+
+    // Small delay to ensure modal is rendered
+    const timer = setTimeout(initGoogle, 100);
+    return () => clearTimeout(timer);
+  }, [open, tab]);
+
+  const handleGoogleCallback = useCallback(async (response: any) => {
+    if (!response?.credential) return;
+    setGoogleLoading(true);
+    setError("");
+
+    const result = await googleLogin(response.credential);
+    setGoogleLoading(false);
+
+    if (result.error) {
+      setError(result.error);
+    } else {
+      onClose();
+      onSuccess?.();
+    }
+  }, [googleLogin, onClose, onSuccess]);
 
   // Reset on tab change
   const switchTab = (t: "login" | "register") => {
@@ -155,8 +228,42 @@ export function AuthModal({ open, onClose, onSuccess }: AuthModalProps) {
                 </div>
               </div>
 
-              {/* Form */}
-              <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+              {/* Google Sign-In + Form */}
+              <div className="px-6 py-5 space-y-4">
+                {/* Google Sign-In */}
+                {GOOGLE_CLIENT_ID ? (
+                  <>
+                    <div
+                      ref={googleBtnRef}
+                      className="flex justify-center min-h-[44px]"
+                      style={{ opacity: googleLoading ? 0.5 : 1 }}
+                    />
+                    {googleLoading && (
+                      <div className="flex items-center justify-center gap-2 text-xs" style={{ color: "var(--text-muted)" }}>
+                        <span
+                          className="w-4 h-4 border-2 rounded-full animate-spin"
+                          style={{
+                            borderColor: "color-mix(in srgb, var(--text-muted) 30%, transparent)",
+                            borderTopColor: "var(--text-muted)",
+                          }}
+                        />
+                        Signing in with Google...
+                      </div>
+                    )}
+
+                    {/* Divider */}
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 h-px" style={{ backgroundColor: "var(--border-subtle)" }} />
+                      <span className="text-[11px] font-medium" style={{ color: "var(--text-faint)" }}>
+                        or continue with email
+                      </span>
+                      <div className="flex-1 h-px" style={{ backgroundColor: "var(--border-subtle)" }} />
+                    </div>
+                  </>
+                ) : null}
+
+              {/* Email/Password Form */}
+              <form onSubmit={handleSubmit} className="space-y-4">
                 <AnimatePresence mode="wait">
                   {tab === "register" && (
                     <motion.div
@@ -310,6 +417,7 @@ export function AuthModal({ open, onClose, onSuccess }: AuthModalProps) {
                   )}
                 </button>
               </form>
+              </div>
 
               {/* Footer */}
               <div

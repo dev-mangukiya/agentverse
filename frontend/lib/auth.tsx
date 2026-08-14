@@ -29,6 +29,7 @@ interface AuthContextValue {
     email: string,
     password: string
   ) => Promise<{ error?: string }>;
+  googleLogin: (credential: string) => Promise<{ error?: string }>;
   logout: () => void;
 }
 
@@ -49,6 +50,7 @@ const AuthContext = createContext<AuthContextValue>({
   isLoading: true,
   login: async () => ({}),
   register: async () => ({}),
+  googleLogin: async () => ({}),
   logout: () => {},
 });
 
@@ -150,6 +152,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  const googleLogin = useCallback(
+    async (credential: string): Promise<{ error?: string }> => {
+      try {
+        const res = await fetch(`${API_URL}/api/v1/auth/google`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Session-ID": getSessionId(),
+          },
+          body: JSON.stringify({ credential }),
+        });
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          return { error: data.detail || "Google sign-in failed" };
+        }
+
+        const data = await res.json();
+        localStorage.setItem(AUTH_TOKEN_KEY, data.token);
+        localStorage.setItem(AUTH_USER_KEY, JSON.stringify(data.user));
+        setUser(data.user);
+        return {};
+      } catch {
+        return { error: "Network error — please try again" };
+      }
+    },
+    []
+  );
+
   const logout = useCallback(() => {
     localStorage.removeItem(AUTH_TOKEN_KEY);
     localStorage.removeItem(AUTH_USER_KEY);
@@ -164,6 +195,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         login,
         register,
+        googleLogin,
         logout,
       }}
     >

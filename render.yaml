@@ -39,3 +39,5 @@ services:
         sync: false  # Set manually if using Qdrant Cloud
       - key: QDRANT_API_KEY
         sync: false
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false  # Set manually for Google Sign-In

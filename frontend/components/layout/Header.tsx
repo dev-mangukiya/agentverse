@@ -69,7 +69,7 @@ export function Header({ currentView, onMobileMenuToggle, pipelineActive, active
   return (
     <>
       <header
-        className="relative flex-shrink-0"
+        className="relative flex-shrink-0 z-[100]"
         style={{
           backgroundColor: "color-mix(in srgb, var(--bg-base) 75%, transparent)",
           backdropFilter: "blur(24px) saturate(1.5)",
@@ -280,7 +280,7 @@ export function Header({ currentView, onMobileMenuToggle, pipelineActive, active
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: -8, scale: 0.95 }}
                         transition={{ duration: 0.15 }}
-                        className="absolute right-0 top-12 w-64 rounded-xl overflow-hidden shadow-xl z-50"
+                        className="absolute right-0 top-12 w-64 rounded-xl overflow-hidden shadow-xl z-[200]"
                         style={{
                           background: "var(--glass-bg)",
                           backdropFilter: "blur(40px) saturate(1.6)",

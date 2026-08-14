@@ -1,0 +1,49 @@
+# ── Keep Render Backend Alive ───────────────────────────────
+# Render free-tier services spin down after 15 minutes of inactivity,
+# causing 30-60 second cold starts. This workflow pings the /health
+# endpoint every 10 minutes to keep the service warm.
+#
+# Cost: ~0 (uses < 2 minutes/month of GitHub Actions)
+
+name: Keep Backend Alive
+
+on:
+  schedule:
+    # Every 10 minutes — well within Render's 15-min idle window
+    - cron: "*/10 * * * *"
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Ping health endpoint
+        run: |
+          BACKEND_URL="https://agentverse-backend.onrender.com"
+          
+          echo "Pinging $BACKEND_URL/health ..."
+          
+          # First attempt — may take 30s+ if the service is cold-starting
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            --connect-timeout 10 \
+            --max-time 60 \
+            "$BACKEND_URL/health" || echo "000")
+          
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ Backend is alive (HTTP $HTTP_CODE)"
+          elif [ "$HTTP_CODE" = "000" ]; then
+            echo "⏳ Backend didn't respond — may be cold-starting. Retrying in 30s..."
+            sleep 30
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+              --connect-timeout 10 \
+              --max-time 60 \
+              "$BACKEND_URL/health" || echo "000")
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "✅ Backend woke up on retry (HTTP $HTTP_CODE)"
+            else
+              echo "⚠️ Backend still unresponsive (HTTP $HTTP_CODE)"
+            fi
+          else
+            echo "⚠️ Backend returned HTTP $HTTP_CODE"
+          fi

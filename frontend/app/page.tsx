@@ -15,6 +15,7 @@ import { KPICards } from "@/components/dashboard/KPICards";
 import { AgentBuilder } from "@/components/agents/AgentBuilder";
 import { AgentAnalytics } from "@/components/dashboard/AgentAnalytics";
 import { AgentComparison } from "@/components/agents/AgentComparison";
+import { WelcomeModal } from "@/components/auth/WelcomeModal";
 import { useKeepAlive } from "@/hooks/useKeepAlive";
 
 type View = "dashboard" | "agents" | "chat";
@@ -388,6 +389,9 @@ export default function Home() {
           </>
         )}
       </AnimatePresence>
+
+      {/* Welcome popup for first-time anonymous users */}
+      <WelcomeModal />
     </div>
   );
 }

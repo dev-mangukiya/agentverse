@@ -126,7 +126,7 @@ class CustomAgent(Base):
 
     id = Column(String(12), primary_key=True, default=_new_id)
     name = Column(String(50), nullable=False, unique=True)
-    emoji = Column(String(10), nullable=False, default="🤖")
+    emoji = Column(String(10), nullable=False, default="AG")
     description = Column(String(200), nullable=True)
     system_prompt = Column(Text, nullable=False)
     tools_json = Column(Text, nullable=False, default="[]")  # JSON array of tool names

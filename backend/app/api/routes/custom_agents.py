@@ -31,18 +31,18 @@ AVAILABLE_TOOLS = {
 
 # Built-in agents (not editable)
 BUILTIN_AGENTS = [
-    {"id": "builtin_orchestrator", "name": "orchestrator", "emoji": "🧠", "description": "Routes requests to specialized agents", "is_builtin": True, "is_active": True},
-    {"id": "builtin_research", "name": "research", "emoji": "🔬", "description": "Web search and information gathering", "is_builtin": True, "is_active": True},
-    {"id": "builtin_coding", "name": "coding", "emoji": "💻", "description": "Code generation, execution, and debugging", "is_builtin": True, "is_active": True},
-    {"id": "builtin_writer", "name": "writer", "emoji": "✍️", "description": "Content creation and editing", "is_builtin": True, "is_active": True},
-    {"id": "builtin_critic", "name": "critic", "emoji": "🔍", "description": "Quality analysis and feedback", "is_builtin": True, "is_active": True},
-    {"id": "builtin_data", "name": "data_analyst", "emoji": "📊", "description": "Data analysis and visualization", "is_builtin": True, "is_active": True},
+    {"id": "builtin_orchestrator", "name": "orchestrator", "emoji": "O", "description": "Routes requests to specialized agents", "is_builtin": True, "is_active": True},
+    {"id": "builtin_research", "name": "research", "emoji": "R", "description": "Web search and information gathering", "is_builtin": True, "is_active": True},
+    {"id": "builtin_coding", "name": "coding", "emoji": "C", "description": "Code generation, execution, and debugging", "is_builtin": True, "is_active": True},
+    {"id": "builtin_writer", "name": "writer", "emoji": "W", "description": "Content creation and editing", "is_builtin": True, "is_active": True},
+    {"id": "builtin_critic", "name": "critic", "emoji": "Q", "description": "Quality analysis and feedback", "is_builtin": True, "is_active": True},
+    {"id": "builtin_data", "name": "data_analyst", "emoji": "D", "description": "Data analysis and visualization", "is_builtin": True, "is_active": True},
 ]
 
 
 class AgentCreate(BaseModel):
     name: str = Field(..., min_length=2, max_length=50, pattern=r"^[a-z][a-z0-9_]*$")
-    emoji: str = Field(default="🤖", max_length=10)
+    emoji: str = Field(default="AG", max_length=10)
     description: str | None = Field(default=None, max_length=200)
     system_prompt: str = Field(..., min_length=10, max_length=5000)
     tools: list[str] = Field(default_factory=list)

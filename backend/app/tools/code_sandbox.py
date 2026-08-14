@@ -60,18 +60,18 @@ class ExecutionResult:
             parts.append(f"**Errors:**\n```\n{stderr}\n```")
 
         if self.timed_out:
-            parts.append(f"⏱️ **Timed out** after {DEFAULT_TIMEOUT}s")
+            parts.append(f"**Timed out** after {DEFAULT_TIMEOUT}s")
 
         if self.error:
-            parts.append(f"❌ **Error:** {self.error}")
+            parts.append(f"**Error:** {self.error}")
 
         if self.files_created:
-            parts.append(f"📁 **Files created:** {', '.join(self.files_created)}")
+            parts.append(f"**Files created:** {', '.join(self.files_created)}")
 
         if not parts:
-            parts.append("✅ Code executed successfully (no output)")
+            parts.append("Code executed successfully (no output)")
 
-        status = "✅" if self.success else "❌"
+        status = "[OK]" if self.success else "[FAIL]"
         header = f"{status} **{self.language.title()}** — {self.execution_time_ms}ms"
         if self.exit_code != 0 and not self.timed_out:
             header += f" (exit code {self.exit_code})"

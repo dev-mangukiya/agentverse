@@ -569,7 +569,9 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
       ws.onmessage = (event) => {
         if (destroyed || wsRef.current !== ws) return;
-        const data = JSON.parse(event.data);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let data: any;
+        try { data = JSON.parse(event.data); } catch { return; }
         // Always read latest callbacks from ref — never stale
         const cb = callbacksRef.current;
 

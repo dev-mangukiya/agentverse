@@ -485,27 +485,27 @@ async def _process_user_message(
                 "hi": "Hello! How can I help you today?",
                 "hey": "Hey there! What can I do for you?",
                 "hello": "Hello! How can I help you today?",
-                "hola": "¡Hola! How can I help you?",
+                "hola": "Hola! How can I help you?",
                 "yo": "Hey! What's up?",
                 "sup": "Hey! What's on your mind?",
                 "hii": "Hello! How can I help you today?",
                 "hiii": "Hello! How can I help you today?",
-                "good morning": "Good morning! ☀️ How can I help you today?",
+                "good morning": "Good morning! How can I help you today?",
                 "good afternoon": "Good afternoon! How can I help you?",
                 "good evening": "Good evening! What can I do for you?",
-                "good night": "Good night! 🌙 Let me know if you need anything before you go.",
-                "gm": "Good morning! ☀️ How can I help you today?",
+                "good night": "Good night! Let me know if you need anything before you go.",
+                "gm": "Good morning! How can I help you today?",
                 "thanks": "You're welcome! Let me know if you need anything else.",
                 "thank you": "You're welcome! Happy to help.",
-                "thx": "You're welcome! 😊",
+                "thx": "You're welcome!",
                 "ty": "You're welcome!",
                 "ok": "Got it! Let me know what you'd like to work on.",
                 "okay": "Got it! Let me know what you'd like to work on.",
-                "bye": "Goodbye! 👋 Feel free to come back anytime.",
-                "goodbye": "Goodbye! 👋 Have a great day!",
-                "see you": "See you later! 👋",
-                "test": "I'm here and working! ✅ Ask me anything.",
-                "ping": "Pong! 🏓 System is online and ready.",
+                "bye": "Goodbye! Feel free to come back anytime.",
+                "goodbye": "Goodbye! Have a great day!",
+                "see you": "See you later!",
+                "test": "I'm here and working. Ask me anything.",
+                "ping": "Pong! System is online and ready.",
             }
             fast_response = FAST_RESPONSES.get(trivial_lower, "Hello! How can I help you today?")
             fast_duration = int((time.time() - fast_start) * 1000)
@@ -846,20 +846,21 @@ async def _process_user_message(
         err_str = str(exc)
         logger.error("ws.process_error", error=err_str)
         try:
-            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower() or "rate limit" in err_str.lower():
+            err_lower = err_str.lower()
+            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_lower or "rate limit" in err_lower or "503" in err_str or "unavailable" in err_lower or "high demand" in err_lower:
                 await _send_ws(websocket, {
                     "type": "error",
-                    "content": "⏳ Both primary and fallback APIs are temporarily rate-limited. Please wait ~30 seconds and try again.",
+                    "content": "Both primary and fallback APIs are temporarily unavailable. Please wait ~30 seconds and try again.",
                 })
             elif "Fallback LLM" in err_str and "timed out" in err_str:
                 await _send_ws(websocket, {
                     "type": "error",
-                    "content": "⏳ Fallback model (HuggingFace) timed out. The model may be cold-starting — please try again in a moment.",
+                    "content": "Fallback model (HuggingFace) timed out. The model may be cold-starting — please try again in a moment.",
                 })
             elif "API_KEY_INVALID" in err_str or "API key not valid" in err_str:
                 await _send_ws(websocket, {
                     "type": "error",
-                    "content": "🔑 Invalid API key. Please check your API key configuration.",
+                    "content": "Invalid API key. Please check your API key configuration.",
                 })
             else:
                 await _send_ws(websocket, {
@@ -1170,10 +1171,10 @@ async def _run_agent_with_streaming(
         return "(Agent finished with no text output)"
 
     try:
-        return await asyncio.wait_for(_execute(), timeout=60.0)
+        return await asyncio.wait_for(_execute(), timeout=120.0)
     except asyncio.TimeoutError:
         logger.warning("agent.timeout", agent=agent.name)
-        return f"Agent '{agent.name}' timed out after 60 seconds. Please try a simpler request or smaller file."
+        return f"Agent '{agent.name}' timed out after 120 seconds. Please try a simpler request or smaller file."
 
 # ── Dashboard events WebSocket ────────────────────────────
 

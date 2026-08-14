@@ -248,10 +248,14 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     if (isRecordingRef.current) return;
     isRecordingRef.current = true;
 
-    // Acquire our own mic stream so we control the release
+    // Check mic permission with a quick getUserMedia — then immediately stop
+    // the stream. SpeechRecognition manages its own mic session internally;
+    // keeping a separate getUserMedia stream causes Safari to show the mic
+    // as permanently active (two sessions, only one gets closed).
     try {
-      const ownStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      micStreamRef.current = ownStream;
+      const testStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Immediately release — we only needed to check permission
+      testStream.getTracks().forEach(t => { t.stop(); t.enabled = false; });
     } catch (err) {
       console.warn("Mic permission denied:", err);
       isRecordingRef.current = false;

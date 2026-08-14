@@ -185,15 +185,18 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   // This is the ONE function that releases everything. Every code path
   // (manual stop, onend, onerror, component unmount, send) calls this.
   const forceReleaseMic = useCallback(() => {
-    // 1. Stop recognition
+    // 1. Stop recognition FIRST — Safari's SpeechRecognition holds its own
+    //    internal mic handle that isn't released by just stopping our stream.
     if (recognitionRef.current) {
       try { recognitionRef.current.abort(); } catch { /* swallow */ }
+      try { recognitionRef.current.stop(); } catch { /* swallow */ }
       recognitionRef.current = null;
     }
     // 2. Stop every track on our owned stream
-    if (micStreamRef.current) {
+    const stream = micStreamRef.current;
+    if (stream) {
       try {
-        micStreamRef.current.getTracks().forEach(t => {
+        stream.getTracks().forEach(t => {
           t.stop();
           t.enabled = false;
         });
@@ -203,6 +206,21 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     // 3. Reset state
     isRecordingRef.current = false;
     setIsRecording(false);
+
+    // 4. Safety net: some browsers (especially Safari) hold onto the mic
+    //    even after track.stop(). Re-iterate after a short delay.
+    if (stream) {
+      setTimeout(() => {
+        try {
+          stream.getTracks().forEach(t => {
+            if (t.readyState !== "ended") {
+              t.stop();
+              t.enabled = false;
+            }
+          });
+        } catch { /* swallow */ }
+      }, 300);
+    }
   }, []);
 
   // Cleanup on unmount — guarantees mic is always released

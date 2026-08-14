@@ -185,6 +185,9 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   // This is the ONE function that releases everything. Every code path
   // (manual stop, onend, onerror, component unmount, send) calls this.
   const forceReleaseMic = useCallback(() => {
+    // Track whether we were actually recording before cleanup
+    const wasRecording = isRecordingRef.current || !!recognitionRef.current;
+
     // 1. Stop recognition FIRST
     if (recognitionRef.current) {
       try { recognitionRef.current.abort(); } catch { /* swallow */ }
@@ -205,11 +208,13 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     isRecordingRef.current = false;
     setIsRecording(false);
 
-    // 4. Safari workaround: Safari's SpeechRecognition holds an internal mic
-    //    session that persists after .stop()/.abort(). The only reliable fix
-    //    is to acquire a NEW getUserMedia stream and immediately stop it —
-    //    this "resets" Safari's audio session and releases the mic indicator.
-    if (typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
+    // 4. Safari workaround: only when user was ACTUALLY recording.
+    //    Safari's SpeechRecognition holds an internal mic session that
+    //    persists after .stop()/.abort(). Acquiring a fresh stream and
+    //    immediately stopping it resets Safari's audio session.
+    //    We must NOT do this on unmount/navigation or it triggers a
+    //    mic permission prompt for no reason.
+    if (wasRecording && typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
       navigator.mediaDevices.getUserMedia({ audio: true })
         .then(resetStream => {
           resetStream.getTracks().forEach(t => {

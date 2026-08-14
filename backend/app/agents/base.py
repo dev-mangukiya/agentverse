@@ -215,12 +215,19 @@ def get_llm(
     return llm
 
 
-def _is_rate_limit_error(exc: Exception) -> bool:
-    """Check if an exception is a rate-limit / quota-exhausted error."""
+def _is_transient_error(exc: Exception) -> bool:
+    """Check if an exception is a transient error that should trigger fallback.
+    
+    Covers: rate limits (429), quota exhaustion, server overload (503),
+    and Gemini-specific UNAVAILABLE errors.
+    """
     err = str(exc).lower()
     return any(marker in err for marker in [
         "429", "resource_exhausted", "quota", "rate limit",
         "too many requests", "rate_limit",
+        "503", "unavailable", "overloaded", "service_unavailable",
+        "server error", "internal error", "temporarily",
+        "high demand", "capacity",
     ])
 
 
@@ -258,10 +265,10 @@ def _get_fallback_llm(temperature: float = 0.3) -> BaseChatModel | None:
 
 
 async def _invoke_with_retry(llm, messages, max_retries=0):
-    """Invoke LLM with timeout and automatic key rotation + fallback on rate limits.
+    """Invoke LLM with timeout and automatic fallback on transient errors.
     
-    On rate limit:
-    1. Mark the current Google key as rate-limited
+    On transient error (429 rate limit, 503 unavailable, overloaded):
+    1. Mark the current Google key as unavailable
     2. Try the next available Google key  
     3. If all Google keys exhausted, fall back to HuggingFace
     """
@@ -270,12 +277,12 @@ async def _invoke_with_retry(llm, messages, max_retries=0):
     except asyncio.TimeoutError:
         raise RuntimeError("LLM request timed out after 90 seconds.")
     except Exception as exc:
-        if _is_rate_limit_error(exc):
-            # Mark the current key as rate-limited if it's a Google LLM
+        if _is_transient_error(exc):
+            # Mark the current key as unavailable if it's a Google LLM
             if hasattr(llm, 'google_api_key'):
                 _google_key_manager.mark_rate_limited(llm.google_api_key)
             
-            logger.warning("llm.rate_limited", error=str(exc)[:200])
+            logger.warning("llm.transient_error", error=str(exc)[:200])
             
             # Try up to N more keys (all remaining Google keys + 1 HuggingFace attempt)
             for attempt in range(max(_google_key_manager.key_count, 1) + 1):
@@ -288,7 +295,7 @@ async def _invoke_with_retry(llm, messages, max_retries=0):
                 except asyncio.TimeoutError:
                     raise RuntimeError("Fallback LLM timed out after 120 seconds.")
                 except Exception as fb_exc:
-                    if _is_rate_limit_error(fb_exc):
+                    if _is_transient_error(fb_exc):
                         if hasattr(fallback, 'google_api_key'):
                             _google_key_manager.mark_rate_limited(fallback.google_api_key)
                         logger.warning("llm.fallback_also_limited", attempt=attempt + 1)

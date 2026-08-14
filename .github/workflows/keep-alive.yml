@@ -20,7 +20,7 @@ jobs:
     steps:
       - name: Ping health endpoint
         run: |
-          BACKEND_URL="https://agentverse-backend.onrender.com"
+          BACKEND_URL="https://agentverse-140e.onrender.com"
           
           echo "Pinging $BACKEND_URL/health ..."
           

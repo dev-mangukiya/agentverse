@@ -46,14 +46,27 @@ async def init_db() -> None:
 
             def _check_and_add_columns(sync_conn):
                 inspector = sa_inspect(sync_conn)
-                columns = [c["name"] for c in inspector.get_columns("conversations")]
-                if "session_id" not in columns:
+
+                # Conversations table migrations
+                conv_columns = [c["name"] for c in inspector.get_columns("conversations")]
+                if "session_id" not in conv_columns:
                     sync_conn.execute(text(
                         "ALTER TABLE conversations ADD COLUMN session_id VARCHAR(64)"
                     ))
-                if "user_id" not in columns:
+                if "user_id" not in conv_columns:
                     sync_conn.execute(text(
                         "ALTER TABLE conversations ADD COLUMN user_id VARCHAR(12)"
+                    ))
+                if "is_pinned" not in conv_columns:
+                    sync_conn.execute(text(
+                        "ALTER TABLE conversations ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0"
+                    ))
+
+                # Messages table migrations
+                msg_columns = [c["name"] for c in inspector.get_columns("messages")]
+                if "feedback" not in msg_columns:
+                    sync_conn.execute(text(
+                        "ALTER TABLE messages ADD COLUMN feedback VARCHAR(10)"
                     ))
 
             await conn.run_sync(_check_and_add_columns)

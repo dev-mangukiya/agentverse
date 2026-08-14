@@ -82,45 +82,6 @@ const SUGGESTIONS = [
   { text: "Analyze trends in tech industry", icon: "📊", agent: "data" },
 ];
 
-function OrbitalThinking({ agentColor }: { agentColor?: string }) {
-  const color = agentColor || "var(--brand)";
-  return (
-    <div className="relative w-6 h-6">
-      <div
-        className="absolute inset-0 rounded-full"
-        style={{
-          border: `1.5px solid color-mix(in srgb, ${color} 20%, transparent)`,
-        }}
-      />
-      <div
-        className="absolute w-1.5 h-1.5 rounded-full"
-        style={{
-          backgroundColor: color,
-          boxShadow: `0 0 6px ${color}`,
-          top: "50%",
-          left: "50%",
-          marginTop: "-3px",
-          marginLeft: "-3px",
-          animation: "orbit 1.2s linear infinite",
-          ["--orbit-radius" as string]: "9px",
-        }}
-      />
-      <div
-        className="absolute w-1 h-1 rounded-full"
-        style={{
-          backgroundColor: color,
-          opacity: 0.5,
-          top: "50%",
-          left: "50%",
-          marginTop: "-2px",
-          marginLeft: "-2px",
-          animation: "orbit 1.8s linear infinite reverse",
-          ["--orbit-radius" as string]: "6px",
-        }}
-      />
-    </div>
-  );
-}
 
 // ── File upload constants ─────────────────────────────────────
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB

@@ -230,8 +230,27 @@ async def get_agent_analytics(db: AsyncSession = Depends(get_db)) -> dict:
         # This is a rough estimate based on timestamps
         avg_response_ms = None
         try:
-            pairs_result = await db.execute(
-                text("""
+            # Use dialect-appropriate timestamp diff
+            dialect = db.bind.dialect.name if db.bind else "sqlite"
+            if dialect == "postgresql":
+                sql = text("""
+                    SELECT AVG(
+                        EXTRACT(EPOCH FROM (a.created_at - u.created_at))
+                    ) * 1000 as avg_ms
+                    FROM messages a
+                    JOIN messages u ON a.conversation_id = u.conversation_id
+                        AND u.role = 'user'
+                        AND u.created_at < a.created_at
+                    WHERE a.role = 'agent' AND a.agent_name = :name
+                    AND u.created_at = (
+                        SELECT MAX(u2.created_at) FROM messages u2
+                        WHERE u2.conversation_id = a.conversation_id
+                        AND u2.role = 'user'
+                        AND u2.created_at < a.created_at
+                    )
+                """)
+            else:
+                sql = text("""
                     SELECT AVG(
                         julianday(a.created_at) - julianday(u.created_at)
                     ) * 86400000 as avg_ms
@@ -246,9 +265,8 @@ async def get_agent_analytics(db: AsyncSession = Depends(get_db)) -> dict:
                         AND u2.role = 'user'
                         AND u2.created_at < a.created_at
                     )
-                """),
-                {"name": name},
-            )
+                """)
+            pairs_result = await db.execute(sql, {"name": name})
             avg_row = pairs_result.first()
             if avg_row and avg_row[0]:
                 avg_response_ms = int(avg_row[0])

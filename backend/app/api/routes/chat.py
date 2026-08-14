@@ -39,7 +39,7 @@ MAX_PDF_BYTES = 2 * 1024 * 1024
 _agent_cache: dict[str, object] = {}
 
 
-def _get_cached_agent(name: str):
+async def _get_cached_agent(name: str):
     """Return a cached agent instance by name. Creates one if not cached.
     
     Checks built-in agents first, then falls back to custom agents from the database.
@@ -74,7 +74,7 @@ def _get_cached_agent(name: str):
             name = "data"
         else:
             # Try loading a custom agent from the database
-            agent = _load_custom_agent(name)
+            agent = await _load_custom_agent(name)
     except ImportError as e:
         logger.warning("agent.import_failed", name=name, error=str(e))
 
@@ -83,16 +83,14 @@ def _get_cached_agent(name: str):
     return agent
 
 
-def _load_custom_agent(name: str):
-    """Load a custom agent from the database (synchronous wrapper)."""
-    import asyncio
+async def _load_custom_agent(name: str):
+    """Load a custom agent from the database."""
     import json
     from sqlalchemy import select as sa_select
-    from app.database.session import async_session_factory
     from app.database.models.models import CustomAgent
     from app.agents.custom_agent import DynamicCustomAgent
 
-    async def _fetch():
+    try:
         async with async_session_factory() as session:
             result = await session.execute(
                 sa_select(CustomAgent).where(
@@ -100,18 +98,7 @@ def _load_custom_agent(name: str):
                     CustomAgent.is_active == 1,
                 )
             )
-            return result.scalar_one_or_none()
-
-    try:
-        # Try to get existing event loop
-        try:
-            loop = asyncio.get_running_loop()
-            # We're in an async context — use a thread to run the query
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                db_agent = pool.submit(asyncio.run, _fetch()).result(timeout=5)
-        except RuntimeError:
-            db_agent = asyncio.run(_fetch())
+            db_agent = result.scalar_one_or_none()
 
         if db_agent:
             tools = json.loads(db_agent.tools_json) if db_agent.tools_json else []
@@ -174,43 +161,7 @@ async def create_conversation(
     return conv.to_dict()
 
 
-@router.get("/conversations/{conversation_id}")
-async def get_conversation(
-    conversation_id: str,
-    db: AsyncSession = Depends(get_db),
-    x_session_id: str | None = Header(None),
-) -> dict:
-    """Get a conversation with all its messages (session-scoped)."""
-    stmt = select(Conversation).where(Conversation.id == conversation_id)
-    if x_session_id:
-        stmt = stmt.where(Conversation.session_id == x_session_id)
-    result = await db.execute(stmt)
-    conv = result.scalar_one_or_none()
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    return conv.to_dict(include_messages=True)
-
-
-@router.delete("/conversations/{conversation_id}")
-async def delete_conversation(
-    conversation_id: str,
-    db: AsyncSession = Depends(get_db),
-    x_session_id: str | None = Header(None),
-) -> dict:
-    """Delete a conversation and all its messages (session-scoped)."""
-    stmt = select(Conversation).where(Conversation.id == conversation_id)
-    if x_session_id:
-        stmt = stmt.where(Conversation.session_id == x_session_id)
-    result = await db.execute(stmt)
-    conv = result.scalar_one_or_none()
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    await db.delete(conv)
-    await db.commit()
-    logger.info("chat.conversation.deleted", id=conversation_id)
-    return {"deleted": True}
-
-
+# NOTE: /search MUST be registered before /{conversation_id} to avoid shadowing.
 @router.get("/conversations/search")
 async def search_conversations(
     q: str,
@@ -259,6 +210,43 @@ async def search_conversations(
             seen_ids.add(conv.id)
             results.append(conv.to_dict())
     return results[:20]
+
+
+@router.get("/conversations/{conversation_id}")
+async def get_conversation(
+    conversation_id: str,
+    db: AsyncSession = Depends(get_db),
+    x_session_id: str | None = Header(None),
+) -> dict:
+    """Get a conversation with all its messages (session-scoped)."""
+    stmt = select(Conversation).where(Conversation.id == conversation_id)
+    if x_session_id:
+        stmt = stmt.where(Conversation.session_id == x_session_id)
+    result = await db.execute(stmt)
+    conv = result.scalar_one_or_none()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conv.to_dict(include_messages=True)
+
+
+@router.delete("/conversations/{conversation_id}")
+async def delete_conversation(
+    conversation_id: str,
+    db: AsyncSession = Depends(get_db),
+    x_session_id: str | None = Header(None),
+) -> dict:
+    """Delete a conversation and all its messages (session-scoped)."""
+    stmt = select(Conversation).where(Conversation.id == conversation_id)
+    if x_session_id:
+        stmt = stmt.where(Conversation.session_id == x_session_id)
+    result = await db.execute(stmt)
+    conv = result.scalar_one_or_none()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    await db.delete(conv)
+    await db.commit()
+    logger.info("chat.conversation.deleted", id=conversation_id)
+    return {"deleted": True}
 
 
 class CompareRequest(BaseModel):
@@ -334,21 +322,22 @@ async def llm_status() -> dict:
 
 
 # ── Active WebSocket connections ──────────────────────────
+# Separate lists: chat WS only get their own messages (via _send_ws),
+# event WS (dashboard) receive broadcast activity events.
 
-active_connections: list[WebSocket] = []
+_chat_connections: set[WebSocket] = set()
+_event_connections: set[WebSocket] = set()
 
 
 async def broadcast_event(event: dict) -> None:
-    """Send an event to all connected WebSocket clients."""
-    dead = []
-    for ws in active_connections:
+    """Send an event to all connected dashboard event WebSocket clients."""
+    dead: list[WebSocket] = []
+    for ws in _event_connections:
         try:
             await ws.send_json(event)
         except Exception:
             dead.append(ws)
-    for ws in dead:
-        if ws in active_connections:
-            active_connections.remove(ws)
+    _event_connections.difference_update(dead)
 
 
 # ── WebSocket endpoint ───────────────────────────────────
@@ -357,7 +346,7 @@ async def broadcast_event(event: dict) -> None:
 async def chat_websocket(websocket: WebSocket, conversation_id: str):
     """Real-time chat WebSocket."""
     await websocket.accept()
-    active_connections.append(websocket)
+    _chat_connections.add(websocket)
     logger.info("ws.connected", conversation_id=conversation_id)
 
     task = None
@@ -385,8 +374,7 @@ async def chat_websocket(websocket: WebSocket, conversation_id: str):
     except Exception as exc:
         logger.error("ws.error", error=str(exc))
     finally:
-        if websocket in active_connections:
-            active_connections.remove(websocket)
+        _chat_connections.discard(websocket)
 
 
 async def _send_ws(websocket: WebSocket, data: dict) -> None:
@@ -541,7 +529,7 @@ async def _process_user_message(
             "time": "now",
         })
 
-        orchestrator = _get_cached_agent("orchestrator")
+        orchestrator = await _get_cached_agent("orchestrator")
         history = await _get_conversation_context(conversation_id)
         orch_start = time.time()
         # Truncate file content for orchestrator — it only needs to route, not analyze
@@ -586,7 +574,7 @@ async def _process_user_message(
 
             # Activate all agents
             for i, name in enumerate(agent_names):
-                agent = _get_cached_agent(name)
+                agent = await _get_cached_agent(name)
                 if agent:
                     await _send_ws(websocket, {
                         "type": "agent_activated",
@@ -604,7 +592,7 @@ async def _process_user_message(
 
             # Run all agents in parallel
             async def _run_sub(name: str, task: str) -> tuple[str, str, int]:
-                agent = _get_cached_agent(name)
+                agent = await _get_cached_agent(name)
                 if not agent:
                     return name, f"Agent '{name}' not available.", 0
                 await _send_ws(websocket, {
@@ -682,7 +670,7 @@ async def _process_user_message(
             sub_agent_name = delegate_match.group(1).strip().lower()
             sub_task = delegate_match.group(2).strip()
 
-            sub_agent = _get_cached_agent(sub_agent_name)
+            sub_agent = await _get_cached_agent(sub_agent_name)
             if sub_agent:
                 await _send_ws(websocket, {
                     "type": "delegation",
@@ -732,7 +720,7 @@ async def _process_user_message(
         else:
             # ── Fallback: keyword-based intent detection ─────────
             sub_agent_name = _detect_intent(content) or ""
-            sub_agent = _get_cached_agent(sub_agent_name) if sub_agent_name else None
+            sub_agent = (await _get_cached_agent(sub_agent_name)) if sub_agent_name else None
 
             if sub_agent:
                 await _send_ws(websocket, {
@@ -1168,7 +1156,7 @@ async def _run_agent_with_streaming(
 async def events_websocket(websocket: WebSocket):
     """WebSocket for dashboard event streaming."""
     await websocket.accept()
-    active_connections.append(websocket)
+    _event_connections.add(websocket)
     try:
         while True:
             data = await websocket.receive_json()
@@ -1177,5 +1165,4 @@ async def events_websocket(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
     finally:
-        if websocket in active_connections:
-            active_connections.remove(websocket)
+        _event_connections.discard(websocket)

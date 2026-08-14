@@ -25,9 +25,13 @@ function timeAgo(timestamp: number): string {
 export function NotificationCenter() {
   const { notifications, unreadCount, markAllRead, dismiss, clearAll } = useNotifications();
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
+
+  // SSR-safe: only render Portal after mount to avoid hydration mismatch
+  useEffect(() => { setMounted(true); }, []);
 
   // Compute fixed position from bell button rect
   const updatePosition = useCallback(() => {
@@ -126,7 +130,7 @@ export function NotificationCenter() {
       </button>
 
       {/* Dropdown panel — rendered via Portal to escape Header's backdrop-filter stacking context */}
-      {typeof document !== "undefined" && createPortal(
+      {mounted && createPortal(
         <AnimatePresence>
           {open && (
             <motion.div

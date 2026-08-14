@@ -6,7 +6,7 @@ Run with: uvicorn app.main:app --reload
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.health import router as health_router
@@ -94,6 +94,8 @@ def create_app() -> FastAPI:
 
     @application.get("/logs")
     def get_logs():
+        if settings.is_production:
+            raise HTTPException(status_code=404, detail="Not found")
         try:
             if os.path.exists("/tmp/render_app.log"):
                 with open("/tmp/render_app.log", "r") as f:

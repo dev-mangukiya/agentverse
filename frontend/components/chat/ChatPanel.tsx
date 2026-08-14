@@ -77,10 +77,10 @@ interface ChatPanelProps {
 }
 
 const SUGGESTIONS = [
-  { text: "Research the latest AI breakthroughs", icon: "🔬", agent: "research" },
-  { text: "Write a Python web scraper", icon: "💻", agent: "coding" },
-  { text: "Draft a professional email", icon: "✍️", agent: "writer" },
-  { text: "Analyze trends in tech industry", icon: "📊", agent: "data" },
+  { text: "Research the latest AI breakthroughs", icon: "R", agent: "research" },
+  { text: "Write a Python web scraper", icon: "C", agent: "coding" },
+  { text: "Draft a professional email", icon: "W", agent: "writer" },
+  { text: "Analyze trends in tech industry", icon: "D", agent: "data" },
 ];
 
 
@@ -127,14 +127,11 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
-function fileTypeIcon(type: AttachedFile["type"], lang?: string): string {
-  if (type === "image") return "🖼️";
-  if (type === "document") return "📕";
-  if (type === "code") {
-    const icons: Record<string, string> = { python: "🐍", javascript: "📜", typescript: "📘", go: "🔵", rust: "🦀", java: "☕" };
-    return icons[lang || ""] || "💻";
-  }
-  return "📄";
+function fileTypeIcon(type: AttachedFile["type"]): string {
+  if (type === "image") return "IMG";
+  if (type === "document") return "DOC";
+  if (type === "code") return "</>";
+  return "FILE";
 }
 
 async function readFile(file: File): Promise<AttachedFile> {
@@ -682,7 +679,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             setIsThinking(false);
             setToolActivity(null);
             setError(data.content);
-            setMessages(prev => [...prev, { id: Date.now(), role: "system", content: `⚠️ ${data.content}` }]);
+            setMessages(prev => [...prev, { id: Date.now(), role: "system", content: `${data.content}` }]);
             cb.emitPipeline(false);
             // Fire error notification
             if (notifyRef.current) {
@@ -983,7 +980,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                     }}
                     title={`${meta?.label || name} active`}
                   >
-                    {meta?.icon || "🤖"}
+                    {meta?.icon || "?"}
                   </motion.div>
                 );
               })}
@@ -1179,7 +1176,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                             : "1px solid var(--border-muted)",
                         }}
                       >
-                        <span style={{ fontSize: "10px" }}>{meta?.icon || "🤖"}</span>
+                        <span style={{ fontSize: "10px" }}>{meta?.icon || "?"}</span>
                       </div>
                     )}
 
@@ -1263,7 +1260,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                                             color: "rgba(255,255,255,0.8)",
                                           }}
                                         >
-                                          {fileTypeIcon(cat.type, cat.lang)} {fileName}
+                                          {fileTypeIcon(cat.type)} {fileName}
                                         </span>
                                       );
                                     })}
@@ -1369,7 +1366,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                         }}
                       >
                         <span className="relative z-10" style={{ fontSize: "14px" }}>
-                          {meta?.icon || "🤖"}
+                          {meta?.icon || "?"}
                         </span>
                         <div
                           className="absolute inset-0"
@@ -1481,7 +1478,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                     {file.type === "image" && file.preview ? (
                       <img src={file.preview} alt={file.name} className="file-chip__preview" />
                     ) : (
-                      <span className="file-chip__icon">{fileTypeIcon(file.type, file.lang)}</span>
+                      <span className="file-chip__icon">{fileTypeIcon(file.type)}</span>
                     )}
                     <span className="file-chip__name">{file.name}</span>
                     <span className="file-chip__size">{formatFileSize(file.size)}</span>

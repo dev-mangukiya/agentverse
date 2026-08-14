@@ -1,6 +1,7 @@
 "use client";
 
-import { createContext, useContext, useCallback, useState, ReactNode } from "react";
+import React, { createContext, useContext, useState, useCallback, useRef, type ReactNode } from "react";
+import { CheckCircleIcon, XCircleIcon, AlertTriangleIcon, InfoIcon, BotIcon } from "../icons/Icons";
 import { motion, AnimatePresence } from "framer-motion";
 
 export type NotificationType = "success" | "error" | "warning" | "info" | "agent-complete";
@@ -41,12 +42,12 @@ const MAX_TOASTS = 4;
 const TOAST_DURATION = 5000;
 
 // Icon mapping
-const typeIcons: Record<NotificationType, string> = {
-  success: "✅",
-  error: "❌",
-  warning: "⚠️",
-  info: "ℹ️",
-  "agent-complete": "🤖",
+const typeIcons: Record<NotificationType, React.ReactNode> = {
+  success: <CheckCircleIcon size={16} color="var(--green)" />,
+  error: <XCircleIcon size={16} color="var(--red)" />,
+  warning: <AlertTriangleIcon size={16} color="var(--yellow)" />,
+  info: <InfoIcon size={16} color="var(--brand-blue-bright)" />,
+  "agent-complete": <BotIcon size={16} color="var(--brand)" />,
 };
 
 const typeColors: Record<NotificationType, string> = {
@@ -140,7 +141,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
                 backdropFilter: "blur(16px)",
               }}
             >
-              <span className="text-base flex-shrink-0 mt-0.5">{typeIcons[toast.type]}</span>
+              <span className="flex-shrink-0 mt-0.5">{typeIcons[toast.type]}</span>
               <div className="flex-1 min-w-0">
                 <div
                   className="text-sm font-medium truncate"

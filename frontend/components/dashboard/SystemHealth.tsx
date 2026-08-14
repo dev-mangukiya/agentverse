@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
+import { DatabaseIcon, ZapIcon, SparklesIcon, BrainIcon, ServerIcon, SettingsIcon } from "../icons/Icons";
 
 interface HealthService {
   name: string;
@@ -18,13 +19,13 @@ const serviceDisplayNames: Record<string, string> = {
   llm: "LLM Provider",
 };
 
-const serviceIcons: Record<string, string> = {
-  PostgreSQL: "🐘",
-  SQLite: "📦",
-  Redis: "⚡",
-  Qdrant: "🔮",
-  "LLM Provider": "🧠",
-  Backend: "🖥️",
+const serviceIcons: Record<string, React.ReactNode> = {
+  PostgreSQL: <DatabaseIcon size={14} />,
+  SQLite: <DatabaseIcon size={14} />,
+  Redis: <ZapIcon size={14} />,
+  Qdrant: <SparklesIcon size={14} />,
+  "LLM Provider": <BrainIcon size={14} />,
+  Backend: <ServerIcon size={14} />,
 };
 
 export function SystemHealth() {
@@ -136,7 +137,7 @@ export function SystemHealth() {
             }}
           >
             <div className="flex items-center gap-3">
-              <span className="text-sm">{serviceIcons[svc.name] || "⚙️"}</span>
+              <span className="flex items-center">{serviceIcons[svc.name] || <SettingsIcon size={14} />}</span>
               <div>
                 <span className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>{svc.name}</span>
               </div>

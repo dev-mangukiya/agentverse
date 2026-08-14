@@ -17,37 +17,37 @@ interface Template {
 type Category = "coding" | "research" | "writing" | "data" | "general";
 
 const categoryMeta: Record<Category, { label: string; color: string; icon: string }> = {
-  coding: { label: "Coding", color: "var(--agent-coding)", icon: "💻" },
-  research: { label: "Research", color: "var(--agent-research)", icon: "🔬" },
-  writing: { label: "Writing", color: "var(--agent-writer)", icon: "✍️" },
-  data: { label: "Data", color: "var(--agent-data)", icon: "📊" },
-  general: { label: "General", color: "var(--text-muted)", icon: "⚡" },
+  coding: { label: "Coding", color: "var(--agent-coding)", icon: "</>" },
+  research: { label: "Research", color: "var(--agent-research)", icon: "R" },
+  writing: { label: "Writing", color: "var(--agent-writer)", icon: "W" },
+  data: { label: "Data", color: "var(--agent-data)", icon: "D" },
+  general: { label: "General", color: "var(--text-muted)", icon: "G" },
 };
 
 const BUILT_IN_TEMPLATES: Template[] = [
   // Coding
-  { id: "c1", title: "Python Web Scraper", description: "Build a web scraper with error handling", prompt: "Write a Python web scraper using BeautifulSoup that scrapes the top headlines from a news website. Include proper error handling, rate limiting, and output the results as JSON.", icon: "🕷️", category: "coding", agent: "coding" },
-  { id: "c2", title: "REST API Endpoint", description: "Create a FastAPI endpoint with validation", prompt: "Create a FastAPI REST API endpoint for a todo list application with CRUD operations. Include Pydantic models for validation, proper HTTP status codes, and async database operations.", icon: "🔌", category: "coding", agent: "coding" },
-  { id: "c3", title: "Debug This Code", description: "Analyze and fix code issues", prompt: "Analyze the following code for bugs, performance issues, and security vulnerabilities. Provide fixes and explain each issue:\n\n```\n// paste your code here\n```", icon: "🐛", category: "coding", agent: "coding" },
-  { id: "c4", title: "React Component", description: "Build an interactive React component", prompt: "Build a React component for a searchable, sortable data table with pagination. Use TypeScript, include loading states, empty states, and make it accessible. No external UI libraries.", icon: "⚛️", category: "coding", agent: "coding" },
+  { id: "c1", title: "Python Web Scraper", description: "Build a web scraper with error handling", prompt: "Write a Python web scraper using BeautifulSoup that scrapes the top headlines from a news website. Include proper error handling, rate limiting, and output the results as JSON.", icon: "PY", category: "coding", agent: "coding" },
+  { id: "c2", title: "REST API Endpoint", description: "Create a FastAPI endpoint with validation", prompt: "Create a FastAPI REST API endpoint for a todo list application with CRUD operations. Include Pydantic models for validation, proper HTTP status codes, and async database operations.", icon: "API", category: "coding", agent: "coding" },
+  { id: "c3", title: "Debug This Code", description: "Analyze and fix code issues", prompt: "Analyze the following code for bugs, performance issues, and security vulnerabilities. Provide fixes and explain each issue:\n\n```\n// paste your code here\n```", icon: "DBG", category: "coding", agent: "coding" },
+  { id: "c4", title: "React Component", description: "Build an interactive React component", prompt: "Build a React component for a searchable, sortable data table with pagination. Use TypeScript, include loading states, empty states, and make it accessible. No external UI libraries.", icon: "JSX", category: "coding", agent: "coding" },
 
   // Research
-  { id: "r1", title: "Market Research", description: "Analyze a market or industry", prompt: "Conduct a comprehensive market analysis of the [industry] sector. Cover market size, key players, growth trends, challenges, and future outlook. Cite sources where possible.", icon: "📈", category: "research", agent: "research" },
-  { id: "r2", title: "Compare Technologies", description: "Side-by-side tech comparison", prompt: "Compare [Technology A] vs [Technology B] for a production application. Cover: performance, scalability, developer experience, ecosystem, community, and provide a recommendation with justification.", icon: "⚖️", category: "research", agent: "research" },
-  { id: "r3", title: "Literature Review", description: "Summarize research on a topic", prompt: "Provide a comprehensive literature review on [topic]. Summarize key findings from recent research, identify gaps in current knowledge, and suggest directions for future investigation.", icon: "📚", category: "research", agent: "research" },
-  { id: "r4", title: "Latest News Analysis", description: "Find and analyze recent news", prompt: "Search for the latest news and developments about [topic]. Summarize the key stories, analyze their implications, and provide context for why they matter.", icon: "📰", category: "research", agent: "research" },
+  { id: "r1", title: "Market Research", description: "Analyze a market or industry", prompt: "Conduct a comprehensive market analysis of the [industry] sector. Cover market size, key players, growth trends, challenges, and future outlook. Cite sources where possible.", icon: "MKT", category: "research", agent: "research" },
+  { id: "r2", title: "Compare Technologies", description: "Side-by-side tech comparison", prompt: "Compare [Technology A] vs [Technology B] for a production application. Cover: performance, scalability, developer experience, ecosystem, community, and provide a recommendation with justification.", icon: "VS", category: "research", agent: "research" },
+  { id: "r3", title: "Literature Review", description: "Summarize research on a topic", prompt: "Provide a comprehensive literature review on [topic]. Summarize key findings from recent research, identify gaps in current knowledge, and suggest directions for future investigation.", icon: "LIT", category: "research", agent: "research" },
+  { id: "r4", title: "Latest News Analysis", description: "Find and analyze recent news", prompt: "Search for the latest news and developments about [topic]. Summarize the key stories, analyze their implications, and provide context for why they matter.", icon: "NEWS", category: "research", agent: "research" },
 
   // Writing
-  { id: "w1", title: "Professional Email", description: "Draft a polished business email", prompt: "Draft a professional email to [recipient] regarding [topic]. The tone should be [formal/friendly/persuasive]. Key points to cover:\n- Point 1\n- Point 2\n- Point 3", icon: "📧", category: "writing", agent: "writer" },
-  { id: "w2", title: "Blog Post", description: "Write an engaging blog article", prompt: "Write an engaging blog post about [topic]. Target audience: [audience]. Include an attention-grabbing introduction, 3-5 main sections with subheadings, practical examples, and a compelling conclusion with a call to action.", icon: "📝", category: "writing", agent: "writer" },
-  { id: "w3", title: "Technical Documentation", description: "Create clear technical docs", prompt: "Write technical documentation for [feature/API/library]. Include: overview, installation/setup, quick start guide, API reference with code examples, troubleshooting section, and FAQ.", icon: "📖", category: "writing", agent: "writer" },
-  { id: "w4", title: "Social Media Content", description: "Create platform-specific posts", prompt: "Create a social media content package for [product/announcement]. Include posts optimized for Twitter/X (280 chars), LinkedIn (professional tone), and Instagram (casual, with hashtags).", icon: "📱", category: "writing", agent: "writer" },
+  { id: "w1", title: "Professional Email", description: "Draft a polished business email", prompt: "Draft a professional email to [recipient] regarding [topic]. The tone should be [formal/friendly/persuasive]. Key points to cover:\n- Point 1\n- Point 2\n- Point 3", icon: "MAIL", category: "writing", agent: "writer" },
+  { id: "w2", title: "Blog Post", description: "Write an engaging blog article", prompt: "Write an engaging blog post about [topic]. Target audience: [audience]. Include an attention-grabbing introduction, 3-5 main sections with subheadings, practical examples, and a compelling conclusion with a call to action.", icon: "BLOG", category: "writing", agent: "writer" },
+  { id: "w3", title: "Technical Documentation", description: "Create clear technical docs", prompt: "Write technical documentation for [feature/API/library]. Include: overview, installation/setup, quick start guide, API reference with code examples, troubleshooting section, and FAQ.", icon: "DOC", category: "writing", agent: "writer" },
+  { id: "w4", title: "Social Media Content", description: "Create platform-specific posts", prompt: "Create a social media content package for [product/announcement]. Include posts optimized for Twitter/X (280 chars), LinkedIn (professional tone), and Instagram (casual, with hashtags).", icon: "SOC", category: "writing", agent: "writer" },
 
   // Data
-  { id: "d1", title: "Data Analysis Plan", description: "Design an analysis approach", prompt: "I have a dataset with [describe data]. Help me design a data analysis plan: what questions to ask, which statistical methods to use, what visualizations would be most insightful, and how to interpret the results.", icon: "🔍", category: "data", agent: "data" },
-  { id: "d2", title: "SQL Query Builder", description: "Write complex SQL queries", prompt: "Write an optimized SQL query to [describe what you need]. The database has the following tables:\n- Table1 (columns...)\n- Table2 (columns...)\nInclude proper JOINs, indexing suggestions, and explain the query plan.", icon: "🗃️", category: "data", agent: "data" },
-  { id: "d3", title: "Dashboard Design", description: "Plan a data dashboard", prompt: "Design a dashboard for monitoring [what]. Specify: KPIs to track, chart types for each metric, data refresh frequency, alert thresholds, and layout recommendations.", icon: "📊", category: "data", agent: "data" },
-  { id: "d4", title: "Data Cleaning Pipeline", description: "Process and clean messy data", prompt: "Write a Python data cleaning pipeline for a dataset with these issues: [describe issues like missing values, duplicates, inconsistent formats]. Use pandas and include validation checks.", icon: "🧹", category: "data", agent: "data" },
+  { id: "d1", title: "Data Analysis Plan", description: "Design an analysis approach", prompt: "I have a dataset with [describe data]. Help me design a data analysis plan: what questions to ask, which statistical methods to use, what visualizations would be most insightful, and how to interpret the results.", icon: "ANA", category: "data", agent: "data" },
+  { id: "d2", title: "SQL Query Builder", description: "Write complex SQL queries", prompt: "Write an optimized SQL query to [describe what you need]. The database has the following tables:\n- Table1 (columns...)\n- Table2 (columns...)\nInclude proper JOINs, indexing suggestions, and explain the query plan.", icon: "SQL", category: "data", agent: "data" },
+  { id: "d3", title: "Dashboard Design", description: "Plan a data dashboard", prompt: "Design a dashboard for monitoring [what]. Specify: KPIs to track, chart types for each metric, data refresh frequency, alert thresholds, and layout recommendations.", icon: "DASH", category: "data", agent: "data" },
+  { id: "d4", title: "Data Cleaning Pipeline", description: "Process and clean messy data", prompt: "Write a Python data cleaning pipeline for a dataset with these issues: [describe issues like missing values, duplicates, inconsistent formats]. Use pandas and include validation checks.", icon: "ETL", category: "data", agent: "data" },
 ];
 
 const STORAGE_KEY = "agentverse_custom_templates";
@@ -101,7 +101,7 @@ export function PromptTemplates({ onInsert, onClose }: PromptTemplatesProps) {
       title: newTitle.trim(),
       description: "Custom template",
       prompt: newPrompt.trim(),
-      icon: "⭐",
+      icon: "MY",
       category: newCategory,
       isCustom: true,
     };
@@ -139,7 +139,7 @@ export function PromptTemplates({ onInsert, onClose }: PromptTemplatesProps) {
         style={{ borderBottom: "1px solid var(--border-subtle)" }}
       >
         <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-          ⚡ Prompt Templates
+          Prompt Templates
         </span>
         <div className="flex items-center gap-2">
           <button
@@ -226,7 +226,7 @@ export function PromptTemplates({ onInsert, onClose }: PromptTemplatesProps) {
         {[
           { id: "all" as const, label: "All" },
           ...Object.entries(categoryMeta).map(([id, meta]) => ({ id: id as Category, label: meta.icon })),
-          ...(customTemplates.length > 0 ? [{ id: "custom" as const, label: "⭐" }] : []),
+          ...(customTemplates.length > 0 ? [{ id: "custom" as const, label: "Saved" }] : []),
         ].map((tab) => (
           <button
             key={tab.id}
@@ -256,7 +256,7 @@ export function PromptTemplates({ onInsert, onClose }: PromptTemplatesProps) {
       <div className="flex-1 overflow-y-auto">
         {filteredTemplates.length === 0 ? (
           <div className="text-center py-8 px-4">
-            <div className="text-lg mb-1">📋</div>
+            <div className="text-sm font-medium mb-1" style={{ color: "var(--text-faint)", fontFamily: "monospace" }}>TEMPLATES</div>
             <div className="text-xs" style={{ color: "var(--text-faint)" }}>No templates found</div>
           </div>
         ) : (

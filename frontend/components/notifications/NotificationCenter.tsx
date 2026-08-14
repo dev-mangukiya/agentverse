@@ -1,17 +1,18 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNotifications } from "./NotificationProvider";
 import type { NotificationType } from "./NotificationProvider";
+import { CheckCircleIcon, XCircleIcon, AlertTriangleIcon, InfoIcon, BotIcon } from "../icons/Icons";
 
-const typeIcons: Record<NotificationType, string> = {
-  success: "✅",
-  error: "❌",
-  warning: "⚠️",
-  info: "ℹ️",
-  "agent-complete": "🤖",
+const typeIcons: Record<NotificationType, React.ReactNode> = {
+  success: <CheckCircleIcon size={14} color="var(--green)" />,
+  error: <XCircleIcon size={14} color="var(--red)" />,
+  warning: <AlertTriangleIcon size={14} color="var(--yellow)" />,
+  info: <InfoIcon size={14} color="var(--brand-blue-bright)" />,
+  "agent-complete": <BotIcon size={14} color="var(--brand)" />,
 };
 
 function timeAgo(timestamp: number): string {

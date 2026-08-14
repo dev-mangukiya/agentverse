@@ -21,9 +21,9 @@ interface ExportMenuProps {
 type ExportFormat = "markdown" | "json" | "text";
 
 const formats: { id: ExportFormat; label: string; icon: string; desc: string }[] = [
-  { id: "markdown", label: "Markdown", icon: "📝", desc: "Formatted .md file" },
-  { id: "json", label: "JSON", icon: "📦", desc: "Structured data" },
-  { id: "text", label: "Plain Text", icon: "📄", desc: "Simple .txt file" },
+  { id: "markdown", label: "Markdown", icon: "MD", desc: "Formatted .md file" },
+  { id: "json", label: "JSON", icon: "{ }", desc: "Structured data" },
+  { id: "text", label: "Plain Text", icon: "TXT", desc: "Simple .txt file" },
 ];
 
 function generateMarkdown(messages: Message[], title: string): string {
@@ -32,9 +32,9 @@ function generateMarkdown(messages: Message[], title: string): string {
 
   for (const msg of messages) {
     if (msg.role === "user") {
-      md += `## 👤 You\n\n${msg.content}\n\n`;
+      md += `## You\n\n${msg.content}\n\n`;
     } else if (msg.role === "agent") {
-      const agent = msg.agent_name ? `🤖 ${msg.agent_name.charAt(0).toUpperCase() + msg.agent_name.slice(1)} Agent` : "🤖 Agent";
+      const agent = msg.agent_name ? `${msg.agent_name.charAt(0).toUpperCase() + msg.agent_name.slice(1)} Agent` : "Agent";
       md += `## ${agent}\n\n${msg.content}\n\n`;
       if (msg.pipeline_duration_ms) {
         md += `*Pipeline: ${(msg.pipeline_duration_ms / 1000).toFixed(1)}s*`;
@@ -44,7 +44,7 @@ function generateMarkdown(messages: Message[], title: string): string {
         md += "\n\n";
       }
     } else if (msg.role === "system") {
-      md += `> ⚠️ ${msg.content}\n\n`;
+      md += `> Note: ${msg.content}\n\n`;
     }
     md += "---\n\n";
   }

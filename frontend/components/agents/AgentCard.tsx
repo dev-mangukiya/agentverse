@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
+import { BrainIcon, MicroscopeIcon, CodeIcon, PenIcon, SearchIcon, BarChartIcon, PuzzleIcon, BotIcon } from "../icons/Icons";
 
 type AgentStatus = "idle" | "activated" | "thinking" | "tool_call" | "complete" | "error";
 
@@ -18,14 +19,24 @@ interface AgentCardProps {
   compact?: boolean;
 }
 
-const agentMeta: Record<string, { icon: string; color: string; label: string; role: string }> = {
-  orchestrator: { icon: "🧠", color: "var(--agent-orchestrator)", label: "Orchestrator", role: "Planning & Coordination" },
-  research:     { icon: "🔬", color: "var(--agent-research)", label: "Research", role: "Web Search & Analysis" },
-  coding:       { icon: "💻", color: "var(--agent-coding)", label: "Coding", role: "Code & Execution" },
-  writer:       { icon: "✍️", color: "var(--agent-writer)", label: "Writer", role: "Content & Reports" },
-  critic:       { icon: "🔍", color: "var(--agent-critic)", label: "Critic", role: "Quality & Review" },
-  data:         { icon: "📊", color: "var(--agent-data)", label: "Data Analyst", role: "Data & Insights" },
-  memory:       { icon: "🧩", color: "var(--agent-memory)", label: "Memory", role: "RAG & Vector Store" },
+const agentIcons: Record<string, React.ReactNode> = {
+  orchestrator: <BrainIcon size={16} />,
+  research:     <MicroscopeIcon size={16} />,
+  coding:       <CodeIcon size={16} />,
+  writer:       <PenIcon size={16} />,
+  critic:       <SearchIcon size={16} />,
+  data:         <BarChartIcon size={16} />,
+  memory:       <PuzzleIcon size={16} />,
+};
+
+const agentMeta: Record<string, { icon: React.ReactNode; color: string; label: string; role: string }> = {
+  orchestrator: { icon: agentIcons.orchestrator, color: "var(--agent-orchestrator)", label: "Orchestrator", role: "Planning & Coordination" },
+  research:     { icon: agentIcons.research, color: "var(--agent-research)", label: "Research", role: "Web Search & Analysis" },
+  coding:       { icon: agentIcons.coding, color: "var(--agent-coding)", label: "Coding", role: "Code & Execution" },
+  writer:       { icon: agentIcons.writer, color: "var(--agent-writer)", label: "Writer", role: "Content & Reports" },
+  critic:       { icon: agentIcons.critic, color: "var(--agent-critic)", label: "Critic", role: "Quality & Review" },
+  data:         { icon: agentIcons.data, color: "var(--agent-data)", label: "Data Analyst", role: "Data & Insights" },
+  memory:       { icon: agentIcons.memory, color: "var(--agent-memory)", label: "Memory", role: "RAG & Vector Store" },
 };
 
 const statusConfig: Record<AgentStatus, { label: string; animation: boolean }> = {
@@ -66,7 +77,7 @@ export function AgentCard({
   compact = false,
 }: AgentCardProps) {
   const meta = agentMeta[name.toLowerCase()] || {
-    icon: "🤖",
+    icon: <BotIcon size={16} />,
     color: "var(--brand)",
     label: name.charAt(0).toUpperCase() + name.slice(1),
     role: "Agent",

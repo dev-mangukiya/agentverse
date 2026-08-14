@@ -98,16 +98,16 @@ function formatSize(bytes: number): string {
 }
 
 function fileIcon(type: string): string {
-  if (type.startsWith("image")) return "🖼️";
-  if (type.includes("pdf")) return "📕";
-  if (type.includes("json")) return "📦";
-  if (type.includes("text") || type.includes("plain")) return "📄";
-  if (type.includes("javascript") || type.includes("typescript")) return "💛";
-  if (type.includes("python")) return "🐍";
-  if (type.includes("html")) return "🌐";
-  if (type.includes("css")) return "🎨";
-  if (type.includes("zip") || type.includes("tar")) return "📦";
-  return "📎";
+  if (type.startsWith("image")) return "IMG";
+  if (type.includes("pdf")) return "PDF";
+  if (type.includes("json")) return "{ }";
+  if (type.includes("text") || type.includes("plain")) return "TXT";
+  if (type.includes("javascript") || type.includes("typescript")) return "JS";
+  if (type.includes("python")) return "PY";
+  if (type.includes("html")) return "</>";
+  if (type.includes("css")) return "CSS";
+  if (type.includes("zip") || type.includes("tar")) return "ZIP";
+  return "FILE";
 }
 
 function timeAgo(timestamp: number): string {
@@ -197,7 +197,7 @@ export function FileManager({ onReattach, onClose }: FileManagerProps) {
         style={{ borderBottom: "1px solid var(--border-subtle)" }}
       >
         <div className="flex items-center gap-2">
-          <span className="text-sm">📁</span>
+          <span className="text-sm" style={{ fontFamily: "monospace" }}>DIR</span>
           <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
             File Manager
           </span>
@@ -229,7 +229,7 @@ export function FileManager({ onReattach, onClose }: FileManagerProps) {
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
       >
-        <div className="text-xl mb-1">{dragOver ? "📥" : "📎"}</div>
+        <div className="text-sm font-medium mb-1" style={{ fontFamily: "monospace" }}>{dragOver ? "DROP" : "FILE"}</div>
         <div className="text-xs font-medium" style={{ color: dragOver ? "var(--brand-text)" : "var(--text-muted)" }}>
           {dragOver ? "Drop to upload" : "Drag & drop files here"}
         </div>
@@ -248,7 +248,7 @@ export function FileManager({ onReattach, onClose }: FileManagerProps) {
 
         {!loading && files.length === 0 && (
           <div className="text-center py-8">
-            <div className="text-lg mb-1">📂</div>
+            <div className="text-sm font-medium mb-1" style={{ fontFamily: "monospace" }}>FILES</div>
             <div className="text-xs" style={{ color: "var(--text-faint)" }}>
               No files stored yet
             </div>

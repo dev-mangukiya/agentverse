@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
+import { BarChartIcon } from "../icons/Icons";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
   AreaChart, Area, CartesianGrid,
@@ -114,7 +115,7 @@ export function AgentAnalytics() {
         className="mt-4 p-6 rounded-2xl text-center"
         style={{ backgroundColor: "var(--bg-raised)", border: "1px solid var(--border-subtle)" }}
       >
-        <div className="text-lg mb-1">📊</div>
+        <div className="mb-1" style={{ color: "var(--text-faint)" }}><BarChartIcon size={20} /></div>
         <div className="text-sm" style={{ color: "var(--text-muted)" }}>
           Analytics data will appear here after conversations
         </div>
@@ -137,7 +138,7 @@ export function AgentAnalytics() {
       {/* Section header */}
       <div className="flex items-center gap-2">
         <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-          📊 Agent Analytics
+          <span className="inline-flex items-center gap-1.5"><BarChartIcon size={16} /> Agent Analytics</span>
         </span>
         <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ backgroundColor: "var(--bg-hover)", color: "var(--text-faint)" }}>
           Live

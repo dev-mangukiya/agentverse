@@ -1,18 +1,27 @@
 "use client";
 
-import { useState, useRef } from "react";
+import React, { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { getAuthHeaders } from "@/lib/auth";
+import { MicroscopeIcon, CodeIcon, PenIcon, TargetIcon, BarChartIcon, ScaleIcon, BotIcon } from "../icons/Icons";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
+const agentIconMap: Record<string, React.ReactNode> = {
+  research: <MicroscopeIcon size={16} />,
+  coding: <CodeIcon size={16} />,
+  writer: <PenIcon size={16} />,
+  critic: <TargetIcon size={16} />,
+  data: <BarChartIcon size={16} />,
+};
+
 const AVAILABLE_AGENTS = [
-  { id: "research", label: "Research Agent", color: "#10b981", icon: "🔬" },
-  { id: "coding", label: "Coding Agent", color: "#3b82f6", icon: "💻" },
-  { id: "writer", label: "Writer Agent", color: "#f59e0b", icon: "✍️" },
-  { id: "critic", label: "Critic Agent", color: "#06b6d4", icon: "🎯" },
-  { id: "data", label: "Data Agent", color: "#a855f7", icon: "📊" },
+  { id: "research", label: "Research Agent", color: "#10b981" },
+  { id: "coding", label: "Coding Agent", color: "#3b82f6" },
+  { id: "writer", label: "Writer Agent", color: "#f59e0b" },
+  { id: "critic", label: "Critic Agent", color: "#06b6d4" },
+  { id: "data", label: "Data Agent", color: "#a855f7" },
 ];
 
 interface ComparisonResult {
@@ -90,7 +99,7 @@ export function AgentComparison() {
       {/* Header */}
       <div className="px-6 py-4 flex-shrink-0" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
         <h2 className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>
-          ⚖️ Agent Comparison
+          <span className="inline-flex items-center gap-1.5"><ScaleIcon size={16} /> Agent Comparison</span>
         </h2>
         <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
           Run the same prompt through 2-3 agents and compare responses side-by-side
@@ -119,7 +128,7 @@ export function AgentComparison() {
                   boxShadow: isSelected ? `0 0 16px ${agent.color}20` : "none",
                 }}
               >
-                <span>{agent.icon}</span>
+                <span className="flex items-center">{agentIconMap[agent.id] || <BotIcon size={14} />}</span>
                 {agent.label}
                 {isSelected && (
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
@@ -195,7 +204,7 @@ export function AgentComparison() {
                       className="w-10 h-10 rounded-full flex items-center justify-center text-lg"
                       style={{ backgroundColor: `${agent.color}20`, border: `2px solid ${agent.color}40` }}
                     >
-                      {agent.icon}
+                      {agentIconMap[agent.id] || <BotIcon size={14} />}
                     </motion.div>
                   );
                 })}
@@ -224,7 +233,7 @@ export function AgentComparison() {
 
         {!loading && results.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16">
-            <div className="text-3xl mb-3">⚖️</div>
+            <div className="mb-3" style={{ color: "var(--text-faint)" }}><ScaleIcon size={32} /></div>
             <div className="text-sm font-medium mb-1" style={{ color: "var(--text-secondary)" }}>
               Ready to compare
             </div>
@@ -266,7 +275,7 @@ export function AgentComparison() {
                     }}
                   >
                     <div className="flex items-center gap-2">
-                      <span className="text-base">{agent?.icon || "🤖"}</span>
+                      <span className="flex items-center">{agentIconMap[agent?.id ?? ""] || <BotIcon size={16} />}</span>
                       <span className="text-sm font-semibold" style={{ color: agent?.color || "var(--text-primary)" }}>
                         {agent?.label || result.agent}
                       </span>

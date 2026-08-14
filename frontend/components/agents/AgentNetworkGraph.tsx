@@ -35,14 +35,14 @@ const statusColors: Record<string, string> = {
 };
 
 const agentIcons: Record<string, string> = {
-  orchestrator: "🧠",
-  research: "🔬",
-  coding: "💻",
-  writer: "✍️",
-  critic: "🔍",
-  data: "📊",
-  data_analyst: "📊",
-  memory: "🧩",
+  orchestrator: "O",
+  research: "R",
+  coding: "C",
+  writer: "W",
+  critic: "Q",
+  data: "D",
+  data_analyst: "D",
+  memory: "M",
 };
 
 // Frontend fallback positions — well-spaced circular layout

@@ -252,7 +252,7 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
 
         {!loading && !fetchError && !searching && displayList.length === 0 && (
           <div className="text-center py-8 px-4">
-            <div className="text-lg mb-1">{searchResults !== null ? "🔍" : "💬"}</div>
+            <div className="text-sm font-medium mb-1" style={{ color: "var(--text-faint)", fontFamily: "monospace" }}>{searchResults !== null ? "No results" : "No chats"}</div>
             <div className="text-xs" style={{ color: "var(--text-faint)" }}>
               {searchResults !== null ? "No matching chats found" : "Your chats will appear here"}
             </div>

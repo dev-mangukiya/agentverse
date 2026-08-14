@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { BrainIcon, MicroscopeIcon, CodeIcon, PenIcon, SearchIcon, PuzzleIcon, BarChartIcon, BotIcon, MessageSquareIcon } from "../icons/Icons";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -22,14 +23,14 @@ const agentColors: Record<string, string> = {
   data: "var(--agent-data)",
 };
 
-const agentIcons: Record<string, string> = {
-  orchestrator: "🧠",
-  research: "🔬",
-  coding: "💻",
-  writer: "✍️",
-  critic: "🔍",
-  memory: "🧩",
-  data: "📊",
+const agentIconComponents: Record<string, React.ReactNode> = {
+  orchestrator: <BrainIcon size={14} />,
+  research: <MicroscopeIcon size={14} />,
+  coding: <CodeIcon size={14} />,
+  writer: <PenIcon size={14} />,
+  critic: <SearchIcon size={14} />,
+  memory: <PuzzleIcon size={14} />,
+  data: <BarChartIcon size={14} />,
 };
 
 function getColor(agentName: string): string {
@@ -40,12 +41,12 @@ function getColor(agentName: string): string {
   return "var(--text-muted)";
 }
 
-function getIcon(agentName: string): string {
+function getIcon(agentName: string): React.ReactNode {
   const lower = agentName.toLowerCase();
-  for (const [key, icon] of Object.entries(agentIcons)) {
+  for (const [key, icon] of Object.entries(agentIconComponents)) {
     if (lower.includes(key)) return icon;
   }
-  return "🤖";
+  return <BotIcon size={14} />;
 }
 
 function formatRelative(iso: string | null): string {
@@ -132,7 +133,7 @@ export function ActivityFeed() {
 
         {!loading && activities.length === 0 && (
           <div className="text-center py-8 px-4">
-            <div className="text-2xl mb-2">💬</div>
+            <div className="mb-2" style={{ color: "var(--text-faint)" }}><MessageSquareIcon size={24} /></div>
             <div className="text-xs" style={{ color: "var(--text-faint)" }}>
               No activity yet — start a chat!
             </div>

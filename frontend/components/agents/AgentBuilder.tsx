@@ -28,7 +28,7 @@ export function AgentBuilder() {
   
   const [formData, setFormData] = useState({
     name: "",
-    emoji: "🤖",
+    emoji: "",
     description: "",
     system_prompt: "",
     tools: [] as string[],
@@ -60,7 +60,7 @@ export function AgentBuilder() {
   const openCreate = () => {
     setFormData({
       name: "",
-      emoji: "🤖",
+      emoji: "",
       description: "",
       system_prompt: "You are a helpful AI assistant...",
       tools: [],

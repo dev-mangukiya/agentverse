@@ -9,8 +9,8 @@ name: Keep Backend Alive
 
 on:
   schedule:
-    # Every 10 minutes — well within Render's 15-min idle window
-    - cron: "*/10 * * * *"
+    # Every 5 minutes — well within Render's 15-min idle window
+    - cron: "*/5 * * * *"
   workflow_dispatch: # Allow manual trigger
 
 jobs:

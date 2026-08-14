@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { agentMeta } from "@/components/agents/AgentCard";
+import { BotIcon } from "@/components/icons/Icons";
 import { useTheme } from "@/lib/theme";
 import { useNotifications } from "@/components/notifications/NotificationProvider";
 import { NotificationCenter } from "@/components/notifications/NotificationCenter";
@@ -138,7 +139,7 @@ export function Header({ currentView, onMobileMenuToggle, pipelineActive, active
                           }}
                           title={meta?.label || agent.name}
                         >
-                          {meta?.icon || "🤖"}
+                          {meta?.icon || <BotIcon size={12} />}
                         </motion.div>
                       );
                     })}

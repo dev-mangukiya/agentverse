@@ -15,10 +15,12 @@ import { KPICards } from "@/components/dashboard/KPICards";
 import { AgentBuilder } from "@/components/agents/AgentBuilder";
 import { AgentAnalytics } from "@/components/dashboard/AgentAnalytics";
 import { AgentComparison } from "@/components/agents/AgentComparison";
+import { useKeepAlive } from "@/hooks/useKeepAlive";
 
 type View = "dashboard" | "agents" | "chat";
 
 export default function Home() {
+  useKeepAlive(); // Silent backend heartbeat — prevents Render cold starts
   const [currentView, setCurrentView] = useState<View>("chat");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -193,8 +195,8 @@ export default function Home() {
                 {/* Tab bar */}
                 <div className="flex items-center gap-1 px-4 md:px-6 pt-4 flex-shrink-0">
                   {[
-                    { id: "builder" as const, label: "Agent Builder", icon: "🛠️" },
-                    { id: "compare" as const, label: "Compare", icon: "⚖️" },
+                    { id: "builder" as const, label: "Agent Builder", icon: "+" },
+                    { id: "compare" as const, label: "Compare", icon: "vs" },
                   ].map((tab) => (
                     <button
                       key={tab.id}

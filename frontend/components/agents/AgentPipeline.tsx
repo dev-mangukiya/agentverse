@@ -1,7 +1,9 @@
 "use client";
 
+import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AgentCard, agentMeta } from "./AgentCard";
+import { SearchIcon, GlobeIcon, ZapIcon, CpuIcon, ClockIcon, FileIcon, PenIcon, SettingsIcon } from "../icons/Icons";
 
 type AgentStatus = "idle" | "activated" | "thinking" | "tool_call" | "complete" | "error";
 
@@ -42,14 +44,14 @@ interface AgentPipelineProps {
   totalAgentsUsed?: number;
 }
 
-const toolIcons: Record<string, string> = {
-  web_search: "🔍",
-  open_url: "🌐",
-  execute_python: "⚡",
-  calculate: "🧮",
-  get_current_time: "🕐",
-  read_file: "📄",
-  write_file: "✍️",
+const toolIcons: Record<string, React.ReactNode> = {
+  web_search: <SearchIcon size={12} />,
+  open_url: <GlobeIcon size={12} />,
+  execute_python: <ZapIcon size={12} />,
+  calculate: <CpuIcon size={12} />,
+  get_current_time: <ClockIcon size={12} />,
+  read_file: <FileIcon size={12} />,
+  write_file: <PenIcon size={12} />,
 };
 
 export function AgentPipeline({
@@ -123,7 +125,7 @@ export function AgentPipeline({
                     className="absolute inset-0 flex items-center justify-center text-2xl"
                     style={{ animation: "constellation 3s ease-in-out infinite" }}
                   >
-                    ⚡
+                    <ZapIcon size={24} />
                   </span>
                   {/* Orbiting dots */}
                   {[0, 1, 2].map((i) => (
@@ -279,7 +281,7 @@ export function AgentPipeline({
                             transition={{ delay: j * 0.06 }}
                             className={`tool-pill ${tool.status === "calling" ? "tool-pill--active" : ""}`}
                           >
-                            <span>{toolIcons[tool.tool] || "🔧"}</span>
+                            <span className="flex items-center">{toolIcons[tool.tool] || <SettingsIcon size={12} />}</span>
                             <span>{tool.tool}</span>
                             {tool.status === "calling" ? (
                               <div

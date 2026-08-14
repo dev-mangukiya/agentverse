@@ -120,9 +120,9 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     >
       {children}
 
-      {/* Toast container — fixed bottom-right */}
+      {/* Toast container — fixed above input bar */}
       <div
-        className="fixed bottom-4 right-4 z-[9999] flex flex-col-reverse gap-2 pointer-events-none"
+        className="fixed bottom-24 right-4 z-[9999] flex flex-col-reverse gap-2 pointer-events-none"
         style={{ maxWidth: "380px", width: "calc(100vw - 32px)" }}
       >
         <AnimatePresence>

@@ -370,9 +370,19 @@ async def broadcast_event(event: dict) -> None:
 @router.websocket("/ws/{conversation_id}")
 async def chat_websocket(websocket: WebSocket, conversation_id: str):
     """Real-time chat WebSocket."""
+    from app.core.rate_limiter import check_ws_rate_limit, MessageRateLimiter
+
+    # Connection-level rate check
+    if not check_ws_rate_limit(websocket):
+        await websocket.close(code=1008, reason="Rate limit exceeded")
+        return
+
     await websocket.accept()
     _chat_connections.add(websocket)
     logger.info("ws.connected", conversation_id=conversation_id)
+
+    # Per-session message throttle: 15 messages per minute
+    msg_limiter = MessageRateLimiter(max_messages=15, window_seconds=60)
 
     task = None
     try:
@@ -383,6 +393,16 @@ async def chat_websocket(websocket: WebSocket, conversation_id: str):
                 content = data.get("content", "").strip()
                 if not content:
                     continue
+
+                # Check per-message rate limit
+                allowed, remaining = msg_limiter.is_allowed()
+                if not allowed:
+                    await _send_ws(websocket, {
+                        "type": "error",
+                        "content": "You're sending messages too quickly. Please wait a moment before trying again.",
+                    })
+                    continue
+
                 attachments = data.get("attachments", [])
                 task = asyncio.create_task(
                     _process_user_message(websocket, conversation_id, content, attachments)

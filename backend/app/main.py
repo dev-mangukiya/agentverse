@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from app.core.rate_limiter import RateLimitMiddleware
 
 from app.api.routes.health import router as health_router
 from app.api.routes.chat import router as chat_router
@@ -117,6 +118,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Rate limiting — runs after CORS so preflight OPTIONS aren't blocked
+    application.add_middleware(RateLimitMiddleware)
 
     application.include_router(health_router)
     application.include_router(chat_router, prefix=settings.api_v1_prefix)

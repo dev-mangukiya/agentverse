@@ -1120,7 +1120,21 @@ def _detect_intent(user_input: str) -> str | None:
                "analyze this dataset", "plot", "graph", "chart", "distribution"]
     critic_kw = ["review this", "critique this", "evaluate this", "give feedback on",
                  "check my", "what do you think of", "rate this", "score this"]
+    doc_gen_kw = ["generate a document", "create a pdf", "create a doc", "make a pdf",
+                  "make a document", "generate pdf", "generate docx", "create a word",
+                  "make an excel", "generate excel", "create a spreadsheet",
+                  "export as pdf", "export as docx", "download as", "create a report file"]
+    doc_read_kw = ["read this document", "analyze this pdf", "summarize this document",
+                   "what does this document say", "extract from this pdf",
+                   "read this file", "analyze this file"]
 
+    # Check doc_gen before writer (both mention "report" but doc_gen is more specific)
+    for kw in doc_gen_kw:
+        if kw in text:
+            return "doc_generator"
+    for kw in doc_read_kw:
+        if kw in text:
+            return "doc_reader"
     for kw in coding_kw:
         if kw in text:
             return "coding"

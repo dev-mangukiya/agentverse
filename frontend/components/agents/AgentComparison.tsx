@@ -70,10 +70,8 @@ export function AgentComparison() {
           const agents: AgentOption[] = (data.agents || [])
             .filter((a: any) => a.name !== "orchestrator") // Orchestrator can't be compared directly
             .map((a: any) => {
-              // Use the agent's "name" as the compare ID (matches backend agent_classes keys)
-              // data_analyst maps to "data" in the backend compare endpoint
-              const id = a.name === "data_analyst" ? "data" : a.name;
-              const color = BUILTIN_COLORS[a.name] || BUILTIN_COLORS[id] || COLOR_PALETTE[colorIdx++ % COLOR_PALETTE.length];
+              const id = a.name;
+              const color = BUILTIN_COLORS[id] || COLOR_PALETTE[colorIdx++ % COLOR_PALETTE.length];
               return {
                 id,
                 label: a.is_builtin

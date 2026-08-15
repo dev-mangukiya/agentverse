@@ -36,6 +36,8 @@ const agentIcons: Record<string, string> = {
   critic: "Q",
   data: "D",
   data_analyst: "D",
+  doc_reader: "📄",
+  doc_generator: "📝",
   memory: "M",
 };
 

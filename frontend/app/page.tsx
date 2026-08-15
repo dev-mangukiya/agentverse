@@ -179,6 +179,10 @@ export default function Home() {
             setActiveConversationId(null);
             setHistoryRefresh((n) => n + 1);
           }}
+          onNotificationClick={(convId) => {
+            setCurrentView("chat");
+            setActiveConversationId(convId);
+          }}
         />
 
         <div className="flex-1 overflow-hidden">

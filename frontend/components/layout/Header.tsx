@@ -25,6 +25,7 @@ interface HeaderProps {
   activeAgents?: ActiveAgent[];
   backendStatus?: "online" | "waking" | "offline";
   onAuthChange?: () => void;
+  onNotificationClick?: (conversationId: string) => void;
 }
 
 function SunIcon() {
@@ -36,7 +37,7 @@ function SunIcon() {
   );
 }
 
-export function Header({ currentView, onMobileMenuToggle, pipelineActive, activeAgents = [], backendStatus = "online", onAuthChange }: HeaderProps) {
+export function Header({ currentView, onMobileMenuToggle, pipelineActive, activeAgents = [], backendStatus = "online", onAuthChange, onNotificationClick }: HeaderProps) {
   const { theme, toggle: toggleTheme } = useTheme();
   const { user, isLoggedIn, logout } = useAuth();
   const [authModalOpen, setAuthModalOpen] = useState(false);
@@ -244,7 +245,7 @@ export function Header({ currentView, onMobileMenuToggle, pipelineActive, active
             </button>
 
             {/* Notification Center */}
-            <NotificationCenter />
+            <NotificationCenter onNotificationClick={onNotificationClick} />
 
             {/* User Avatar / Auth */}
             <div className="relative" ref={menuRef}>

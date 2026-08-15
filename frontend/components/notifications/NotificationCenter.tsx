@@ -23,7 +23,7 @@ function timeAgo(timestamp: number): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-export function NotificationCenter() {
+export function NotificationCenter({ onNotificationClick }: { onNotificationClick?: (conversationId: string) => void }) {
   const { notifications, unreadCount, markAllRead, dismiss, clearAll } = useNotifications();
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -200,6 +200,13 @@ export function NotificationCenter() {
                       style={{
                         borderBottom: "1px solid var(--border-subtle)",
                         backgroundColor: notif.read ? "transparent" : "var(--bg-hover)",
+                        cursor: notif.conversationId ? "pointer" : "default",
+                      }}
+                      onClick={() => {
+                        if (notif.conversationId && onNotificationClick) {
+                          onNotificationClick(notif.conversationId);
+                          setOpen(false);
+                        }
                       }}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.backgroundColor = "var(--bg-elevated)";

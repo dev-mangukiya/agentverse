@@ -12,6 +12,7 @@ export interface Notification {
   title: string;
   message?: string;
   agent?: string;
+  conversationId?: string;
   timestamp: number;
   read: boolean;
   autoDismiss?: boolean;

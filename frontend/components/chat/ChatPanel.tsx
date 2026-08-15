@@ -666,6 +666,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                 type: "agent-complete",
                 title: "Pipeline Complete",
                 message: `${data.agents_used || 1} agent${(data.agents_used || 1) > 1 ? "s" : ""} finished${dur ? ` in ${dur}` : ""}`,
+                conversationId: conversationId || undefined,
               });
             }
             break;

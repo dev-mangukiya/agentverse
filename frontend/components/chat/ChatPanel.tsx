@@ -747,7 +747,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             break;
 
           case "stream_end":
-            streamingMessageRef.current = null;
+            // Don't clear streamingMessageRef here — the "response" handler
+            // needs it to replace the streamed placeholder with the final message.
             break;
         }
       };

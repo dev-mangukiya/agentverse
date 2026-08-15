@@ -1,49 +1,69 @@
 # ── Keep Render Backend Alive ───────────────────────────────
 # Render free-tier services spin down after 15 minutes of inactivity,
 # causing 30-60 second cold starts. This workflow pings the /health
-# endpoint every 10 minutes to keep the service warm.
+# endpoint every 4 minutes across TWO staggered jobs to ensure coverage
+# even when GitHub delays cron execution by 5-10 minutes.
 #
-# Cost: ~0 (uses < 2 minutes/month of GitHub Actions)
+# Cost: ~0 (uses < 5 minutes/month of GitHub Actions)
 
 name: Keep Backend Alive
 
 on:
   schedule:
-    # Every 5 minutes — well within Render's 15-min idle window
-    - cron: "*/5 * * * *"
+    # Two staggered schedules for better coverage:
+    # Job runs at minutes 0,4,8,12,...  and  2,6,10,14,...
+    # This means a ping every ~2-4 minutes even with delays
+    - cron: "*/4 * * * *"
+    - cron: "2-58/4 * * * *"
   workflow_dispatch: # Allow manual trigger
+
+concurrency:
+  group: keep-alive
+  cancel-in-progress: false
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Ping health endpoint
+      - name: Ping backend health endpoint
+        env:
+          BACKEND_URL: "https://agentverse-140e.onrender.com"
         run: |
-          BACKEND_URL="https://agentverse-140e.onrender.com"
+          echo "🏓 Pinging $BACKEND_URL/health ..."
           
-          echo "Pinging $BACKEND_URL/health ..."
+          ping_backend() {
+            curl -sf -o /dev/null -w "%{http_code}" \
+              --connect-timeout 10 \
+              --max-time 90 \
+              "$BACKEND_URL/health" 2>/dev/null || echo "000"
+          }
           
-          # First attempt — may take 30s+ if the service is cold-starting
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-            --connect-timeout 10 \
-            --max-time 60 \
-            "$BACKEND_URL/health" || echo "000")
+          HTTP_CODE=$(ping_backend)
           
           if [ "$HTTP_CODE" = "200" ]; then
             echo "✅ Backend is alive (HTTP $HTTP_CODE)"
-          elif [ "$HTTP_CODE" = "000" ]; then
-            echo "⏳ Backend didn't respond — may be cold-starting. Retrying in 30s..."
-            sleep 30
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-              --connect-timeout 10 \
-              --max-time 60 \
-              "$BACKEND_URL/health" || echo "000")
-            if [ "$HTTP_CODE" = "200" ]; then
-              echo "✅ Backend woke up on retry (HTTP $HTTP_CODE)"
-            else
-              echo "⚠️ Backend still unresponsive (HTTP $HTTP_CODE)"
-            fi
+            exit 0
+          fi
+          
+          # If first attempt failed, backend may be cold-starting
+          echo "⏳ Got HTTP $HTTP_CODE — backend may be waking up. Retrying in 30s..."
+          sleep 30
+          
+          HTTP_CODE=$(ping_backend)
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ Backend woke up on retry (HTTP $HTTP_CODE)"
+            exit 0
+          fi
+          
+          # Final retry after another 30s
+          echo "⏳ Still not ready (HTTP $HTTP_CODE). Final retry in 30s..."
+          sleep 30
+          
+          HTTP_CODE=$(ping_backend)
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ Backend woke up on final retry (HTTP $HTTP_CODE)"
           else
-            echo "⚠️ Backend returned HTTP $HTTP_CODE"
+            echo "⚠️ Backend unresponsive after 3 attempts (last HTTP $HTTP_CODE)"
+            # Don't fail the job — Render might be deploying
           fi

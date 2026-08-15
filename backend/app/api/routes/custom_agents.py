@@ -37,6 +37,8 @@ BUILTIN_AGENTS = [
     {"id": "builtin_writer", "name": "writer", "emoji": "W", "description": "Content creation and editing", "is_builtin": True, "is_active": True},
     {"id": "builtin_critic", "name": "critic", "emoji": "Q", "description": "Quality analysis and feedback", "is_builtin": True, "is_active": True},
     {"id": "builtin_data", "name": "data_analyst", "emoji": "D", "description": "Data analysis and visualization", "is_builtin": True, "is_active": True},
+    {"id": "builtin_doc_reader", "name": "doc_reader", "emoji": "📄", "description": "Document analysis, summarization, and Q&A", "is_builtin": True, "is_active": True},
+    {"id": "builtin_doc_generator", "name": "doc_generator", "emoji": "📝", "description": "Creates downloadable reports, proposals, and documentation", "is_builtin": True, "is_active": True},
 ]
 
 

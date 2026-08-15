@@ -373,7 +373,7 @@ async def compare_agents(body: CompareRequest) -> dict:
     from app.agents.doc_reader import DocReaderAgent
     from app.agents.doc_generator import DocGeneratorAgent
 
-    agent_classes = {
+    builtin_agent_classes = {
         "research": ResearchAgent,
         "coding": CodingAgent,
         "writer": WriterAgent,
@@ -386,14 +386,16 @@ async def compare_agents(body: CompareRequest) -> dict:
     if len(body.agents) < 2 or len(body.agents) > 3:
         raise HTTPException(status_code=400, detail="Select 2-3 agents")
 
-    for a in body.agents:
-        if a not in agent_classes:
-            raise HTTPException(status_code=400, detail=f"Unknown agent: {a}")
-
     async def run_agent(agent_name: str) -> dict:
         start = time.time()
         try:
-            agent = agent_classes[agent_name]()
+            if agent_name in builtin_agent_classes:
+                agent = builtin_agent_classes[agent_name]()
+            else:
+                # Try loading as a custom agent from the database
+                agent = await _load_custom_agent(agent_name)
+                if not agent:
+                    raise ValueError(f"Unknown agent: {agent_name}")
             response = await agent.run(body.prompt)
             duration_ms = int((time.time() - start) * 1000)
             return {

@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { getAuthHeaders } from "@/lib/auth";
-import { MicroscopeIcon, CodeIcon, PenIcon, TargetIcon, BarChartIcon, ScaleIcon, BotIcon } from "../icons/Icons";
+import { MicroscopeIcon, CodeIcon, PenIcon, TargetIcon, BarChartIcon, ScaleIcon, BotIcon, FileTextIcon, FilePlusIcon } from "../icons/Icons";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -13,16 +13,35 @@ const agentIconMap: Record<string, React.ReactNode> = {
   coding: <CodeIcon size={16} />,
   writer: <PenIcon size={16} />,
   critic: <TargetIcon size={16} />,
+  data_analyst: <BarChartIcon size={16} />,
   data: <BarChartIcon size={16} />,
+  doc_reader: <FileTextIcon size={16} />,
+  doc_generator: <FilePlusIcon size={16} />,
 };
 
-const AVAILABLE_AGENTS = [
-  { id: "research", label: "Research Agent", color: "#10b981" },
-  { id: "coding", label: "Coding Agent", color: "#3b82f6" },
-  { id: "writer", label: "Writer Agent", color: "#f59e0b" },
-  { id: "critic", label: "Critic Agent", color: "#06b6d4" },
-  { id: "data", label: "Data Agent", color: "#a855f7" },
+// Colors for built-in agents; custom agents get assigned from the palette
+const BUILTIN_COLORS: Record<string, string> = {
+  research: "#10b981",
+  coding: "#3b82f6",
+  writer: "#f59e0b",
+  critic: "#06b6d4",
+  data_analyst: "#a855f7",
+  data: "#a855f7",
+  doc_reader: "#f97316",
+  doc_generator: "#14b8a6",
+};
+
+const COLOR_PALETTE = [
+  "#ec4899", "#8b5cf6", "#ef4444", "#84cc16", "#f43f5e",
+  "#6366f1", "#22d3ee", "#eab308", "#d946ef", "#0ea5e9",
 ];
+
+interface AgentOption {
+  id: string;
+  label: string;
+  color: string;
+  is_builtin: boolean;
+}
 
 interface ComparisonResult {
   agent: string;
@@ -32,11 +51,52 @@ interface ComparisonResult {
 }
 
 export function AgentComparison() {
-  const [selectedAgents, setSelectedAgents] = useState<string[]>(["research", "coding"]);
+  const [allAgents, setAllAgents] = useState<AgentOption[]>([]);
+  const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
   const [prompt, setPrompt] = useState("");
   const [results, setResults] = useState<ComparisonResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [fetchingAgents, setFetchingAgents] = useState(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Fetch agents from API on mount
+  useEffect(() => {
+    const fetchAgents = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/v1/agents`);
+        if (res.ok) {
+          const data = await res.json();
+          let colorIdx = 0;
+          const agents: AgentOption[] = (data.agents || [])
+            .filter((a: any) => a.name !== "orchestrator") // Orchestrator can't be compared directly
+            .map((a: any) => {
+              // Use the agent's "name" as the compare ID (matches backend agent_classes keys)
+              // data_analyst maps to "data" in the backend compare endpoint
+              const id = a.name === "data_analyst" ? "data" : a.name;
+              const color = BUILTIN_COLORS[a.name] || BUILTIN_COLORS[id] || COLOR_PALETTE[colorIdx++ % COLOR_PALETTE.length];
+              return {
+                id,
+                label: a.is_builtin
+                  ? `${a.name.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())} Agent`
+                  : `${a.emoji || "🤖"} ${a.name.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}`,
+                color,
+                is_builtin: a.is_builtin,
+              };
+            });
+          setAllAgents(agents);
+          // Default selection: first 2 agents
+          if (agents.length >= 2) {
+            setSelectedAgents([agents[0].id, agents[1].id]);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch agents for comparison", err);
+      } finally {
+        setFetchingAgents(false);
+      }
+    };
+    fetchAgents();
+  }, []);
 
   const toggleAgent = (id: string) => {
     setSelectedAgents((prev) => {
@@ -94,6 +154,8 @@ export function AgentComparison() {
     }
   };
 
+  const getAgent = (id: string) => allAgents.find((a) => a.id === id);
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -111,34 +173,43 @@ export function AgentComparison() {
         <div className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-faint)" }}>
           Select 2-3 agents
         </div>
-        <div className="flex flex-wrap gap-2">
-          {AVAILABLE_AGENTS.map((agent) => {
-            const isSelected = selectedAgents.includes(agent.id);
-            return (
-              <button
-                key={agent.id}
-                onClick={() => toggleAgent(agent.id)}
-                className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-200"
-                style={{
-                  background: isSelected ? `${agent.color}15` : "var(--glass-bg)",
-                  backdropFilter: "blur(12px)",
-                  WebkitBackdropFilter: "blur(12px)",
-                  border: `1.5px solid ${isSelected ? agent.color : "var(--glass-border)"}`,
-                  color: isSelected ? agent.color : "var(--text-muted)",
-                  boxShadow: isSelected ? `0 0 16px ${agent.color}20` : "none",
-                }}
-              >
-                <span className="flex items-center">{agentIconMap[agent.id] || <BotIcon size={14} />}</span>
-                {agent.label}
-                {isSelected && (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-                    <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                )}
-              </button>
-            );
-          })}
-        </div>
+        {fetchingAgents ? (
+          <div className="text-xs py-2" style={{ color: "var(--text-muted)" }}>Loading agents...</div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {allAgents.map((agent) => {
+              const isSelected = selectedAgents.includes(agent.id);
+              return (
+                <button
+                  key={agent.id}
+                  onClick={() => toggleAgent(agent.id)}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-200"
+                  style={{
+                    background: isSelected ? `${agent.color}15` : "var(--glass-bg)",
+                    backdropFilter: "blur(12px)",
+                    WebkitBackdropFilter: "blur(12px)",
+                    border: `1.5px solid ${isSelected ? agent.color : "var(--glass-border)"}`,
+                    color: isSelected ? agent.color : "var(--text-muted)",
+                    boxShadow: isSelected ? `0 0 16px ${agent.color}20` : "none",
+                  }}
+                >
+                  <span className="flex items-center">{agentIconMap[agent.id] || <BotIcon size={14} />}</span>
+                  {agent.label}
+                  {!agent.is_builtin && (
+                    <span className="text-[8px] px-1 py-0.5 rounded-full uppercase font-bold" style={{ backgroundColor: `${agent.color}20`, color: agent.color }}>
+                      Custom
+                    </span>
+                  )}
+                  {isSelected && (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                      <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Prompt input */}
@@ -195,16 +266,16 @@ export function AgentComparison() {
             <div className="flex flex-col items-center gap-4">
               <div className="flex gap-2">
                 {selectedAgents.map((id) => {
-                  const agent = AVAILABLE_AGENTS.find((a) => a.id === id)!;
+                  const agent = getAgent(id);
                   return (
                     <motion.div
                       key={id}
                       animate={{ scale: [1, 1.2, 1] }}
                       transition={{ duration: 1.2, repeat: Infinity, delay: selectedAgents.indexOf(id) * 0.3 }}
                       className="w-10 h-10 rounded-full flex items-center justify-center text-lg"
-                      style={{ backgroundColor: `${agent.color}20`, border: `2px solid ${agent.color}40` }}
+                      style={{ backgroundColor: `${agent?.color || "#666"}20`, border: `2px solid ${agent?.color || "#666"}40` }}
                     >
-                      {agentIconMap[agent.id] || <BotIcon size={14} />}
+                      {agentIconMap[id] || <BotIcon size={14} />}
                     </motion.div>
                   );
                 })}
@@ -246,7 +317,7 @@ export function AgentComparison() {
         {!loading && results.length > 0 && (
           <div className={`grid gap-4 ${results.length === 2 ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1 md:grid-cols-3"}`}>
             {results.map((result, i) => {
-              const agent = AVAILABLE_AGENTS.find((a) => a.id === result.agent);
+              const agent = getAgent(result.agent);
               return (
                 <motion.div
                   key={result.agent}
@@ -275,7 +346,7 @@ export function AgentComparison() {
                     }}
                   >
                     <div className="flex items-center gap-2">
-                      <span className="flex items-center">{agentIconMap[agent?.id ?? ""] || <BotIcon size={16} />}</span>
+                      <span className="flex items-center">{agentIconMap[result.agent] || <BotIcon size={16} />}</span>
                       <span className="text-sm font-semibold" style={{ color: agent?.color || "var(--text-primary)" }}>
                         {agent?.label || result.agent}
                       </span>

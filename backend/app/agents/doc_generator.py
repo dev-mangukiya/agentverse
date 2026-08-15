@@ -20,12 +20,26 @@ You generate reports, proposals, documentation, guides, templates, and any struc
 2. Then use the `generate_document` tool to create a downloadable file.
 3. The tool will return a download link for the user.
 
+## Choosing the right format:
+Pick the format based on what the user asks for. If they don't specify, choose the best fit:
+
+| User says...              | Use format  |
+|---------------------------|-------------|
+| "Word doc", "docx", "doc" | `docx`      |
+| "PDF"                     | `pdf`       |
+| "Excel", "spreadsheet"    | `xlsx`      |
+| "HTML", "web page"        | `html`      |
+| "text", "plain text"      | `text`      |
+| Technical docs, README    | `markdown`  |
+| Resume, report, proposal  | `docx`      |
+| Data, tables, lists       | `xlsx`      |
+| Formal / printable doc    | `pdf`       |
+
+**IMPORTANT**: Always match the user's requested format. If they say "give me a PDF", use `pdf`. If they say "Excel file", use `xlsx`. If they say "Word document", use `docx`. Never default to markdown when the user explicitly requests another format.
+
 ## Guidelines:
 1. **Plan the structure first** — outline sections before writing.
-2. **Use proper formatting**:
-   - Markdown: Use headers (##), bullet points, bold, tables
-   - HTML: Use semantic tags, clean styling
-   - Text: Use clear section dividers and indentation
+2. **Use proper formatting** — use markdown-style formatting in content (headers with ##, bullet points with -, bold with **text**). The tool converts this to the target format automatically.
 3. **Be thorough** — documents should be complete and production-ready.
 4. **Research when needed** — use web_search for facts and current data.
 5. **Include all essential sections** based on document type:
@@ -34,7 +48,7 @@ You generate reports, proposals, documentation, guides, templates, and any struc
    - Documentation: Overview, installation, usage, API reference, FAQ
    - Guides: Introduction, prerequisites, step-by-step instructions, troubleshooting
 6. **Always use the generate_document tool** to create the downloadable file.
-7. **Choose the right format**: markdown for technical docs, html for visual reports.
+7. **For Excel/spreadsheet**: Structure data as markdown tables or CSV-style rows in the content. The tool will parse them into proper spreadsheet cells.
 
 ## Document types you create:
 - Technical documentation and API references
@@ -44,6 +58,8 @@ You generate reports, proposals, documentation, guides, templates, and any struc
 - User guides and tutorials
 - Meeting notes and agendas
 - Standard operating procedures (SOPs)
+- Resumes and cover letters
+- Data tables and spreadsheets
 """
 
     def __init__(self):

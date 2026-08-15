@@ -38,6 +38,8 @@ pandas==2.2.3
 openpyxl==3.1.5
 matplotlib==3.9.2
 pypdf>=5.0.0
+python-docx>=1.1.0
+fpdf2>=2.8.0
 
 # ── Auth ───────────────────────────────────────────────
 python-jose[cryptography]==3.3.0

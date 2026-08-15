@@ -27,6 +27,9 @@ async def download_document(file_id: str):
         "markdown": "text/markdown",
         "text": "text/plain",
         "html": "text/html",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "pdf": "application/pdf",
     }
     media_type = media_types.get(doc.get("format", "markdown"), "application/octet-stream")
 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { BrainIcon, MicroscopeIcon, CodeIcon, PenIcon, SearchIcon, BarChartIcon, PuzzleIcon, FileTextIcon, FilePlusIcon } from "../icons/Icons";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -28,17 +29,17 @@ const statusColors: Record<string, string> = {
   idle: "var(--text-faint)",
 };
 
-const agentIcons: Record<string, string> = {
-  orchestrator: "O",
-  research: "R",
-  coding: "C",
-  writer: "W",
-  critic: "Q",
-  data: "D",
-  data_analyst: "D",
-  doc_reader: "📄",
-  doc_generator: "📝",
-  memory: "M",
+const agentIcons: Record<string, React.ReactNode> = {
+  orchestrator: <BrainIcon size={14} />,
+  research: <MicroscopeIcon size={14} />,
+  coding: <CodeIcon size={14} />,
+  writer: <PenIcon size={14} />,
+  critic: <SearchIcon size={14} />,
+  data: <BarChartIcon size={14} />,
+  data_analyst: <BarChartIcon size={14} />,
+  doc_reader: <FileTextIcon size={14} />,
+  doc_generator: <FilePlusIcon size={14} />,
+  memory: <PuzzleIcon size={14} />,
 };
 
 /**

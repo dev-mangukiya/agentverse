@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from "framer-motion";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
+import { agentMeta } from "./AgentCard";
+
 export interface Agent {
   id: string;
   name: string;
@@ -194,10 +196,18 @@ export function AgentBuilder() {
             <div className="relative z-10 flex flex-col h-full">
             <div className="flex justify-between items-start mb-3">
               <div 
-                className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shadow-lg flex-shrink-0"
-                style={{ background: "color-mix(in srgb, var(--bg-hover) 80%, transparent)" }}
+                className="w-12 h-12 rounded-xl flex items-center justify-center shadow-lg flex-shrink-0"
+                style={{ 
+                  background: agentMeta[agent.name]
+                    ? `color-mix(in srgb, ${agentMeta[agent.name].color} 15%, var(--bg-hover))`
+                    : "color-mix(in srgb, var(--bg-hover) 80%, transparent)",
+                  color: agentMeta[agent.name]?.color || "var(--text-secondary)",
+                }}
               >
-                {agent.emoji}
+                {agentMeta[agent.name]
+                  ? <span className="scale-125">{agentMeta[agent.name].icon}</span>
+                  : <span className="text-xl">{agent.emoji || agent.name[0]?.toUpperCase()}</span>
+                }
               </div>
               
               {!agent.is_builtin && (

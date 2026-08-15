@@ -79,10 +79,10 @@ interface ChatPanelProps {
 }
 
 const SUGGESTIONS = [
-  { text: "Research the latest AI breakthroughs", icon: "R", agent: "research" },
-  { text: "Write a Python web scraper", icon: "C", agent: "coding" },
-  { text: "Draft a professional email", icon: "W", agent: "writer" },
-  { text: "Analyze trends in tech industry", icon: "D", agent: "data" },
+  { text: "Research the latest AI breakthroughs", agent: "research" },
+  { text: "Write a Python web scraper", agent: "coding" },
+  { text: "Draft a professional email", agent: "writer" },
+  { text: "Analyze trends in tech industry", agent: "data" },
 ];
 
 
@@ -1192,7 +1192,9 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                       e.currentTarget.style.boxShadow = "none";
                     }}
                   >
-                    <span className="text-lg mt-0.5">{s.icon}</span>
+                    <span className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center mt-0.5" style={{ backgroundColor: `color-mix(in srgb, ${meta?.color || 'var(--brand)'} 15%, transparent)`, color: meta?.color || 'var(--brand)' }}>
+                      {meta?.icon || <span className="text-sm font-bold">{s.agent[0].toUpperCase()}</span>}
+                    </span>
                     <div>
                       <div className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>{s.text}</div>
                       <div className="text-[10px] mt-1.5 font-semibold flex items-center gap-1" style={{ color: meta?.color || "var(--text-faint)" }}>

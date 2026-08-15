@@ -185,7 +185,97 @@ export default function Home() {
           }}
         />
 
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-hidden relative">
+          {/* Chat view — ALWAYS MOUNTED to keep WebSocket alive */}
+          <div
+            className="absolute inset-0 flex overflow-hidden"
+            style={{ display: currentView === "chat" ? "flex" : "none" }}
+          >
+            {/* Chat history sidebar — only on xl+ screens to give chat area room */}
+            <div
+              className="w-52 flex-shrink-0 hidden xl:flex xl:flex-col overflow-hidden"
+              style={{ borderRight: "1px solid var(--border-subtle)" }}
+            >
+              <ChatHistory
+                activeId={activeConversationId}
+                onSelect={setActiveConversationId}
+                onNewChat={handleNewChat}
+                refreshTrigger={historyRefresh}
+              />
+            </div>
+
+            {/* Chat panel — main area */}
+            <div className="flex-1 min-w-0 relative">
+              {/* Mobile-only action bar for history & pipeline access */}
+              <div
+                className="flex xl:hidden items-center gap-2 px-3 py-2 flex-shrink-0"
+                style={{ borderBottom: "1px solid var(--border-subtle)" }}
+              >
+                <button
+                  className="mobile-trigger-btn"
+                  onClick={() => setMobileHistoryOpen(true)}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  <span className="hidden sm:inline">History</span>
+                </button>
+
+                {activeConversationId && (
+                  <button
+                    className="mobile-trigger-btn"
+                    onClick={() => setMobilePipelineOpen(true)}
+                    style={pipelineActive ? {
+                      backgroundColor: "var(--brand-dim)",
+                      borderColor: "color-mix(in srgb, var(--brand) 20%, transparent)",
+                      color: "var(--brand-text)",
+                    } : {}}
+                  >
+                    {pipelineActive && (
+                      <span
+                        className="w-2 h-2 rounded-full"
+                        style={{
+                          backgroundColor: "var(--brand)",
+                          boxShadow: "0 0 6px var(--brand)",
+                          animation: "pulse 1.5s ease-in-out infinite",
+                        }}
+                      />
+                    )}
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                      <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                    </svg>
+                    <span className="hidden sm:inline">
+                      {pipelineActive ? `${activeAgentCount} Active` : "Pipeline"}
+                    </span>
+                  </button>
+                )}
+              </div>
+
+              <ChatPanel
+                conversationId={activeConversationId}
+                onConversationCreated={handleConversationCreated}
+                onMessageSent={handleMessageSent}
+                onPipelineUpdate={handlePipelineUpdate}
+                inputRef={chatInputRef}
+              />
+            </div>
+
+            {/* Agent Pipeline panel — only on xl+ screens */}
+            <div
+              className="w-72 xl:w-80 flex-shrink-0 hidden xl:flex xl:flex-col overflow-hidden"
+            >
+              <AgentPipeline
+                agents={pipelineAgents}
+                delegations={pipelineDelegations}
+                toolEvents={pipelineToolEvents}
+                pipelineActive={pipelineActive}
+                pipelineDurationMs={pipelineDurationMs}
+                totalAgentsUsed={pipelineTotalAgents}
+              />
+            </div>
+          </div>
+
+          {/* Dashboard & Agents views — can unmount freely */}
           <AnimatePresence mode="wait">
 
             {currentView === "dashboard" && (
@@ -251,102 +341,6 @@ export default function Home() {
                   {agentTab === "compare" && (
                     <AgentComparison />
                   )}
-                </div>
-              </motion.div>
-            )}
-
-            {currentView === "chat" && (
-              <motion.div
-                key="chat"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="h-full flex overflow-hidden"
-              >
-                {/* Chat history sidebar — only on xl+ screens to give chat area room */}
-                <div
-                  className="w-52 flex-shrink-0 hidden xl:flex xl:flex-col overflow-hidden"
-                  style={{ borderRight: "1px solid var(--border-subtle)" }}
-                >
-                  <ChatHistory
-                    activeId={activeConversationId}
-                    onSelect={setActiveConversationId}
-                    onNewChat={handleNewChat}
-                    refreshTrigger={historyRefresh}
-                  />
-                </div>
-
-                {/* Chat panel — main area */}
-                <div className="flex-1 min-w-0 relative">
-                  {/* Mobile-only action bar for history & pipeline access */}
-                  <div
-                    className="flex xl:hidden items-center gap-2 px-3 py-2 flex-shrink-0"
-                    style={{ borderBottom: "1px solid var(--border-subtle)" }}
-                  >
-                    <button
-                      className="mobile-trigger-btn"
-                      onClick={() => setMobileHistoryOpen(true)}
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                        <path d="M12 3C6.477 3 2 6.925 2 11.75c0 2.278.98 4.35 2.59 5.88L3 21l4.5-1.45A10.3 10.3 0 0 0 12 20.5c5.523 0 10-3.925 10-8.75S17.523 3 12 3Z" stroke="currentColor" strokeWidth="1.5"/>
-                      </svg>
-                      <span className="hidden sm:inline">History</span>
-                    </button>
-
-                    <div className="flex-1" />
-
-                    {(pipelineActive || pipelineAgents.length > 0) && (
-                      <button
-                        className="mobile-trigger-btn"
-                        onClick={() => setMobilePipelineOpen(true)}
-                        style={pipelineActive ? {
-                          backgroundColor: "var(--brand-dim)",
-                          borderColor: "color-mix(in srgb, var(--brand) 20%, transparent)",
-                          color: "var(--brand-text)",
-                        } : {}}
-                      >
-                        {pipelineActive && (
-                          <span
-                            className="w-2 h-2 rounded-full"
-                            style={{
-                              backgroundColor: "var(--brand)",
-                              boxShadow: "0 0 6px var(--brand)",
-                              animation: "pulse 1.5s ease-in-out infinite",
-                            }}
-                          />
-                        )}
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                          <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                        </svg>
-                        <span className="hidden sm:inline">
-                          {pipelineActive ? `${activeAgentCount} Active` : "Pipeline"}
-                        </span>
-                      </button>
-                    )}
-                  </div>
-
-                  <ChatPanel
-                    conversationId={activeConversationId}
-                    onConversationCreated={handleConversationCreated}
-                    onMessageSent={handleMessageSent}
-                    onPipelineUpdate={handlePipelineUpdate}
-                    inputRef={chatInputRef}
-                  />
-                </div>
-
-                {/* Agent Pipeline panel — only on xl+ screens */}
-                <div
-                  className="w-72 xl:w-80 flex-shrink-0 hidden xl:flex xl:flex-col overflow-hidden"
-                >
-                  <AgentPipeline
-                    agents={pipelineAgents}
-                    delegations={pipelineDelegations}
-                    toolEvents={pipelineToolEvents}
-                    pipelineActive={pipelineActive}
-                    pipelineDurationMs={pipelineDurationMs}
-                    totalAgentsUsed={pipelineTotalAgents}
-                  />
                 </div>
               </motion.div>
             )}

@@ -258,56 +258,42 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
               style={{ zIndex: 1 }}
             >
               <defs>
-                {/* Arrowhead — default (subtle) */}
+                {/* Arrowhead — default: filled triangle, clearly visible */}
                 <marker
                   id="arrow-default"
-                  markerWidth="12"
-                  markerHeight="12"
-                  refX="10"
-                  refY="6"
+                  markerWidth="10"
+                  markerHeight="8"
+                  refX="9"
+                  refY="4"
                   orient="auto"
                   markerUnits="userSpaceOnUse"
                 >
                   <path
-                    d="M 2 2 L 10 6 L 2 10"
-                    fill="none"
-                    stroke="var(--brand)"
-                    strokeWidth="1.5"
-                    strokeOpacity="0.3"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
+                    d="M 0 0.5 L 9 4 L 0 7.5 Z"
+                    fill="var(--brand)"
+                    fillOpacity="0.35"
                   />
                 </marker>
 
-                {/* Arrowhead — highlighted */}
+                {/* Arrowhead — highlighted: larger filled triangle */}
                 <marker
                   id="arrow-highlight"
-                  markerWidth="14"
-                  markerHeight="14"
-                  refX="12"
-                  refY="7"
+                  markerWidth="12"
+                  markerHeight="10"
+                  refX="11"
+                  refY="5"
                   orient="auto"
                   markerUnits="userSpaceOnUse"
                 >
                   <path
-                    d="M 2 2 L 12 7 L 2 12"
-                    fill="none"
-                    stroke="var(--brand)"
-                    strokeWidth="1.8"
-                    strokeOpacity="0.75"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
+                    d="M 0 0.5 L 11 5 L 0 9.5 Z"
+                    fill="var(--brand)"
+                    fillOpacity="0.8"
                   />
                 </marker>
-
-                {/* Gradient for edges */}
-                <linearGradient id="edge-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="var(--brand)" stopOpacity="0.5" />
-                  <stop offset="100%" stopColor="var(--brand-accent)" stopOpacity="0.3" />
-                </linearGradient>
               </defs>
 
-              {/* Decorative orbit ring behind the nodes */}
+              {/* Decorative orbit ring */}
               {agents.find(a => a.id === "orchestrator") && (
                 <circle
                   cx={agents.find(a => a.id === "orchestrator")!.cx}
@@ -316,12 +302,12 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                   fill="none"
                   stroke="var(--brand)"
                   strokeWidth="1"
-                  strokeOpacity="0.06"
-                  strokeDasharray="4 8"
+                  strokeOpacity="0.1"
+                  strokeDasharray="3 6"
                 />
               )}
 
-              {/* Edge lines */}
+              {/* Edge lines — curved paths from orchestrator to each satellite */}
               {hubEdges.map((edge, i) => {
                 const from = getNode(edge.from);
                 const to = getNode(edge.to);
@@ -336,20 +322,32 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                 const fromR = from.id === "orchestrator" ? orchRadius : satRadius;
                 const toR = to.id === "orchestrator" ? orchRadius : satRadius;
                 const { sx, sy, ex, ey } = computeEdgeEndpoints(
-                  from.cx, from.cy, to.cx, to.cy, fromR + 4, toR + 6
+                  from.cx, from.cy, to.cx, to.cy, fromR + 2, toR + 4
                 );
 
+                // Compute a curved path: subtle bezier bulge perpendicular to the line
+                const mx = (sx + ex) / 2;
+                const my = (sy + ey) / 2;
+                const dx = ex - sx;
+                const dy = ey - sy;
+                const len = Math.sqrt(dx * dx + dy * dy);
+                // Perpendicular offset for the curve (subtle 12% bulge)
+                const bulge = len * 0.12;
+                const nx = -dy / len;
+                const ny = dx / len;
+                const cpx = mx + nx * bulge;
+                const cpy = my + ny * bulge;
+
+                const pathD = `M ${sx} ${sy} Q ${cpx} ${cpy} ${ex} ${ey}`;
+
                 return (
-                  <line
+                  <path
                     key={`edge-${i}`}
-                    x1={sx}
-                    y1={sy}
-                    x2={ex}
-                    y2={ey}
+                    d={pathD}
+                    fill="none"
                     stroke="var(--brand)"
-                    strokeWidth={isHighlighted ? "1.8" : "1"}
-                    strokeOpacity={isDimmed ? 0.05 : isHighlighted ? 0.5 : 0.18}
-                    strokeDasharray={isHighlighted ? "none" : "6 8"}
+                    strokeWidth={isHighlighted ? "1.8" : "1.2"}
+                    strokeOpacity={isDimmed ? 0.06 : isHighlighted ? 0.65 : 0.3}
                     markerEnd={isHighlighted ? "url(#arrow-highlight)" : "url(#arrow-default)"}
                     style={{ transition: "all 0.3s ease" }}
                   />
@@ -369,15 +367,28 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                 const fromR = from.id === "orchestrator" ? orchRadius : satRadius;
                 const toR = to.id === "orchestrator" ? orchRadius : satRadius;
                 const { sx, sy, ex, ey } = computeEdgeEndpoints(
-                  from.cx, from.cy, to.cx, to.cy, fromR + 4, toR + 6
+                  from.cx, from.cy, to.cx, to.cy, fromR + 2, toR + 4
                 );
 
+                const mx = (sx + ex) / 2;
+                const my = (sy + ey) / 2;
+                const dx = ex - sx;
+                const dy = ey - sy;
+                const len = Math.sqrt(dx * dx + dy * dy);
+                const bulge = len * 0.12;
+                const nx = -dy / len;
+                const ny = dx / len;
+                const cpx = mx + nx * bulge;
+                const cpy = my + ny * bulge;
+
+                const pathD = `M ${sx} ${sy} Q ${cpx} ${cpy} ${ex} ${ey}`;
+
                 return (
-                  <circle key={`dot-${i}`} r="3" fill="var(--brand)" opacity="0.55">
+                  <circle key={`dot-${i}`} r="3" fill="var(--brand)" opacity="0.6">
                     <animateMotion
-                      dur="2s"
+                      dur="1.8s"
                       repeatCount="indefinite"
-                      path={`M ${sx},${sy} L ${ex},${ey}`}
+                      path={pathD}
                       keyPoints="0;1"
                       keyTimes="0;1"
                       calcMode="linear"

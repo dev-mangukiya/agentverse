@@ -2,7 +2,17 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { BrainIcon, MicroscopeIcon, CodeIcon, PenIcon, SearchIcon, BarChartIcon, PuzzleIcon, FileTextIcon, FilePlusIcon } from "../icons/Icons";
+import {
+  LightbulbIcon,
+  MicroscopeIcon,
+  CodeIcon,
+  PenIcon,
+  SearchIcon,
+  BarChartIcon,
+  PuzzleIcon,
+  FileTextIcon,
+  FilePlusIcon,
+} from "../icons/Icons";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -24,72 +34,123 @@ interface AgentEdge {
 }
 
 interface LayoutNode extends AgentNode {
-  cx: number; // pixel x center
-  cy: number; // pixel y center
+  cx: number;
+  cy: number;
 }
 
 const statusColors: Record<string, string> = {
-  active: "var(--green)",
-  working: "var(--yellow)",
-  idle: "var(--text-faint)",
+  active: "#10b981",
+  working: "#f59e0b",
+  idle: "#6b7280",
 };
 
-const agentIcons: Record<string, React.ReactNode> = {
-  orchestrator: <BrainIcon size={18} />,
-  research: <MicroscopeIcon size={15} />,
-  coding: <CodeIcon size={15} />,
-  writer: <PenIcon size={15} />,
-  critic: <SearchIcon size={15} />,
-  data: <BarChartIcon size={15} />,
-  data_analyst: <BarChartIcon size={15} />,
-  doc_reader: <FileTextIcon size={15} />,
-  doc_generator: <FilePlusIcon size={15} />,
-  memory: <PuzzleIcon size={15} />,
+// Canonical agent colors matching the reference design
+const agentColors: Record<string, string> = {
+  orchestrator: "#3b82f6",
+  doc_reader: "#f97316",
+  doc_generator: "#10b981",
+  coding: "#ef4444",
+  critic: "#06b6d4",
+  data: "#a855f7",
+  data_analyst: "#a855f7",
+  writer: "#eab308",
+  research: "#22c55e",
+  memory: "#8b5cf6",
 };
+
+// Icons matching reference design
+const agentIcons: Record<string, (color: string) => React.ReactNode> = {
+  orchestrator: (c) => <LightbulbIcon size={26} color={c} />,
+  doc_reader: (c) => <FileTextIcon size={20} color={c} />,
+  doc_generator: (c) => <FilePlusIcon size={20} color={c} />,
+  coding: (c) => <CodeIcon size={20} color={c} />,
+  critic: (c) => <SearchIcon size={20} color={c} />,
+  data: (c) => <BarChartIcon size={20} color={c} />,
+  data_analyst: (c) => <BarChartIcon size={20} color={c} />,
+  writer: (c) => <PenIcon size={20} color={c} />,
+  research: (c) => <MicroscopeIcon size={20} color={c} />,
+  memory: (c) => <PuzzleIcon size={20} color={c} />,
+};
+
+// Fixed clockwise satellite order starting at 12 o'clock
+const SATELLITE_ORDER = [
+  "doc_reader",    // 12:00 (top)
+  "doc_generator", // 1:30  (top-right)
+  "coding",        // 3:00  (right)
+  "critic",        // 4:30  (bottom-right)
+  "data",          // 6:00  (bottom)
+  "data_analyst",  // fallback for data
+  "writer",        // 7:30  (bottom-left)
+  "research",      // 9:00  (left)
+  "memory",        // 10:30 (top-left)
+];
 
 /**
- * Compute pixel-based hub-and-spoke layout.
- * Orchestrator sits dead-center of the usable area;
- * satellites form an even ring with enough space for labels.
+ * Hub-and-spoke layout: Orchestrator dead-center, 8 satellites distributed in a perfect circle.
  */
-function computeLayout(agents: AgentNode[], width: number, height: number): LayoutNode[] {
-  const orchestrator = agents.find(a => a.id === "orchestrator");
-  const satellites = agents.filter(a => a.id !== "orchestrator");
+function computeLayout(agents: AgentNode[], width: number, height: number): { nodes: LayoutNode[]; radius: number; cx: number; cy: number } {
+  const orchestrator = agents.find(a => a.id === "orchestrator") || {
+    id: "orchestrator",
+    label: "Orchestrator",
+    role: "System Coordinator",
+    status: "active" as const,
+    color: "#3b82f6",
+    x: 0,
+    y: 0,
+    message_count: 0,
+    last_seen: null,
+  };
 
-  // Margins: leave room for node halves + labels at every edge
-  // Bottom is larger because labels sit below nodes (~30px)
-  const margin = { top: 50, bottom: 65, left: 55, right: 55 };
+  const rawSatellites = agents.filter(a => a.id !== "orchestrator");
 
-  const usableW = width - margin.left - margin.right;
-  const usableH = height - margin.top - margin.bottom;
+  // Sort satellites to match the canonical reference design positions
+  const sortedSatellites = [...rawSatellites].sort((a, b) => {
+    const idxA = SATELLITE_ORDER.indexOf(a.id);
+    const idxB = SATELLITE_ORDER.indexOf(b.id);
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    return a.label.localeCompare(b.label);
+  });
 
-  // Center of the usable area (not the raw container)
-  const cx = margin.left + usableW / 2;
-  const cy = margin.top + usableH / 2;
+  const cx = width / 2;
+  const cy = height / 2;
 
-  // Radius fills ~88% of the smaller usable dimension
-  const radius = Math.min(usableW, usableH) / 2 * 0.88;
+  // Responsive radius calculation with safe margins for labels
+  const isSmall = width < 500 || height < 400;
+  const maxR = isSmall ? 150 : 210;
+  const minR = isSmall ? 110 : 140;
+  const radius = Math.max(minR, Math.min(width * 0.36, height * 0.36, maxR));
 
   const positioned: LayoutNode[] = [];
 
-  if (orchestrator) {
-    positioned.push({ ...orchestrator, cx, cy });
-  }
-
-  satellites.forEach((agent, i) => {
-    // Start from top (-90°), distribute evenly
-    const angle = (2 * Math.PI * i) / satellites.length - Math.PI / 2;
-    const ax = cx + radius * Math.cos(angle);
-    const ay = cy + radius * Math.sin(angle);
-    positioned.push({ ...agent, cx: ax, cy: ay });
+  // Orchestrator at center
+  positioned.push({
+    ...orchestrator,
+    color: agentColors[orchestrator.id] || orchestrator.color || "#3b82f6",
+    cx,
+    cy,
   });
 
-  return positioned;
+  // Satellites placed on circular ring starting from top (-PI/2)
+  const count = sortedSatellites.length;
+  sortedSatellites.forEach((agent, i) => {
+    const angle = (2 * Math.PI * i) / count - Math.PI / 2;
+    const ax = cx + radius * Math.cos(angle);
+    const ay = cy + radius * Math.sin(angle);
+    positioned.push({
+      ...agent,
+      color: agentColors[agent.id] || agent.color || "#6366f1",
+      cx: ax,
+      cy: ay,
+    });
+  });
+
+  return { nodes: positioned, radius, cx, cy };
 }
 
 /**
- * Compute the shortened start and end points of an edge so the line
- * stops cleanly at each node's border instead of overlapping it.
+ * Calculate line endpoints touching the outer boundary of the orchestrator card and satellite card.
  */
 function computeEdgeEndpoints(
   x1: number, y1: number, x2: number, y2: number,
@@ -120,20 +181,23 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // ── Resize observer ──────────────────────────────────────────
+  // ResizeObserver to ensure pixel-perfect centering at all screen sizes
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
-    const observer = new ResizeObserver(entries => {
-      const { width, height } = entries[0].contentRect;
-      setDimensions({ width, height });
-    });
+    const updateSize = () => {
+      const rect = el.getBoundingClientRect();
+      setDimensions({ width: rect.width, height: rect.height });
+    };
+
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
 
-  // ── Data fetching ────────────────────────────────────────────
+  // Fetch agents data
   useEffect(() => {
     const fetchAgents = async () => {
       try {
@@ -158,8 +222,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
     return () => clearInterval(interval);
   }, []);
 
-  // ── Layout computation ───────────────────────────────────────
-  const agents = useMemo(
+  const { nodes: agents, radius: orbitRadius, cx, cy } = useMemo(
     () => computeLayout(rawAgents, dimensions.width, dimensions.height),
     [rawAgents, dimensions.width, dimensions.height]
   );
@@ -167,18 +230,13 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
   const totalMessages = agents.reduce((s, a) => s + a.message_count, 0);
   const selectedAgent = agents.find(a => a.id === selected);
 
-  // Node radii for edge endpoint shortening
-  const orchRadius = 34; // half of 68px node
-  const satRadius = 26;  // half of 52px node
-
-  // Hub → satellite edges
+  // Hub edges (Orchestrator to each satellite)
   const hubEdges = useMemo(() => {
     return agents
       .filter(a => a.id !== "orchestrator")
       .map(a => ({ from: "orchestrator", to: a.id }));
   }, [agents]);
 
-  // Set of connected agent IDs when hovering
   const connectedTo = useMemo(() => {
     if (!hovered) return null;
     const connected = new Set<string>();
@@ -200,27 +258,32 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
     [agents]
   );
 
-  const height = fullscreen ? "h-full min-h-[600px]" : "h-[320px] md:h-[520px]";
+  // Radii for arrow endpoints:
+  // Orchestrator card ~96x92px (radius ~52px)
+  // Satellite card ~60x60px (radius ~34px)
+  const orchR = 52;
+  const satR = 34;
+
+  const height = fullscreen ? "h-full min-h-[600px]" : "h-[480px] md:h-[550px]";
 
   return (
     <div className={`glass-panel-premium ${height} relative overflow-hidden flex flex-col max-w-full`}>
-      {/* Subtle radial background */}
+      {/* Background ambient glow */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
-          backgroundImage: `radial-gradient(circle at 50% 50%, var(--brand-dim) 0%, transparent 65%)`,
-          opacity: 0.25,
+          backgroundImage: `radial-gradient(circle at 50% 50%, rgba(99,102,241,0.06) 0%, transparent 70%)`,
           zIndex: 0,
         }}
       />
 
-      {/* Header */}
-      <div className="flex items-center justify-between px-3 md:px-6 pt-4 md:pt-5 pb-2 flex-shrink-0 relative z-10">
+      {/* Card Header */}
+      <div className="flex items-center justify-between px-4 md:px-6 pt-4 pb-2 flex-shrink-0 relative z-10">
         <div>
-          <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+          <h3 className="text-sm font-semibold tracking-tight" style={{ color: "var(--text-primary)" }}>
             Agent Network
           </h3>
-          <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+          <p className="text-xs mt-0.5 font-medium" style={{ color: "var(--text-muted)" }}>
             {loading
               ? "Loading…"
               : `${agents.length} agents · ${agents.filter(a => a.status !== "idle").length} active · ${totalMessages} messages`}
@@ -228,14 +291,14 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
         </div>
         <div className="flex items-center gap-3 md:gap-4">
           {[
-            { color: "var(--green)", label: "Online" },
-            { color: "var(--yellow)", label: "Active" },
-            { color: "var(--text-faint)", label: "Idle" },
+            { color: "#10b981", label: "Online" },
+            { color: "#f59e0b", label: "Active" },
+            { color: "#6b7280", label: "Idle" },
           ].map(({ color, label }) => (
             <div key={label} className="flex items-center gap-1.5">
               <span
                 className="w-2 h-2 rounded-full"
-                style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }}
+                style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}80` }}
               />
               <span className="text-[10px] font-medium" style={{ color: "var(--text-muted)" }}>{label}</span>
             </div>
@@ -243,8 +306,8 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
         </div>
       </div>
 
-      {/* Graph area — single coordinate system */}
-      <div ref={containerRef} className="flex-1 relative" style={{ zIndex: 2 }}>
+      {/* Main Graph Area */}
+      <div ref={containerRef} className="flex-1 relative w-full h-full min-h-0 overflow-hidden" style={{ zIndex: 2 }}>
         {loading ? (
           <div className="absolute inset-0 flex items-center justify-center">
             <div
@@ -256,74 +319,111 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
               }}
             />
           </div>
-        ) : dimensions.width > 0 && (
+        ) : dimensions.width > 0 && dimensions.height > 0 && (
           <>
-            {/* ── SVG layer: edges + arrows + flow dots ── */}
+            {/* ── SVG Layer: Orbit Ring + Double-Ended Connecting Arrows ── */}
             <svg
-              className="absolute inset-0"
+              className="absolute inset-0 pointer-events-none"
               width={dimensions.width}
               height={dimensions.height}
               viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}
               style={{ zIndex: 1 }}
             >
               <defs>
-                {/* Arrowhead — default: filled triangle, clearly visible */}
+                {/* Arrowhead pointing toward satellite (outward) */}
                 <marker
-                  id="arrow-default"
-                  markerWidth="10"
+                  id="arrow-outward"
+                  markerWidth="8"
                   markerHeight="8"
-                  refX="9"
+                  refX="6.5"
                   refY="4"
                   orient="auto"
                   markerUnits="userSpaceOnUse"
                 >
                   <path
-                    d="M 0 0.5 L 9 4 L 0 7.5 Z"
-                    fill="var(--brand)"
-                    fillOpacity="0.35"
+                    d="M 1.5 1.5 L 6.5 4 L 1.5 6.5"
+                    fill="none"
+                    stroke="#6366f1"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                   />
                 </marker>
 
-                {/* Arrowhead — highlighted: larger filled triangle */}
+                {/* Arrowhead pointing toward orchestrator (inward) */}
                 <marker
-                  id="arrow-highlight"
-                  markerWidth="12"
-                  markerHeight="10"
-                  refX="11"
-                  refY="5"
+                  id="arrow-inward"
+                  markerWidth="8"
+                  markerHeight="8"
+                  refX="1.5"
+                  refY="4"
                   orient="auto"
                   markerUnits="userSpaceOnUse"
                 >
                   <path
-                    d="M 0 0.5 L 11 5 L 0 9.5 Z"
-                    fill="var(--brand)"
-                    fillOpacity="0.8"
+                    d="M 6.5 1.5 L 1.5 4 L 6.5 6.5"
+                    fill="none"
+                    stroke="#6366f1"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </marker>
+
+                {/* Highlighted Arrowhead (outward) */}
+                <marker
+                  id="arrow-outward-active"
+                  markerWidth="9"
+                  markerHeight="9"
+                  refX="7.5"
+                  refY="4.5"
+                  orient="auto"
+                  markerUnits="userSpaceOnUse"
+                >
+                  <path
+                    d="M 1.5 1.5 L 7.5 4.5 L 1.5 7.5"
+                    fill="none"
+                    stroke="#818cf8"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </marker>
+
+                {/* Highlighted Arrowhead (inward) */}
+                <marker
+                  id="arrow-inward-active"
+                  markerWidth="9"
+                  markerHeight="9"
+                  refX="1.5"
+                  refY="4.5"
+                  orient="auto"
+                  markerUnits="userSpaceOnUse"
+                >
+                  <path
+                    d="M 7.5 1.5 L 1.5 4.5 L 7.5 7.5"
+                    fill="none"
+                    stroke="#818cf8"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                   />
                 </marker>
               </defs>
 
-              {/* Decorative orbit ring */}
-              {agents.find(a => a.id === "orchestrator") && (() => {
-                const orch = agents.find(a => a.id === "orchestrator")!;
-                const margin = { top: 50, bottom: 65, left: 55, right: 55 };
-                const usableW = dimensions.width - margin.left - margin.right;
-                const usableH = dimensions.height - margin.top - margin.bottom;
-                const ringRadius = Math.min(usableW, usableH) / 2 * 0.88;
-                return (
-                  <circle
-                    cx={orch.cx}
-                    cy={orch.cy}
-                    r={ringRadius}
-                    fill="none"
-                    stroke="var(--brand)"
-                    strokeWidth="1"
-                    strokeOpacity="0.1"
-                    strokeDasharray="3 6"
-                  />
-                );
-              })()}
+              {/* Circular dashed orbit ring connecting the satellites */}
+              <circle
+                cx={cx}
+                cy={cy}
+                r={orbitRadius}
+                fill="none"
+                stroke="var(--brand)"
+                strokeWidth="1.2"
+                strokeOpacity="0.14"
+                strokeDasharray="4 6"
+              />
 
-              {/* Edge lines — curved paths from orchestrator to each satellite */}
+              {/* Bi-directional connecting arrows between Orchestrator and each Satellite */}
               {hubEdges.map((edge, i) => {
                 const from = getNode(edge.from);
                 const to = getNode(edge.to);
@@ -335,74 +435,77 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                   (hovered && connectedTo?.has(edge.to) && connectedTo?.has(edge.from));
                 const isDimmed = hovered && !isHighlighted;
 
-                const fromR = from.id === "orchestrator" ? orchRadius : satRadius;
-                const toR = to.id === "orchestrator" ? orchRadius : satRadius;
                 const { sx, sy, ex, ey } = computeEdgeEndpoints(
-                  from.cx, from.cy, to.cx, to.cy, fromR + 2, toR + 4
+                  from.cx, from.cy, to.cx, to.cy, orchR, satR
                 );
 
-                // Compute a curved path: subtle bezier bulge perpendicular to the line
-                const mx = (sx + ex) / 2;
-                const my = (sy + ey) / 2;
+                // Subtle smooth curvature for diagonal lines, straight for cardinals
                 const dx = ex - sx;
                 const dy = ey - sy;
-                const len = Math.sqrt(dx * dx + dy * dy);
-                // Perpendicular offset for the curve (subtle 12% bulge)
-                const bulge = len * 0.12;
-                const nx = -dy / len;
-                const ny = dx / len;
-                const cpx = mx + nx * bulge;
-                const cpy = my + ny * bulge;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const isCardinal = Math.abs(dx) < 10 || Math.abs(dy) < 10;
 
-                const pathD = `M ${sx} ${sy} Q ${cpx} ${cpy} ${ex} ${ey}`;
+                let pathD = `M ${sx} ${sy} L ${ex} ${ey}`;
+                if (!isCardinal && dist > 0) {
+                  const mx = (sx + ex) / 2;
+                  const my = (sy + ey) / 2;
+                  const bulge = dist * 0.08;
+                  const nx = -dy / dist;
+                  const ny = dx / dist;
+                  const cpx = mx + nx * bulge;
+                  const cpy = my + ny * bulge;
+                  pathD = `M ${sx} ${sy} Q ${cpx} ${cpy} ${ex} ${ey}`;
+                }
 
                 return (
                   <path
                     key={`edge-${i}`}
                     d={pathD}
                     fill="none"
-                    stroke="var(--brand)"
-                    strokeWidth={isHighlighted ? "1.8" : "1.2"}
-                    strokeOpacity={isDimmed ? 0.06 : isHighlighted ? 0.65 : 0.3}
-                    markerEnd={isHighlighted ? "url(#arrow-highlight)" : "url(#arrow-default)"}
-                    style={{ transition: "all 0.3s ease" }}
+                    stroke={isHighlighted ? "#818cf8" : "#6366f1"}
+                    strokeWidth={isHighlighted ? "1.8" : "1.4"}
+                    strokeOpacity={isDimmed ? 0.08 : isHighlighted ? 0.9 : 0.65}
+                    markerStart={isHighlighted ? "url(#arrow-inward-active)" : "url(#arrow-inward)"}
+                    markerEnd={isHighlighted ? "url(#arrow-outward-active)" : "url(#arrow-outward)"}
+                    style={{ transition: "all 0.25s ease" }}
                   />
                 );
               })}
 
-              {/* Animated flow dots on highlighted edges */}
+              {/* Animated flow dots on active/hovered connections */}
               {hovered && hubEdges.map((edge, i) => {
                 const from = getNode(edge.from);
                 const to = getNode(edge.to);
                 if (!from || !to) return null;
 
-                const isHighlighted =
-                  hovered === "orchestrator" || hovered === edge.to;
+                const isHighlighted = hovered === "orchestrator" || hovered === edge.to;
                 if (!isHighlighted) return null;
 
-                const fromR = from.id === "orchestrator" ? orchRadius : satRadius;
-                const toR = to.id === "orchestrator" ? orchRadius : satRadius;
                 const { sx, sy, ex, ey } = computeEdgeEndpoints(
-                  from.cx, from.cy, to.cx, to.cy, fromR + 2, toR + 4
+                  from.cx, from.cy, to.cx, to.cy, orchR, satR
                 );
 
-                const mx = (sx + ex) / 2;
-                const my = (sy + ey) / 2;
                 const dx = ex - sx;
                 const dy = ey - sy;
-                const len = Math.sqrt(dx * dx + dy * dy);
-                const bulge = len * 0.12;
-                const nx = -dy / len;
-                const ny = dx / len;
-                const cpx = mx + nx * bulge;
-                const cpy = my + ny * bulge;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const isCardinal = Math.abs(dx) < 10 || Math.abs(dy) < 10;
 
-                const pathD = `M ${sx} ${sy} Q ${cpx} ${cpy} ${ex} ${ey}`;
+                let pathD = `M ${sx} ${sy} L ${ex} ${ey}`;
+                if (!isCardinal && dist > 0) {
+                  const mx = (sx + ex) / 2;
+                  const my = (sy + ey) / 2;
+                  const bulge = dist * 0.08;
+                  const nx = -dy / dist;
+                  const ny = dx / dist;
+                  const cpx = mx + nx * bulge;
+                  const cpy = my + ny * bulge;
+                  pathD = `M ${sx} ${sy} Q ${cpx} ${cpy} ${ex} ${ey}`;
+                }
 
                 return (
-                  <circle key={`dot-${i}`} r="3" fill="var(--brand)" opacity="0.6">
+                  <circle key={`flow-${i}`} r="3" fill="#818cf8" opacity="0.85">
                     <animateMotion
-                      dur="1.8s"
+                      dur="1.6s"
                       repeatCount="indefinite"
                       path={pathD}
                       keyPoints="0;1"
@@ -414,160 +517,215 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
               })}
             </svg>
 
-            {/* ── Node layer ── */}
-            <AnimatePresence>
-              {agents.map((agent, i) => {
-                const isOrch = agent.id === "orchestrator";
-                const isSelected = selected === agent.id;
-                const isHovered = hovered === agent.id;
-                const isDimmed = hovered && !connectedTo?.has(agent.id);
-                const nodeSize = isOrch ? 68 : 52;
+            {/* ── Node Layer: Orchestrator + Satellites ── */}
+            {agents.map((agent, i) => {
+              const isOrch = agent.id === "orchestrator";
+              const isSelected = selected === agent.id;
+              const isHovered = hovered === agent.id;
+              const isDimmed = hovered && !connectedTo?.has(agent.id);
 
+              if (isOrch) {
+                // ── Centered Orchestrator Node (Concentric Frame Card) ──
                 return (
                   <motion.div
                     key={agent.id}
-                    initial={{ opacity: 0, scale: 0.4 }}
+                    initial={{ opacity: 0, scale: 0.8 }}
                     animate={{
-                      opacity: isDimmed ? 0.18 : 1,
-                      scale: isHovered ? 1.1 : 1,
+                      opacity: 1,
+                      scale: isHovered ? 1.04 : 1,
                     }}
-                    transition={{
-                      delay: i * 0.05,
-                      type: "spring",
-                      stiffness: 260,
-                      damping: 22,
-                    }}
-                    className="absolute cursor-pointer"
+                    transition={{ duration: 0.3 }}
+                    className="absolute cursor-pointer flex flex-col items-center"
                     style={{
                       left: agent.cx,
                       top: agent.cy,
                       transform: "translate(-50%, -50%)",
-                      zIndex: isSelected || isHovered ? 20 : 10,
+                      zIndex: 30,
                     }}
                     onClick={() => setSelected(selected === agent.id ? null : agent.id)}
                     onMouseEnter={() => setHovered(agent.id)}
                     onMouseLeave={() => setHovered(null)}
                   >
-                    {/* Orchestrator outer halo */}
-                    {isOrch && (
-                      <>
-                        <div
-                          className="absolute rounded-[22px] pointer-events-none"
-                          style={{
-                            inset: "-10px",
-                            border: `1.5px solid ${agent.color}12`,
-                            background: `radial-gradient(circle, ${agent.color}08, transparent)`,
-                            animation: "breathe 3s ease-in-out infinite",
-                          }}
-                        />
-                        <div
-                          className="absolute rounded-[26px] pointer-events-none"
-                          style={{
-                            inset: "-18px",
-                            border: `1px solid ${agent.color}08`,
-                          }}
-                        />
-                      </>
-                    )}
-
-                    {/* Node body */}
+                    {/* Concentric Frame 2 (Outermost soft ring) */}
                     <div
-                      className="network-node-body flex items-center justify-center relative"
+                      className="absolute rounded-[28px] pointer-events-none"
                       style={{
-                        width: `${nodeSize}px`,
-                        height: `${nodeSize}px`,
-                        borderRadius: isOrch ? "20px" : "16px",
-                        backgroundColor: `color-mix(in srgb, ${agent.color} 10%, var(--bg-panel))`,
-                        border: `1.5px solid ${isSelected || isHovered ? agent.color : `${agent.color}22`}`,
-                        boxShadow: isSelected
-                          ? `0 0 24px ${agent.color}30, 0 8px 20px rgba(0,0,0,0.2)`
-                          : isHovered
-                            ? `0 0 18px ${agent.color}20, 0 6px 16px rgba(0,0,0,0.15)`
-                            : `0 2px 10px rgba(0,0,0,0.12)`,
-                        transition: "all 0.25s ease",
-                      }}
-                    >
-                      {/* Inner gradient shine */}
-                      <div
-                        className="absolute inset-0 pointer-events-none"
-                        style={{
-                          borderRadius: "inherit",
-                          background: `linear-gradient(135deg, ${agent.color}0D 0%, transparent 60%)`,
-                        }}
-                      />
-                      <span
-                        className="relative select-none"
-                        style={{
-                          color: agent.color,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
-                        {agentIcons[agent.id] || agent.label[0]}
-                      </span>
-                    </div>
-
-                    {/* Status indicator */}
-                    <div
-                      className="absolute rounded-full"
-                      style={{
-                        width: isOrch ? "11px" : "9px",
-                        height: isOrch ? "11px" : "9px",
-                        bottom: isOrch ? "0px" : "-1px",
-                        right: isOrch ? "0px" : "-1px",
-                        backgroundColor: statusColors[agent.status],
-                        border: "2px solid var(--bg-panel)",
-                        boxShadow: `0 0 6px ${statusColors[agent.status]}`,
+                        width: "122px",
+                        height: "116px",
+                        border: "1px solid rgba(99,102,241,0.12)",
+                        background: "rgba(99,102,241,0.03)",
+                        boxShadow: "0 0 30px rgba(99,102,241,0.08)",
                       }}
                     />
 
-                    {/* Label + message count */}
+                    {/* Concentric Frame 1 (Middle frame) */}
                     <div
-                      className="absolute left-1/2 -translate-x-1/2 text-center pointer-events-none whitespace-nowrap network-node-label"
-                      style={{ top: `${nodeSize + 6}px` }}
+                      className="absolute rounded-[24px] pointer-events-none"
+                      style={{
+                        width: "108px",
+                        height: "102px",
+                        border: "1px solid rgba(99,102,241,0.22)",
+                        background: "rgba(99,102,241,0.04)",
+                      }}
+                    />
+
+                    {/* Main Inner Orchestrator Card */}
+                    <div
+                      className="relative rounded-[20px] flex flex-col items-center justify-center select-none"
+                      style={{
+                        width: "94px",
+                        height: "88px",
+                        backgroundColor: "color-mix(in srgb, #3b82f6 12%, var(--bg-panel, #ffffff))",
+                        border: `1.8px solid ${isSelected || isHovered ? "#3b82f6" : "rgba(59,130,246,0.55)"}`,
+                        boxShadow: isSelected || isHovered
+                          ? "0 8px 24px rgba(59,130,246,0.25), 0 2px 8px rgba(0,0,0,0.08)"
+                          : "0 4px 16px rgba(59,130,246,0.12), 0 2px 6px rgba(0,0,0,0.04)",
+                        transition: "all 0.25s ease",
+                      }}
                     >
-                      <div
-                        className="text-[10px] font-semibold leading-tight"
-                        style={{
-                          color: isHovered || isSelected ? "var(--text-primary)" : "var(--text-muted)",
-                          transition: "color 0.2s ease",
-                        }}
-                      >
-                        {isOrch ? "Orchestrator" : agent.label}
+                      {/* Lightbulb Icon */}
+                      <div className="flex items-center justify-center mb-1">
+                        {agentIcons.orchestrator("#3b82f6")}
                       </div>
-                      {agent.message_count > 0 && (
-                        <div
-                          className="text-[9px] mt-0.5 font-medium"
-                          style={{ color: "var(--text-faint)" }}
-                        >
-                          {agent.message_count} msgs
-                        </div>
-                      )}
+
+                      {/* Orchestrator Label inside card */}
+                      <span
+                        className="text-[12px] font-bold tracking-tight"
+                        style={{ color: "var(--text-primary)" }}
+                      >
+                        Orchestrator
+                      </span>
+
+                      {/* Green Status Indicator Dot on bottom-right corner */}
+                      <div
+                        className="absolute rounded-full"
+                        style={{
+                          width: "11px",
+                          height: "11px",
+                          bottom: "3px",
+                          right: "3px",
+                          backgroundColor: "#10b981",
+                          border: "2px solid var(--bg-panel, #ffffff)",
+                          boxShadow: "0 0 6px rgba(16,185,129,0.6)",
+                        }}
+                      />
+                    </div>
+
+                    {/* Message Count under Orchestrator Card */}
+                    <div
+                      className="text-[11px] font-medium mt-1.5 whitespace-nowrap pointer-events-none"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      {agent.message_count > 0 ? `${agent.message_count} msgs` : "Active"}
                     </div>
                   </motion.div>
                 );
-              })}
-            </AnimatePresence>
+              }
+
+              // ── Satellite Nodes ──
+              return (
+                <motion.div
+                  key={agent.id}
+                  initial={{ opacity: 0, scale: 0.5 }}
+                  animate={{
+                    opacity: isDimmed ? 0.2 : 1,
+                    scale: isHovered ? 1.08 : 1,
+                  }}
+                  transition={{
+                    delay: i * 0.04,
+                    type: "spring",
+                    stiffness: 280,
+                    damping: 24,
+                  }}
+                  className="absolute cursor-pointer flex flex-col items-center"
+                  style={{
+                    left: agent.cx,
+                    top: agent.cy,
+                    transform: "translate(-50%, -50%)",
+                    zIndex: isSelected || isHovered ? 25 : 15,
+                  }}
+                  onClick={() => setSelected(selected === agent.id ? null : agent.id)}
+                  onMouseEnter={() => setHovered(agent.id)}
+                  onMouseLeave={() => setHovered(null)}
+                >
+                  {/* Satellite Card Body */}
+                  <div
+                    className="relative rounded-[18px] flex items-center justify-center select-none"
+                    style={{
+                      width: "60px",
+                      height: "60px",
+                      backgroundColor: `color-mix(in srgb, ${agent.color} 14%, var(--bg-panel, #ffffff))`,
+                      border: `1.5px solid ${isSelected || isHovered ? agent.color : `color-mix(in srgb, ${agent.color} 30%, transparent)`}`,
+                      boxShadow: isSelected || isHovered
+                        ? `0 6px 20px ${agent.color}33, 0 2px 6px rgba(0,0,0,0.06)`
+                        : `0 3px 12px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04)`,
+                      transition: "all 0.25s ease",
+                    }}
+                  >
+                    {/* Icon */}
+                    <div className="flex items-center justify-center">
+                      {(agentIcons[agent.id] || agentIcons[agent.role])?.(agent.color) || (
+                        <span className="font-bold text-sm" style={{ color: agent.color }}>
+                          {agent.label[0]}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Status Dot */}
+                    <div
+                      className="absolute rounded-full"
+                      style={{
+                        width: "9px",
+                        height: "9px",
+                        bottom: "-1px",
+                        right: "-1px",
+                        backgroundColor: statusColors[agent.status] || "#10b981",
+                        border: "2px solid var(--bg-panel, #ffffff)",
+                        boxShadow: `0 0 5px ${(statusColors[agent.status] || "#10b981")}80`,
+                      }}
+                    />
+                  </div>
+
+                  {/* Satellite Label & Messages below Card */}
+                  <div className="text-center pointer-events-none whitespace-nowrap mt-1.5">
+                    <div
+                      className="text-[11px] font-semibold leading-tight"
+                      style={{
+                        color: isHovered || isSelected ? "var(--text-primary)" : "var(--text-primary)",
+                      }}
+                    >
+                      {agent.label}
+                    </div>
+                    <div
+                      className="text-[10px] mt-0.5 font-normal"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      {agent.message_count > 0 ? `${agent.message_count} msgs` : "0 msgs"}
+                    </div>
+                  </div>
+                </motion.div>
+              );
+            })}
           </>
         )}
       </div>
 
-      {/* Detail panel */}
+      {/* Selected Agent Bottom Drawer */}
       <AnimatePresence>
         {selectedAgent && (
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 16 }}
-            transition={{ type: "spring", stiffness: 300, damping: 25 }}
-            className="absolute bottom-3 left-3 right-3 z-20"
+            transition={{ type: "spring", stiffness: 320, damping: 26 }}
+            className="absolute bottom-3 left-3 right-3 z-40"
             style={{
               background: "var(--glass-bg)",
-              backdropFilter: "blur(20px) saturate(1.2)",
-              WebkitBackdropFilter: "blur(20px) saturate(1.2)",
+              backdropFilter: "blur(20px) saturate(1.3)",
+              WebkitBackdropFilter: "blur(20px) saturate(1.3)",
               border: "1px solid var(--glass-border)",
-              borderRadius: "14px",
+              borderRadius: "16px",
+              boxShadow: "0 12px 36px rgba(0,0,0,0.25)",
               overflow: "hidden",
             }}
           >
@@ -581,13 +739,15 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
               <div
                 className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
                 style={{
-                  backgroundColor: `color-mix(in srgb, ${selectedAgent.color} 12%, var(--bg-panel))`,
-                  border: `1px solid ${selectedAgent.color}30`,
+                  backgroundColor: `color-mix(in srgb, ${selectedAgent.color} 14%, var(--bg-panel))`,
+                  border: `1px solid ${selectedAgent.color}40`,
                 }}
               >
-                <span className="font-bold" style={{ color: selectedAgent.color, fontSize: "14px" }}>
-                  {agentIcons[selectedAgent.id] || selectedAgent.label[0]}
-                </span>
+                {(agentIcons[selectedAgent.id] || agentIcons[selectedAgent.role])?.(selectedAgent.color) || (
+                  <span className="font-bold text-sm" style={{ color: selectedAgent.color }}>
+                    {selectedAgent.label[0]}
+                  </span>
+                )}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
@@ -602,8 +762,8 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                   <span
                     className="w-2 h-2 rounded-full"
                     style={{
-                      backgroundColor: statusColors[selectedAgent.status],
-                      boxShadow: `0 0 4px ${statusColors[selectedAgent.status]}`,
+                      backgroundColor: statusColors[selectedAgent.status] || "#10b981",
+                      boxShadow: `0 0 4px ${statusColors[selectedAgent.status] || "#10b981"}`,
                     }}
                   />
                   <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
@@ -611,7 +771,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                   </span>
                 </div>
                 <div className="text-[10px] mt-0.5 font-mono" style={{ color: "var(--text-faint)" }}>
-                  {selectedAgent.message_count} responses
+                  {selectedAgent.message_count} messages
                 </div>
               </div>
               <button

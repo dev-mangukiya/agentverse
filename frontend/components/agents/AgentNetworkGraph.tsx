@@ -36,6 +36,7 @@ interface AgentEdge {
 interface LayoutNode extends AgentNode {
   cx: number;
   cy: number;
+  angle: number;
 }
 
 const statusColors: Record<string, string> = {
@@ -45,7 +46,7 @@ const statusColors: Record<string, string> = {
 };
 
 // Canonical agent colors matching the reference design
-const agentColors: Record<string, string> = {
+const AGENT_COLORS: Record<string, string> = {
   orchestrator: "#3b82f6",
   doc_reader: "#f97316",
   doc_generator: "#10b981",
@@ -58,8 +59,22 @@ const agentColors: Record<string, string> = {
   memory: "#8b5cf6",
 };
 
-// Icons matching the reference design
-const agentIcons: Record<string, (color: string) => React.ReactNode> = {
+// Canonical clean labels matching reference design
+const AGENT_LABELS: Record<string, string> = {
+  orchestrator: "Orchestrator",
+  doc_reader: "Doc Reader Agent",
+  doc_generator: "Doc Generator Agent",
+  coding: "Coding Agent",
+  critic: "Critic Agent",
+  data: "Data Agent",
+  data_analyst: "Data Agent",
+  writer: "Writer Agent",
+  research: "Research Agent",
+  memory: "Memory Agent",
+};
+
+// Icons matching reference design
+const AGENT_ICONS: Record<string, (color: string) => React.ReactNode> = {
   orchestrator: (c) => <LightbulbIcon size={26} color={c} />,
   doc_reader: (c) => <FileTextIcon size={20} color={c} />,
   doc_generator: (c) => <FilePlusIcon size={20} color={c} />,
@@ -72,16 +87,18 @@ const agentIcons: Record<string, (color: string) => React.ReactNode> = {
   memory: (c) => <PuzzleIcon size={20} color={c} />,
 };
 
-// Fixed clockwise satellite order starting at 12 o'clock
-const SATELLITE_ORDER = [
-  "doc_reader",    // 12:00 (top)
-  "doc_generator", // 1:30  (top-right)
-  "coding",        // 3:00  (right)
-  "critic",        // 4:30  (bottom-right)
-  "data",          // 6:00  (bottom)
-  "writer",        // 7:30  (bottom-left)
-  "research",      // 9:00  (left)
-  "memory",        // 10:30 (top-left)
+// Exact clockwise clock positions:
+// Top (12:00), Top-Right (1:30), Right (3:00), Bottom-Right (4:30),
+// Bottom (6:00), Bottom-Left (7:30), Left (9:00), Top-Left (10:30)
+const CLOCK_LAYOUT = [
+  { id: "doc_reader",    angle: -Math.PI / 2 },        // Top (12:00, -90°)
+  { id: "doc_generator", angle: -Math.PI / 4 },        // Top-Right (1:30, -45°)
+  { id: "coding",        angle: 0 },                   // Right (3:00, 0°)
+  { id: "critic",        angle: Math.PI / 4 },         // Bottom-Right (4:30, 45°)
+  { id: "data",          angle: Math.PI / 2 },         // Bottom (6:00, 90°)
+  { id: "writer",        angle: (3 * Math.PI) / 4 },   // Bottom-Left (7:30, 135°)
+  { id: "research",      angle: Math.PI },             // Left (9:00, 180°)
+  { id: "memory",        angle: -(3 * Math.PI) / 4 },  // Top-Left (10:30, -135°)
 ];
 
 function normalizeId(id: string): string {
@@ -90,89 +107,66 @@ function normalizeId(id: string): string {
 }
 
 /**
- * Hub-and-spoke layout: Orchestrator dead-center, 8 satellites distributed in a perfect circle.
+ * Compute the radial layout with Orchestrator at exact center (cx, cy)
+ * and the 8 satellites arranged symmetrically around it.
  */
-function computeLayout(agents: AgentNode[], width: number, height: number): { nodes: LayoutNode[]; radius: number; cx: number; cy: number } {
-  const orchestrator = agents.find(a => a.id === "orchestrator") || {
-    id: "orchestrator",
-    label: "Orchestrator",
-    role: "System Coordinator",
-    status: "active" as const,
-    color: "#3b82f6",
-    x: 0,
-    y: 0,
-    message_count: 0,
-    last_seen: null,
-  };
-
-  const rawSatellites = agents.filter(a => a.id !== "orchestrator");
-
-  // Sort satellites according to canonical 8-position clock order
-  const sortedSatellites = [...rawSatellites].sort((a, b) => {
-    const idxA = SATELLITE_ORDER.indexOf(normalizeId(a.id));
-    const idxB = SATELLITE_ORDER.indexOf(normalizeId(b.id));
-    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-    if (idxA !== -1) return -1;
-    if (idxB !== -1) return 1;
-    return a.label.localeCompare(b.label);
-  });
-
+function computeRadialLayout(
+  agents: AgentNode[],
+  width: number,
+  height: number
+): { orchestrator: LayoutNode; satellites: LayoutNode[]; radius: number; cx: number; cy: number } {
+  // True geometric center of the canvas
   const cx = width / 2;
   const cy = height / 2;
 
-  // Safe radius calculation: ensure bottom label and top node have generous padding
-  const maxRadiusByHeight = (height / 2) - 80;
-  const maxRadiusByWidth = (width / 2) - 65;
-  const radius = Math.max(115, Math.min(maxRadiusByHeight, maxRadiusByWidth, 185));
+  // Safe radius calculation:
+  // - Center to top edge needs: radius + (node_height / 2) + top_margin (~75px)
+  // - Center to bottom edge needs: radius + (node_height / 2) + label_height + bottom_margin (~85px)
+  // - Center to sides needs: radius + (node_width / 2) + side_margin (~75px)
+  const maxRadiusY = (height / 2) - 85;
+  const maxRadiusX = (width / 2) - 75;
+  const radius = Math.max(110, Math.min(maxRadiusY, maxRadiusX, 185));
 
-  const positioned: LayoutNode[] = [];
-
-  // 1. Orchestrator at dead center
-  positioned.push({
-    ...orchestrator,
-    color: agentColors[orchestrator.id] || orchestrator.color || "#3b82f6",
+  // Find live orchestrator or default
+  const orchRaw = agents.find((a) => a.id === "orchestrator");
+  const orchestrator: LayoutNode = {
+    id: "orchestrator",
+    label: AGENT_LABELS.orchestrator,
+    role: orchRaw?.role || "System Coordinator",
+    status: orchRaw?.status || "active",
+    color: AGENT_COLORS.orchestrator,
+    x: 0,
+    y: 0,
+    message_count: orchRaw?.message_count ?? 174,
+    last_seen: orchRaw?.last_seen || null,
     cx,
     cy,
-  });
+    angle: 0,
+  };
 
-  // 2. Satellites evenly spaced along the circular orbit
-  const count = sortedSatellites.length;
-  sortedSatellites.forEach((agent, i) => {
-    const angle = (2 * Math.PI * i) / count - Math.PI / 2;
-    const ax = cx + radius * Math.cos(angle);
-    const ay = cy + radius * Math.sin(angle);
-    positioned.push({
-      ...agent,
-      color: agentColors[normalizeId(agent.id)] || agent.color || "#6366f1",
+  // Build the 8 satellites mapped directly to their clock slots
+  const satellites: LayoutNode[] = CLOCK_LAYOUT.map((slot) => {
+    const raw = agents.find((a) => normalizeId(a.id) === slot.id);
+    const ax = cx + radius * Math.cos(slot.angle);
+    const ay = cy + radius * Math.sin(slot.angle);
+
+    return {
+      id: slot.id,
+      label: AGENT_LABELS[slot.id] || raw?.label || slot.id,
+      role: raw?.role || "Specialized Agent",
+      status: raw?.status || "active",
+      color: AGENT_COLORS[slot.id] || raw?.color || "#6366f1",
+      x: 0,
+      y: 0,
+      message_count: raw?.message_count ?? 0,
+      last_seen: raw?.last_seen || null,
       cx: ax,
       cy: ay,
-    });
+      angle: slot.angle,
+    };
   });
 
-  return { nodes: positioned, radius, cx, cy };
-}
-
-/**
- * Calculate straight line endpoints touching the outer boundary of the orchestrator card and satellite card.
- */
-function computeEdgeEndpoints(
-  x1: number, y1: number, x2: number, y2: number,
-  r1: number, r2: number
-): { sx: number; sy: number; ex: number; ey: number } {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const dist = Math.sqrt(dx * dx + dy * dy);
-  if (dist === 0) return { sx: x1, sy: y1, ex: x2, ey: y2 };
-
-  const ux = dx / dist;
-  const uy = dy / dist;
-
-  return {
-    sx: x1 + ux * r1,
-    sy: y1 + uy * r1,
-    ex: x2 - ux * r2,
-    ey: y2 - uy * r2,
-  };
+  return { orchestrator, satellites, radius, cx, cy };
 }
 
 export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
@@ -184,7 +178,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // ResizeObserver to ensure accurate pixel dimensions
+  // ResizeObserver to track exact container dimensions
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -202,18 +196,14 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
     return () => observer.disconnect();
   }, []);
 
-  // Fetch agents data
+  // Fetch live agent stats
   useEffect(() => {
     const fetchAgents = async () => {
       try {
         const res = await fetch(`${API_URL}/api/v1/stats/agents`);
         if (res.ok) {
           const data = await res.json();
-          const fixed = (data.agents || []).map((a: AgentNode) => ({
-            ...a,
-            label: a.label.replace(/_/g, " "),
-          }));
-          setRawAgents(fixed);
+          setRawAgents(data.agents || []);
           setEdges(data.edges || []);
         }
       } catch {
@@ -227,53 +217,42 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
     return () => clearInterval(interval);
   }, []);
 
-  const { nodes: agents, radius: orbitRadius, cx, cy } = useMemo(
-    () => computeLayout(rawAgents, dimensions.width, dimensions.height),
+  const { orchestrator, satellites, radius: orbitRadius, cx, cy } = useMemo(
+    () => computeRadialLayout(rawAgents, dimensions.width, dimensions.height),
     [rawAgents, dimensions.width, dimensions.height]
   );
 
-  const totalMessages = agents.reduce((s, a) => s + a.message_count, 0);
-  const selectedAgent = agents.find(a => a.id === selected);
-
-  // Hub edges: Orchestrator to each satellite
-  const hubEdges = useMemo(() => {
-    return agents
-      .filter(a => a.id !== "orchestrator")
-      .map(a => ({ from: "orchestrator", to: a.id }));
-  }, [agents]);
+  const allAgents = useMemo(() => [orchestrator, ...satellites], [orchestrator, satellites]);
+  const totalMessages = allAgents.reduce((s, a) => s + a.message_count, 0);
+  const selectedAgent = allAgents.find((a) => a.id === selected);
 
   const connectedTo = useMemo(() => {
     if (!hovered) return null;
     const connected = new Set<string>();
     connected.add(hovered);
-    edges.forEach(e => {
+    edges.forEach((e) => {
       if (e.from === hovered) connected.add(e.to);
       if (e.to === hovered) connected.add(e.from);
     });
     if (hovered === "orchestrator") {
-      agents.forEach(a => connected.add(a.id));
+      allAgents.forEach((a) => connected.add(a.id));
     } else {
       connected.add("orchestrator");
     }
     return connected;
-  }, [hovered, edges, agents]);
-
-  const getNode = useCallback(
-    (id: string) => agents.find(a => a.id === id),
-    [agents]
-  );
-
-  // Radii for exact edge endpoints
-  // Orchestrator card ~94x88px (effective radius ~50px)
-  // Satellite card ~60x60px (effective radius ~33px)
-  const orchR = 50;
-  const satR = 33;
+  }, [hovered, edges, allAgents]);
 
   const height = fullscreen ? "h-full min-h-[600px]" : "h-[500px] md:h-[560px]";
 
+  // Exact radial boundary distances:
+  // - Orchestrator outer frame boundary: 54px from center
+  // - Satellite outer card boundary: 34px from center
+  const orchBoundary = 54;
+  const satBoundary = 34;
+
   return (
     <div className={`glass-panel-premium ${height} relative overflow-hidden flex flex-col max-w-full`}>
-      {/* Background ambient radial glow */}
+      {/* Subtle ambient radial background glow */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
@@ -291,7 +270,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
           <p className="text-xs mt-0.5 font-medium" style={{ color: "var(--text-muted)" }}>
             {loading
               ? "Loading…"
-              : `${agents.length} agents · ${agents.filter(a => a.status !== "idle").length} active · ${totalMessages} messages`}
+              : `${allAgents.length} agents · ${allAgents.filter((a) => a.status !== "idle").length} active · ${totalMessages} messages`}
           </p>
         </div>
         <div className="flex items-center gap-3 md:gap-4">
@@ -305,13 +284,15 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                 className="w-2 h-2 rounded-full"
                 style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}80` }}
               />
-              <span className="text-[10px] font-medium" style={{ color: "var(--text-muted)" }}>{label}</span>
+              <span className="text-[10px] font-medium" style={{ color: "var(--text-muted)" }}>
+                {label}
+              </span>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Main Graph Canvas */}
+      {/* Main Radial Graph Canvas */}
       <div ref={containerRef} className="flex-1 relative w-full h-full min-h-0" style={{ zIndex: 2 }}>
         {loading ? (
           <div className="absolute inset-0 flex items-center justify-center">
@@ -326,7 +307,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
           </div>
         ) : dimensions.width > 0 && dimensions.height > 0 && (
           <>
-            {/* ── SVG Layer: Dashed Circular Orbit Ring + Direct Double-Ended Arrows ── */}
+            {/* ── SVG Layer: Centered Orbit Ring + Clean Radial Connecting Arrows ── */}
             <svg
               className="absolute inset-0 pointer-events-none w-full h-full"
               width={dimensions.width}
@@ -375,7 +356,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                   />
                 </marker>
 
-                {/* Active / Highlighted markers */}
+                {/* Highlighted Arrowhead (outward) */}
                 <marker
                   id="arrow-outward-active"
                   markerWidth="9"
@@ -395,6 +376,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                   />
                 </marker>
 
+                {/* Highlighted Arrowhead (inward) */}
                 <marker
                   id="arrow-inward-active"
                   markerWidth="9"
@@ -415,7 +397,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                 </marker>
               </defs>
 
-              {/* Dashed circular orbit ring running through satellites */}
+              {/* Dotted Circular Guide centered exactly on the Orchestrator */}
               <circle
                 cx={cx}
                 cy={cy}
@@ -423,25 +405,26 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                 fill="none"
                 stroke="var(--brand)"
                 strokeWidth="1.2"
-                strokeOpacity="0.14"
+                strokeOpacity="0.15"
                 strokeDasharray="4 6"
               />
 
-              {/* Straight bi-directional connecting arrows (<————>) */}
-              {hubEdges.map((edge, i) => {
-                const from = getNode(edge.from);
-                const to = getNode(edge.to);
-                if (!from || !to) return null;
-
+              {/* Connecting Radial Arrows: from Orchestrator edge to Satellite edge */}
+              {satellites.map((sat, i) => {
                 const isHighlighted =
                   hovered === "orchestrator" ||
-                  hovered === edge.to ||
-                  (hovered && connectedTo?.has(edge.to) && connectedTo?.has(edge.from));
+                  hovered === sat.id ||
+                  (hovered && connectedTo?.has(sat.id) && connectedTo?.has("orchestrator"));
                 const isDimmed = hovered && !isHighlighted;
 
-                const { sx, sy, ex, ey } = computeEdgeEndpoints(
-                  from.cx, from.cy, to.cx, to.cy, orchR, satR
-                );
+                // Endpoints calculated on the exact radial ray
+                const cosA = Math.cos(sat.angle);
+                const sinA = Math.sin(sat.angle);
+
+                const sx = cx + orchBoundary * cosA;
+                const sy = cy + orchBoundary * sinA;
+                const ex = sat.cx - satBoundary * cosA;
+                const ey = sat.cy - satBoundary * sinA;
 
                 return (
                   <line
@@ -460,23 +443,22 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                 );
               })}
 
-              {/* Animated flow dots on active/hovered connections */}
-              {hovered && hubEdges.map((edge, i) => {
-                const from = getNode(edge.from);
-                const to = getNode(edge.to);
-                if (!from || !to) return null;
-
-                const isHighlighted = hovered === "orchestrator" || hovered === edge.to;
+              {/* Animated pulse dots along highlighted connection paths */}
+              {hovered && satellites.map((sat, i) => {
+                const isHighlighted = hovered === "orchestrator" || hovered === sat.id;
                 if (!isHighlighted) return null;
 
-                const { sx, sy, ex, ey } = computeEdgeEndpoints(
-                  from.cx, from.cy, to.cx, to.cy, orchR, satR
-                );
+                const cosA = Math.cos(sat.angle);
+                const sinA = Math.sin(sat.angle);
+                const sx = cx + orchBoundary * cosA;
+                const sy = cy + orchBoundary * sinA;
+                const ex = sat.cx - satBoundary * cosA;
+                const ey = sat.cy - satBoundary * sinA;
 
                 return (
-                  <circle key={`flow-${i}`} r="3" fill="#818cf8" opacity="0.9">
+                  <circle key={`flow-${i}`} r="3" fill="#818cf8" opacity="0.95">
                     <animateMotion
-                      dur="1.5s"
+                      dur="1.4s"
                       repeatCount="indefinite"
                       path={`M ${sx} ${sy} L ${ex} ${ey}`}
                       keyPoints="0;1"
@@ -488,112 +470,113 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
               })}
             </svg>
 
-            {/* ── Node Layer: Orchestrator + Satellites ── */}
-            {agents.map((agent, i) => {
-              const isOrch = agent.id === "orchestrator";
+            {/* ── Node Layer ── */}
+
+            {/* 1. Orchestrator Card (Dead Center) */}
+            <motion.div
+              key="orchestrator"
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{
+                opacity: 1,
+                scale: hovered === "orchestrator" ? 1.04 : 1,
+              }}
+              transition={{ duration: 0.3 }}
+              className="absolute cursor-pointer flex flex-col items-center"
+              style={{
+                left: orchestrator.cx,
+                top: orchestrator.cy,
+                transform: "translate(-50%, -50%)",
+                zIndex: 30,
+              }}
+              onClick={() => setSelected(selected === "orchestrator" ? null : "orchestrator")}
+              onMouseEnter={() => setHovered("orchestrator")}
+              onMouseLeave={() => setHovered(null)}
+            >
+              {/* Concentric Frame 2 (Outermost soft glowing ring) */}
+              <div
+                className="absolute rounded-[28px] pointer-events-none"
+                style={{
+                  width: "122px",
+                  height: "116px",
+                  border: "1px solid rgba(99,102,241,0.12)",
+                  background: "rgba(99,102,241,0.03)",
+                  boxShadow: "0 0 30px rgba(99,102,241,0.08)",
+                }}
+              />
+
+              {/* Concentric Frame 1 (Middle frame) */}
+              <div
+                className="absolute rounded-[24px] pointer-events-none"
+                style={{
+                  width: "108px",
+                  height: "102px",
+                  border: "1px solid rgba(99,102,241,0.22)",
+                  background: "rgba(99,102,241,0.04)",
+                }}
+              />
+
+              {/* Main Orchestrator Card */}
+              <div
+                className="relative rounded-[20px] flex flex-col items-center justify-center select-none"
+                style={{
+                  width: "94px",
+                  height: "88px",
+                  backgroundColor: "color-mix(in srgb, #3b82f6 12%, var(--bg-panel, #ffffff))",
+                  border: `1.8px solid ${
+                    selected === "orchestrator" || hovered === "orchestrator"
+                      ? "#3b82f6"
+                      : "rgba(59,130,246,0.55)"
+                  }`,
+                  boxShadow:
+                    selected === "orchestrator" || hovered === "orchestrator"
+                      ? "0 8px 24px rgba(59,130,246,0.25), 0 2px 8px rgba(0,0,0,0.08)"
+                      : "0 4px 16px rgba(59,130,246,0.12), 0 2px 6px rgba(0,0,0,0.04)",
+                  transition: "all 0.25s ease",
+                }}
+              >
+                {/* Lightbulb Icon */}
+                <div className="flex items-center justify-center mb-1">
+                  {AGENT_ICONS.orchestrator("#3b82f6")}
+                </div>
+
+                {/* Orchestrator Label inside card */}
+                <span
+                  className="text-[12px] font-bold tracking-tight"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  Orchestrator
+                </span>
+
+                {/* Green Status Dot */}
+                <div
+                  className="absolute rounded-full"
+                  style={{
+                    width: "11px",
+                    height: "11px",
+                    bottom: "3px",
+                    right: "3px",
+                    backgroundColor: "#10b981",
+                    border: "2px solid var(--bg-panel, #ffffff)",
+                    boxShadow: "0 0 6px rgba(16,185,129,0.6)",
+                  }}
+                />
+              </div>
+
+              {/* Message Count under Orchestrator Card */}
+              <div
+                className="text-[11px] font-medium mt-1.5 whitespace-nowrap pointer-events-none"
+                style={{ color: "var(--text-muted)" }}
+              >
+                {orchestrator.message_count > 0 ? `${orchestrator.message_count} msgs` : "Active"}
+              </div>
+            </motion.div>
+
+            {/* 2. Symmetrical Radial Satellites */}
+            {satellites.map((agent, i) => {
               const isSelected = selected === agent.id;
               const isHovered = hovered === agent.id;
               const isDimmed = hovered && !connectedTo?.has(agent.id);
 
-              if (isOrch) {
-                // ── Centered Orchestrator Node ──
-                return (
-                  <motion.div
-                    key={agent.id}
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{
-                      opacity: 1,
-                      scale: isHovered ? 1.04 : 1,
-                    }}
-                    transition={{ duration: 0.3 }}
-                    className="absolute cursor-pointer flex flex-col items-center"
-                    style={{
-                      left: agent.cx,
-                      top: agent.cy,
-                      transform: "translate(-50%, -50%)",
-                      zIndex: 30,
-                    }}
-                    onClick={() => setSelected(selected === agent.id ? null : agent.id)}
-                    onMouseEnter={() => setHovered(agent.id)}
-                    onMouseLeave={() => setHovered(null)}
-                  >
-                    {/* Concentric Frame 2 (Outermost soft ring) */}
-                    <div
-                      className="absolute rounded-[28px] pointer-events-none"
-                      style={{
-                        width: "122px",
-                        height: "116px",
-                        border: "1px solid rgba(99,102,241,0.12)",
-                        background: "rgba(99,102,241,0.03)",
-                        boxShadow: "0 0 30px rgba(99,102,241,0.08)",
-                      }}
-                    />
-
-                    {/* Concentric Frame 1 (Middle frame) */}
-                    <div
-                      className="absolute rounded-[24px] pointer-events-none"
-                      style={{
-                        width: "108px",
-                        height: "102px",
-                        border: "1px solid rgba(99,102,241,0.22)",
-                        background: "rgba(99,102,241,0.04)",
-                      }}
-                    />
-
-                    {/* Main Inner Orchestrator Card */}
-                    <div
-                      className="relative rounded-[20px] flex flex-col items-center justify-center select-none"
-                      style={{
-                        width: "94px",
-                        height: "88px",
-                        backgroundColor: "color-mix(in srgb, #3b82f6 12%, var(--bg-panel, #ffffff))",
-                        border: `1.8px solid ${isSelected || isHovered ? "#3b82f6" : "rgba(59,130,246,0.55)"}`,
-                        boxShadow: isSelected || isHovered
-                          ? "0 8px 24px rgba(59,130,246,0.25), 0 2px 8px rgba(0,0,0,0.08)"
-                          : "0 4px 16px rgba(59,130,246,0.12), 0 2px 6px rgba(0,0,0,0.04)",
-                        transition: "all 0.25s ease",
-                      }}
-                    >
-                      {/* Lightbulb Icon */}
-                      <div className="flex items-center justify-center mb-1">
-                        {agentIcons.orchestrator("#3b82f6")}
-                      </div>
-
-                      {/* Orchestrator Label inside card */}
-                      <span
-                        className="text-[12px] font-bold tracking-tight"
-                        style={{ color: "var(--text-primary)" }}
-                      >
-                        Orchestrator
-                      </span>
-
-                      {/* Green Status Dot */}
-                      <div
-                        className="absolute rounded-full"
-                        style={{
-                          width: "11px",
-                          height: "11px",
-                          bottom: "3px",
-                          right: "3px",
-                          backgroundColor: "#10b981",
-                          border: "2px solid var(--bg-panel, #ffffff)",
-                          boxShadow: "0 0 6px rgba(16,185,129,0.6)",
-                        }}
-                      />
-                    </div>
-
-                    {/* Message Count under Orchestrator Card */}
-                    <div
-                      className="text-[11px] font-medium mt-1.5 whitespace-nowrap pointer-events-none"
-                      style={{ color: "var(--text-muted)" }}
-                    >
-                      {agent.message_count > 0 ? `${agent.message_count} msgs` : "Active"}
-                    </div>
-                  </motion.div>
-                );
-              }
-
-              // ── Satellite Nodes ──
               return (
                 <motion.div
                   key={agent.id}
@@ -615,27 +598,32 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                     transform: "translate(-50%, -50%)",
                     zIndex: isSelected || isHovered ? 25 : 15,
                   }}
-                  onClick={() => setSelected(selected === agent.id ? null : agent.id)}
+                  onClick={() => setSelected(isSelected ? null : agent.id)}
                   onMouseEnter={() => setHovered(agent.id)}
                   onMouseLeave={() => setHovered(null)}
                 >
-                  {/* Satellite Card Body */}
+                  {/* Satellite Card */}
                   <div
                     className="relative rounded-[18px] flex items-center justify-center select-none"
                     style={{
                       width: "60px",
                       height: "60px",
                       backgroundColor: `color-mix(in srgb, ${agent.color} 14%, var(--bg-panel, #ffffff))`,
-                      border: `1.5px solid ${isSelected || isHovered ? agent.color : `color-mix(in srgb, ${agent.color} 30%, transparent)`}`,
-                      boxShadow: isSelected || isHovered
-                        ? `0 6px 20px ${agent.color}33, 0 2px 6px rgba(0,0,0,0.06)`
-                        : `0 3px 12px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04)`,
+                      border: `1.5px solid ${
+                        isSelected || isHovered
+                          ? agent.color
+                          : `color-mix(in srgb, ${agent.color} 30%, transparent)`
+                      }`,
+                      boxShadow:
+                        isSelected || isHovered
+                          ? `0 6px 20px ${agent.color}33, 0 2px 6px rgba(0,0,0,0.06)`
+                          : `0 3px 12px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04)`,
                       transition: "all 0.25s ease",
                     }}
                   >
                     {/* Icon */}
                     <div className="flex items-center justify-center">
-                      {(agentIcons[normalizeId(agent.id)] || agentIcons[agent.role])?.(agent.color) || (
+                      {(AGENT_ICONS[agent.id] || AGENT_ICONS[normalizeId(agent.id)])?.(agent.color) || (
                         <span className="font-bold text-sm" style={{ color: agent.color }}>
                           {agent.label[0]}
                         </span>
@@ -657,13 +645,11 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                     />
                   </div>
 
-                  {/* Satellite Label & Messages below Card */}
+                  {/* Satellite Label & Message Count below Card */}
                   <div className="text-center pointer-events-none whitespace-nowrap mt-1.5">
                     <div
                       className="text-[11px] font-semibold leading-tight"
-                      style={{
-                        color: "var(--text-primary)",
-                      }}
+                      style={{ color: "var(--text-primary)" }}
                     >
                       {agent.label}
                     </div>
@@ -714,7 +700,9 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                   border: `1px solid ${selectedAgent.color}40`,
                 }}
               >
-                {(agentIcons[normalizeId(selectedAgent.id)] || agentIcons[selectedAgent.role])?.(selectedAgent.color) || (
+                {(AGENT_ICONS[selectedAgent.id] || AGENT_ICONS[normalizeId(selectedAgent.id)])?.(
+                  selectedAgent.color
+                ) || (
                   <span className="font-bold text-sm" style={{ color: selectedAgent.color }}>
                     {selectedAgent.label[0]}
                   </span>
@@ -738,7 +726,11 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                     }}
                   />
                   <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-                    {selectedAgent.status === "active" ? "Online" : selectedAgent.status === "working" ? "Active" : "Idle"}
+                    {selectedAgent.status === "active"
+                      ? "Online"
+                      : selectedAgent.status === "working"
+                      ? "Active"
+                      : "Idle"}
                   </span>
                 </div>
                 <div className="text-[10px] mt-0.5 font-mono" style={{ color: "var(--text-faint)" }}>

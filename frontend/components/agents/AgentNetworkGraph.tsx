@@ -49,17 +49,26 @@ const agentIcons: Record<string, React.ReactNode> = {
 
 /**
  * Compute pixel-based hub-and-spoke layout.
- * Orchestrator sits dead-center; satellites form an even ring around it.
+ * Orchestrator sits dead-center of the usable area;
+ * satellites form an even ring with enough space for labels.
  */
 function computeLayout(agents: AgentNode[], width: number, height: number): LayoutNode[] {
   const orchestrator = agents.find(a => a.id === "orchestrator");
   const satellites = agents.filter(a => a.id !== "orchestrator");
 
-  const cx = width / 2;
-  const cy = height / 2;
+  // Margins: leave room for node halves + labels at every edge
+  // Bottom is larger because labels sit below nodes (~30px)
+  const margin = { top: 50, bottom: 65, left: 55, right: 55 };
 
-  // Radius adapts to the smaller dimension, with a generous margin for labels
-  const radius = Math.min(width, height) * 0.34;
+  const usableW = width - margin.left - margin.right;
+  const usableH = height - margin.top - margin.bottom;
+
+  // Center of the usable area (not the raw container)
+  const cx = margin.left + usableW / 2;
+  const cy = margin.top + usableH / 2;
+
+  // Radius fills ~88% of the smaller usable dimension
+  const radius = Math.min(usableW, usableH) / 2 * 0.88;
 
   const positioned: LayoutNode[] = [];
 
@@ -294,18 +303,25 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
               </defs>
 
               {/* Decorative orbit ring */}
-              {agents.find(a => a.id === "orchestrator") && (
-                <circle
-                  cx={agents.find(a => a.id === "orchestrator")!.cx}
-                  cy={agents.find(a => a.id === "orchestrator")!.cy}
-                  r={Math.min(dimensions.width, dimensions.height) * 0.34}
-                  fill="none"
-                  stroke="var(--brand)"
-                  strokeWidth="1"
-                  strokeOpacity="0.1"
-                  strokeDasharray="3 6"
-                />
-              )}
+              {agents.find(a => a.id === "orchestrator") && (() => {
+                const orch = agents.find(a => a.id === "orchestrator")!;
+                const margin = { top: 50, bottom: 65, left: 55, right: 55 };
+                const usableW = dimensions.width - margin.left - margin.right;
+                const usableH = dimensions.height - margin.top - margin.bottom;
+                const ringRadius = Math.min(usableW, usableH) / 2 * 0.88;
+                return (
+                  <circle
+                    cx={orch.cx}
+                    cy={orch.cy}
+                    r={ringRadius}
+                    fill="none"
+                    stroke="var(--brand)"
+                    strokeWidth="1"
+                    strokeOpacity="0.1"
+                    strokeDasharray="3 6"
+                  />
+                );
+              })()}
 
               {/* Edge lines — curved paths from orchestrator to each satellite */}
               {hubEdges.map((edge, i) => {

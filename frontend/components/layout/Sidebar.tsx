@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import clsx from "clsx";
+import { AgentVerseLogo } from "@/components/brand/AgentVerseLogo";
 
 type View = "dashboard" | "agents" | "chat";
 
@@ -64,56 +65,13 @@ export function Sidebar({ currentView, onNavigate, collapsed, onToggle, pipeline
       }}
     >
       {/* Logo */}
-      <div className="flex items-center gap-3 px-4 h-16 flex-shrink-0 overflow-hidden">
-        <div className="relative group/logo">
-          <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0 relative overflow-hidden"
-            style={{
-              background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 40%, #06b6d4 100%)",
-              backgroundSize: "200% 200%",
-              animation: "gradientShift 4s ease-in-out infinite",
-              boxShadow: "0 4px 16px rgba(99,102,241,0.3)",
-            }}
-          >
-            {/* Constellation / neural network icon */}
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="relative z-10">
-              {/* Center node */}
-              <circle cx="12" cy="12" r="2.5" fill="white" opacity="0.95"/>
-              {/* Satellite nodes */}
-              <circle cx="5" cy="6" r="1.5" fill="white" opacity="0.7"/>
-              <circle cx="19" cy="6" r="1.5" fill="white" opacity="0.7"/>
-              <circle cx="5" cy="18" r="1.5" fill="white" opacity="0.7"/>
-              <circle cx="19" cy="18" r="1.5" fill="white" opacity="0.7"/>
-              {/* Connection lines */}
-              <line x1="12" y1="12" x2="5" y2="6" stroke="white" strokeWidth="0.8" opacity="0.5"/>
-              <line x1="12" y1="12" x2="19" y2="6" stroke="white" strokeWidth="0.8" opacity="0.5"/>
-              <line x1="12" y1="12" x2="5" y2="18" stroke="white" strokeWidth="0.8" opacity="0.5"/>
-              <line x1="12" y1="12" x2="19" y2="18" stroke="white" strokeWidth="0.8" opacity="0.5"/>
-              {/* Cross connections */}
-              <line x1="5" y1="6" x2="19" y2="6" stroke="white" strokeWidth="0.5" opacity="0.3"/>
-              <line x1="5" y1="18" x2="19" y2="18" stroke="white" strokeWidth="0.5" opacity="0.3"/>
-            </svg>
-            {/* Shine effect */}
-            <div
-              className="absolute inset-0"
-              style={{
-                background: "linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.25) 50%, transparent 60%)",
-                backgroundSize: "200% 100%",
-                animation: "shine 3s ease-in-out infinite",
-              }}
-            />
-          </div>
-        </div>
-        {!collapsed && (
-          <motion.div
-            initial={{ opacity: 0, x: -8 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.2, delay: 0.1 }}
-          >
-            <div className="font-semibold text-base tracking-tight gradient-text">AgentVerse</div>
-            <div className="text-[10px] font-medium" style={{ color: "var(--text-faint)" }}>Multi-Agent AI Platform</div>
-          </motion.div>
-        )}
+      <div className="flex items-center px-4 h-16 flex-shrink-0 overflow-hidden">
+        <AgentVerseLogo
+          size={36}
+          showWordmark={!collapsed}
+          showTagline={!collapsed}
+          animated
+        />
       </div>
 
       {/* Navigation */}

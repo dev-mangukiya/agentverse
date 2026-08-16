@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/lib/auth";
 import { AuthModal } from "@/components/auth/AuthModal";
+import { AgentVerseLogo } from "@/components/brand/AgentVerseLogo";
 
 const DISMISSED_KEY = "agentverse_welcome_dismissed";
 
@@ -98,18 +99,8 @@ export function WelcomeModal() {
                 <div className="px-6 pt-6 pb-5">
                   {/* Logo + Title */}
                   <div className="flex flex-col items-center text-center mb-5">
-                    <div
-                      className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
-                      style={{
-                        background: "linear-gradient(135deg, var(--aurora-1), var(--aurora-3))",
-                        boxShadow: "0 8px 24px var(--brand-glow)",
-                      }}
-                    >
-                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
-                        <path d="M12 2L2 7l10 5 10-5-10-5z" fill="white" opacity="0.9"/>
-                        <path d="M2 17l10 5 10-5" stroke="white" strokeWidth="1.5" fill="none" opacity="0.7"/>
-                        <path d="M2 12l10 5 10-5" stroke="white" strokeWidth="1.5" fill="none" opacity="0.8"/>
-                      </svg>
+                    <div className="mb-4">
+                      <AgentVerseLogo size={56} animated />
                     </div>
                     <h2
                       className="text-lg font-bold mb-1"

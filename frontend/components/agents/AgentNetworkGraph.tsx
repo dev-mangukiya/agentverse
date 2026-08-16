@@ -58,7 +58,7 @@ const agentColors: Record<string, string> = {
   memory: "#8b5cf6",
 };
 
-// Icons matching reference design
+// Icons matching the reference design
 const agentIcons: Record<string, (color: string) => React.ReactNode> = {
   orchestrator: (c) => <LightbulbIcon size={26} color={c} />,
   doc_reader: (c) => <FileTextIcon size={20} color={c} />,
@@ -79,11 +79,15 @@ const SATELLITE_ORDER = [
   "coding",        // 3:00  (right)
   "critic",        // 4:30  (bottom-right)
   "data",          // 6:00  (bottom)
-  "data_analyst",  // fallback for data
   "writer",        // 7:30  (bottom-left)
   "research",      // 9:00  (left)
   "memory",        // 10:30 (top-left)
 ];
+
+function normalizeId(id: string): string {
+  if (id === "data_analyst") return "data";
+  return id;
+}
 
 /**
  * Hub-and-spoke layout: Orchestrator dead-center, 8 satellites distributed in a perfect circle.
@@ -103,10 +107,10 @@ function computeLayout(agents: AgentNode[], width: number, height: number): { no
 
   const rawSatellites = agents.filter(a => a.id !== "orchestrator");
 
-  // Sort satellites to match the canonical reference design positions
+  // Sort satellites according to canonical 8-position clock order
   const sortedSatellites = [...rawSatellites].sort((a, b) => {
-    const idxA = SATELLITE_ORDER.indexOf(a.id);
-    const idxB = SATELLITE_ORDER.indexOf(b.id);
+    const idxA = SATELLITE_ORDER.indexOf(normalizeId(a.id));
+    const idxB = SATELLITE_ORDER.indexOf(normalizeId(b.id));
     if (idxA !== -1 && idxB !== -1) return idxA - idxB;
     if (idxA !== -1) return -1;
     if (idxB !== -1) return 1;
@@ -116,15 +120,14 @@ function computeLayout(agents: AgentNode[], width: number, height: number): { no
   const cx = width / 2;
   const cy = height / 2;
 
-  // Responsive radius calculation with safe margins for labels
-  const isSmall = width < 500 || height < 400;
-  const maxR = isSmall ? 150 : 210;
-  const minR = isSmall ? 110 : 140;
-  const radius = Math.max(minR, Math.min(width * 0.36, height * 0.36, maxR));
+  // Safe radius calculation: ensure bottom label and top node have generous padding
+  const maxRadiusByHeight = (height / 2) - 80;
+  const maxRadiusByWidth = (width / 2) - 65;
+  const radius = Math.max(115, Math.min(maxRadiusByHeight, maxRadiusByWidth, 185));
 
   const positioned: LayoutNode[] = [];
 
-  // Orchestrator at center
+  // 1. Orchestrator at dead center
   positioned.push({
     ...orchestrator,
     color: agentColors[orchestrator.id] || orchestrator.color || "#3b82f6",
@@ -132,7 +135,7 @@ function computeLayout(agents: AgentNode[], width: number, height: number): { no
     cy,
   });
 
-  // Satellites placed on circular ring starting from top (-PI/2)
+  // 2. Satellites evenly spaced along the circular orbit
   const count = sortedSatellites.length;
   sortedSatellites.forEach((agent, i) => {
     const angle = (2 * Math.PI * i) / count - Math.PI / 2;
@@ -140,7 +143,7 @@ function computeLayout(agents: AgentNode[], width: number, height: number): { no
     const ay = cy + radius * Math.sin(angle);
     positioned.push({
       ...agent,
-      color: agentColors[agent.id] || agent.color || "#6366f1",
+      color: agentColors[normalizeId(agent.id)] || agent.color || "#6366f1",
       cx: ax,
       cy: ay,
     });
@@ -150,7 +153,7 @@ function computeLayout(agents: AgentNode[], width: number, height: number): { no
 }
 
 /**
- * Calculate line endpoints touching the outer boundary of the orchestrator card and satellite card.
+ * Calculate straight line endpoints touching the outer boundary of the orchestrator card and satellite card.
  */
 function computeEdgeEndpoints(
   x1: number, y1: number, x2: number, y2: number,
@@ -181,14 +184,16 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // ResizeObserver to ensure pixel-perfect centering at all screen sizes
+  // ResizeObserver to ensure accurate pixel dimensions
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
     const updateSize = () => {
       const rect = el.getBoundingClientRect();
-      setDimensions({ width: rect.width, height: rect.height });
+      if (rect.width > 0 && rect.height > 0) {
+        setDimensions({ width: rect.width, height: rect.height });
+      }
     };
 
     updateSize();
@@ -230,7 +235,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
   const totalMessages = agents.reduce((s, a) => s + a.message_count, 0);
   const selectedAgent = agents.find(a => a.id === selected);
 
-  // Hub edges (Orchestrator to each satellite)
+  // Hub edges: Orchestrator to each satellite
   const hubEdges = useMemo(() => {
     return agents
       .filter(a => a.id !== "orchestrator")
@@ -258,17 +263,17 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
     [agents]
   );
 
-  // Radii for arrow endpoints:
-  // Orchestrator card ~96x92px (radius ~52px)
-  // Satellite card ~60x60px (radius ~34px)
-  const orchR = 52;
-  const satR = 34;
+  // Radii for exact edge endpoints
+  // Orchestrator card ~94x88px (effective radius ~50px)
+  // Satellite card ~60x60px (effective radius ~33px)
+  const orchR = 50;
+  const satR = 33;
 
-  const height = fullscreen ? "h-full min-h-[600px]" : "h-[480px] md:h-[550px]";
+  const height = fullscreen ? "h-full min-h-[600px]" : "h-[500px] md:h-[560px]";
 
   return (
     <div className={`glass-panel-premium ${height} relative overflow-hidden flex flex-col max-w-full`}>
-      {/* Background ambient glow */}
+      {/* Background ambient radial glow */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
@@ -278,7 +283,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
       />
 
       {/* Card Header */}
-      <div className="flex items-center justify-between px-4 md:px-6 pt-4 pb-2 flex-shrink-0 relative z-10">
+      <div className="flex items-center justify-between px-4 md:px-6 pt-4 pb-1 flex-shrink-0 relative z-10">
         <div>
           <h3 className="text-sm font-semibold tracking-tight" style={{ color: "var(--text-primary)" }}>
             Agent Network
@@ -306,8 +311,8 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
         </div>
       </div>
 
-      {/* Main Graph Area */}
-      <div ref={containerRef} className="flex-1 relative w-full h-full min-h-0 overflow-hidden" style={{ zIndex: 2 }}>
+      {/* Main Graph Canvas */}
+      <div ref={containerRef} className="flex-1 relative w-full h-full min-h-0" style={{ zIndex: 2 }}>
         {loading ? (
           <div className="absolute inset-0 flex items-center justify-center">
             <div
@@ -321,67 +326,67 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
           </div>
         ) : dimensions.width > 0 && dimensions.height > 0 && (
           <>
-            {/* ── SVG Layer: Orbit Ring + Double-Ended Connecting Arrows ── */}
+            {/* ── SVG Layer: Dashed Circular Orbit Ring + Direct Double-Ended Arrows ── */}
             <svg
-              className="absolute inset-0 pointer-events-none"
+              className="absolute inset-0 pointer-events-none w-full h-full"
               width={dimensions.width}
               height={dimensions.height}
               viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}
               style={{ zIndex: 1 }}
             >
               <defs>
-                {/* Arrowhead pointing toward satellite (outward) */}
+                {/* Arrowhead pointing outward (to satellite) */}
                 <marker
                   id="arrow-outward"
                   markerWidth="8"
                   markerHeight="8"
-                  refX="6.5"
+                  refX="6"
                   refY="4"
                   orient="auto"
                   markerUnits="userSpaceOnUse"
                 >
                   <path
-                    d="M 1.5 1.5 L 6.5 4 L 1.5 6.5"
+                    d="M 1.5 1.5 L 6 4 L 1.5 6.5"
                     fill="none"
                     stroke="#6366f1"
-                    strokeWidth="1.5"
+                    strokeWidth="1.6"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   />
                 </marker>
 
-                {/* Arrowhead pointing toward orchestrator (inward) */}
+                {/* Arrowhead pointing inward (to orchestrator) */}
                 <marker
                   id="arrow-inward"
                   markerWidth="8"
                   markerHeight="8"
-                  refX="1.5"
+                  refX="2"
                   refY="4"
                   orient="auto"
                   markerUnits="userSpaceOnUse"
                 >
                   <path
-                    d="M 6.5 1.5 L 1.5 4 L 6.5 6.5"
+                    d="M 6.5 1.5 L 2 4 L 6.5 6.5"
                     fill="none"
                     stroke="#6366f1"
-                    strokeWidth="1.5"
+                    strokeWidth="1.6"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   />
                 </marker>
 
-                {/* Highlighted Arrowhead (outward) */}
+                {/* Active / Highlighted markers */}
                 <marker
                   id="arrow-outward-active"
                   markerWidth="9"
                   markerHeight="9"
-                  refX="7.5"
+                  refX="7"
                   refY="4.5"
                   orient="auto"
                   markerUnits="userSpaceOnUse"
                 >
                   <path
-                    d="M 1.5 1.5 L 7.5 4.5 L 1.5 7.5"
+                    d="M 1.5 1.5 L 7 4.5 L 1.5 7.5"
                     fill="none"
                     stroke="#818cf8"
                     strokeWidth="1.8"
@@ -390,18 +395,17 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                   />
                 </marker>
 
-                {/* Highlighted Arrowhead (inward) */}
                 <marker
                   id="arrow-inward-active"
                   markerWidth="9"
                   markerHeight="9"
-                  refX="1.5"
+                  refX="2"
                   refY="4.5"
                   orient="auto"
                   markerUnits="userSpaceOnUse"
                 >
                   <path
-                    d="M 7.5 1.5 L 1.5 4.5 L 7.5 7.5"
+                    d="M 7.5 1.5 L 2 4.5 L 7.5 7.5"
                     fill="none"
                     stroke="#818cf8"
                     strokeWidth="1.8"
@@ -411,7 +415,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                 </marker>
               </defs>
 
-              {/* Circular dashed orbit ring connecting the satellites */}
+              {/* Dashed circular orbit ring running through satellites */}
               <circle
                 cx={cx}
                 cy={cy}
@@ -423,7 +427,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                 strokeDasharray="4 6"
               />
 
-              {/* Bi-directional connecting arrows between Orchestrator and each Satellite */}
+              {/* Straight bi-directional connecting arrows (<————>) */}
               {hubEdges.map((edge, i) => {
                 const from = getNode(edge.from);
                 const to = getNode(edge.to);
@@ -439,35 +443,19 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                   from.cx, from.cy, to.cx, to.cy, orchR, satR
                 );
 
-                // Subtle smooth curvature for diagonal lines, straight for cardinals
-                const dx = ex - sx;
-                const dy = ey - sy;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                const isCardinal = Math.abs(dx) < 10 || Math.abs(dy) < 10;
-
-                let pathD = `M ${sx} ${sy} L ${ex} ${ey}`;
-                if (!isCardinal && dist > 0) {
-                  const mx = (sx + ex) / 2;
-                  const my = (sy + ey) / 2;
-                  const bulge = dist * 0.08;
-                  const nx = -dy / dist;
-                  const ny = dx / dist;
-                  const cpx = mx + nx * bulge;
-                  const cpy = my + ny * bulge;
-                  pathD = `M ${sx} ${sy} Q ${cpx} ${cpy} ${ex} ${ey}`;
-                }
-
                 return (
-                  <path
+                  <line
                     key={`edge-${i}`}
-                    d={pathD}
-                    fill="none"
+                    x1={sx}
+                    y1={sy}
+                    x2={ex}
+                    y2={ey}
                     stroke={isHighlighted ? "#818cf8" : "#6366f1"}
                     strokeWidth={isHighlighted ? "1.8" : "1.4"}
-                    strokeOpacity={isDimmed ? 0.08 : isHighlighted ? 0.9 : 0.65}
+                    strokeOpacity={isDimmed ? 0.08 : isHighlighted ? 1 : 0.75}
                     markerStart={isHighlighted ? "url(#arrow-inward-active)" : "url(#arrow-inward)"}
                     markerEnd={isHighlighted ? "url(#arrow-outward-active)" : "url(#arrow-outward)"}
-                    style={{ transition: "all 0.25s ease" }}
+                    style={{ transition: "all 0.2s ease" }}
                   />
                 );
               })}
@@ -485,29 +473,12 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                   from.cx, from.cy, to.cx, to.cy, orchR, satR
                 );
 
-                const dx = ex - sx;
-                const dy = ey - sy;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                const isCardinal = Math.abs(dx) < 10 || Math.abs(dy) < 10;
-
-                let pathD = `M ${sx} ${sy} L ${ex} ${ey}`;
-                if (!isCardinal && dist > 0) {
-                  const mx = (sx + ex) / 2;
-                  const my = (sy + ey) / 2;
-                  const bulge = dist * 0.08;
-                  const nx = -dy / dist;
-                  const ny = dx / dist;
-                  const cpx = mx + nx * bulge;
-                  const cpy = my + ny * bulge;
-                  pathD = `M ${sx} ${sy} Q ${cpx} ${cpy} ${ex} ${ey}`;
-                }
-
                 return (
-                  <circle key={`flow-${i}`} r="3" fill="#818cf8" opacity="0.85">
+                  <circle key={`flow-${i}`} r="3" fill="#818cf8" opacity="0.9">
                     <animateMotion
-                      dur="1.6s"
+                      dur="1.5s"
                       repeatCount="indefinite"
-                      path={pathD}
+                      path={`M ${sx} ${sy} L ${ex} ${ey}`}
                       keyPoints="0;1"
                       keyTimes="0;1"
                       calcMode="linear"
@@ -525,7 +496,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
               const isDimmed = hovered && !connectedTo?.has(agent.id);
 
               if (isOrch) {
-                // ── Centered Orchestrator Node (Concentric Frame Card) ──
+                // ── Centered Orchestrator Node ──
                 return (
                   <motion.div
                     key={agent.id}
@@ -596,7 +567,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                         Orchestrator
                       </span>
 
-                      {/* Green Status Indicator Dot on bottom-right corner */}
+                      {/* Green Status Dot */}
                       <div
                         className="absolute rounded-full"
                         style={{
@@ -664,7 +635,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                   >
                     {/* Icon */}
                     <div className="flex items-center justify-center">
-                      {(agentIcons[agent.id] || agentIcons[agent.role])?.(agent.color) || (
+                      {(agentIcons[normalizeId(agent.id)] || agentIcons[agent.role])?.(agent.color) || (
                         <span className="font-bold text-sm" style={{ color: agent.color }}>
                           {agent.label[0]}
                         </span>
@@ -691,7 +662,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                     <div
                       className="text-[11px] font-semibold leading-tight"
                       style={{
-                        color: isHovered || isSelected ? "var(--text-primary)" : "var(--text-primary)",
+                        color: "var(--text-primary)",
                       }}
                     >
                       {agent.label}
@@ -743,7 +714,7 @@ export function AgentNetworkGraph({ fullscreen }: { fullscreen?: boolean }) {
                   border: `1px solid ${selectedAgent.color}40`,
                 }}
               >
-                {(agentIcons[selectedAgent.id] || agentIcons[selectedAgent.role])?.(selectedAgent.color) || (
+                {(agentIcons[normalizeId(selectedAgent.id)] || agentIcons[selectedAgent.role])?.(selectedAgent.color) || (
                   <span className="font-bold text-sm" style={{ color: selectedAgent.color }}>
                     {selectedAgent.label[0]}
                   </span>

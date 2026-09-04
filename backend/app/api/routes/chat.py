@@ -668,7 +668,9 @@ async def _process_user_message(
         orch_start = time.time()
         # Truncate file content for orchestrator — it only needs to route, not analyze
         orch_content = _truncate_file_content(content)
-        orch_response = await _run_agent_with_streaming(orchestrator, orch_content, history, websocket, attachments=attachments)
+        # Don't stream orchestrator's routing response — it's used internally for
+        # delegation decisions. Only the final agent's response should be streamed.
+        orch_response = await _run_agent_with_streaming(orchestrator, orch_content, history, websocket, attachments=attachments, stream=False)
         orch_duration = int((time.time() - orch_start) * 1000)
 
         await _send_ws(websocket, {
@@ -851,10 +853,28 @@ async def _process_user_message(
                 final_agent_name = "orchestrator"
                 final_response = orch_response
                 contributing_agents = []
+                # Stream orchestrator's response since it IS the final answer
+                await _stream_text(websocket, "orchestrator", orch_response)
         else:
-            # ── Fallback: keyword-based intent detection ─────────
-            sub_agent_name = _detect_intent(content) or ""
-            sub_agent = (await _get_cached_agent(sub_agent_name)) if sub_agent_name else None
+            # ── Orchestrator didn't use DELEGATE/PARALLEL format ──
+            # Decide: did it answer directly, or try to delegate in natural language?
+            _delegation_hints = [
+                "delegate to", "forward to", "pass this to", "route to",
+                "hand off to", "let me ask the", "i'll have the",
+                "sending this to", "the research agent", "the coding agent",
+                "the writer agent", "the critic agent", "the data agent",
+            ]
+            orch_lower = orch_response.strip().lower()
+            looks_like_broken_delegation = any(hint in orch_lower for hint in _delegation_hints)
+
+            if looks_like_broken_delegation:
+                # Fallback: keyword-based intent detection
+                sub_agent_name = _detect_intent(content) or ""
+                sub_agent = (await _get_cached_agent(sub_agent_name)) if sub_agent_name else None
+            else:
+                # Orchestrator gave a direct answer — trust it, don't second-guess
+                sub_agent_name = ""
+                sub_agent = None
 
             if sub_agent:
                 await _send_ws(websocket, {
@@ -894,6 +914,8 @@ async def _process_user_message(
                 final_agent_name = "orchestrator"
                 final_response = orch_response
                 contributing_agents = []
+                # Stream orchestrator's response since it IS the final answer
+                await _stream_text(websocket, "orchestrator", orch_response)
 
         # ── Step 3: Save and send final response ─────────────────
         total_duration = int((time.time() - pipeline_start) * 1000)
@@ -1176,9 +1198,28 @@ async def _get_conversation_context(conversation_id: str) -> str:
         return "Previous conversation:\n" + "\n".join(parts) if parts else ""
 
 
+async def _stream_text(ws: WebSocket, agent_name: str, text: str):
+    """Send text to the client in small chunks to simulate streaming."""
+    await _send_ws(ws, {"type": "stream_start", "agent": agent_name})
+    chunk_size = 20
+    i = 0
+    while i < len(text):
+        end = min(i + chunk_size, len(text))
+        if end < len(text):
+            space_idx = text.rfind(" ", i, end + 5)
+            if space_idx > i:
+                end = space_idx + 1
+        chunk = text[i:end]
+        await _send_ws(ws, {"type": "stream_token", "agent": agent_name, "token": chunk})
+        i = end
+        await asyncio.sleep(0.015)
+    await _send_ws(ws, {"type": "stream_end", "agent": agent_name})
+
+
 async def _run_agent_with_streaming(
     agent, user_input: str, context: str, websocket: WebSocket,
     attachments: list | None = None,
+    stream: bool = True,
 ) -> str:
     """Run an agent with streamed tool call notifications.
     
@@ -1396,42 +1437,11 @@ async def _run_agent_with_streaming(
             return "\n\n".join(tool_results_log)
         return "(Agent finished with no text output)"
 
-    async def _stream_text(ws: WebSocket, agent_name: str, text: str):
-        """Send text to the client in small chunks to simulate streaming."""
-        # Send a stream_start event
-        await _send_ws(ws, {
-            "type": "stream_start",
-            "agent": agent_name,
-        })
-
-        # Stream in chunks of ~20 chars (word-boundary aware)
-        chunk_size = 20
-        i = 0
-        while i < len(text):
-            end = min(i + chunk_size, len(text))
-            # Try to break at a space if not at end
-            if end < len(text):
-                space_idx = text.rfind(" ", i, end + 5)
-                if space_idx > i:
-                    end = space_idx + 1
-            chunk = text[i:end]
-            await _send_ws(ws, {
-                "type": "stream_token",
-                "agent": agent_name,
-                "token": chunk,
-            })
-            i = end
-            # Small delay for visual streaming effect
-            await asyncio.sleep(0.015)
-
-        # Send stream_end
-        await _send_ws(ws, {
-            "type": "stream_end",
-            "agent": agent_name,
-        })
-
     try:
-        return await asyncio.wait_for(_execute_streaming(), timeout=120.0)
+        if stream:
+            return await asyncio.wait_for(_execute_streaming(), timeout=120.0)
+        else:
+            return await asyncio.wait_for(_execute(), timeout=120.0)
     except asyncio.TimeoutError:
         logger.warning("agent.timeout", agent=agent.name)
         return f"Agent '{agent.name}' timed out after 120 seconds. Please try a simpler request or smaller file."

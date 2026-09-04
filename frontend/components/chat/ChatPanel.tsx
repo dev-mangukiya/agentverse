@@ -679,7 +679,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             setThinkingPhase("");
             if (streamingMessageRef.current) {
               // A streaming message already exists — replace it with the final version
-              const streamId = streamingMessageRef.current.id;
+              const streamId = streamingMessageRef.current?.id;
               streamingMessageRef.current = null;
               if (data.message) {
                 setMessages(prev => prev.map(m =>
@@ -740,7 +740,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             if (streamingMessageRef.current) {
               streamingMessageRef.current.content += data.token;
               const currentContent = streamingMessageRef.current.content;
-              const currentId = streamingMessageRef.current.id;
+              const currentId = streamingMessageRef.current?.id;
               setMessages(prev => prev.map(m =>
                 m.id === currentId ? { ...m, content: currentContent } : m
               ));

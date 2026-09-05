@@ -956,6 +956,10 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     setError(null);
     resetPipeline();
 
+    const userMsg: Message = { id: Date.now(), role: "user", content, created_at: new Date().toISOString() };
+    setMessages((prev) => [...prev, userMsg]);
+    setIsThinking(true);
+
     let activeConvId = conversationId;
 
     if (!activeConvId) {
@@ -973,12 +977,10 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         onConversationCreated(conv.id);
       } catch {
         setError("Failed to create conversation");
+        setIsThinking(false);
         return;
       }
     }
-
-    const userMsg: Message = { id: Date.now(), role: "user", content, created_at: new Date().toISOString() };
-    setMessages((prev) => [...prev, userMsg]);
 
     if (!pendingMessageRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
       const msg: Record<string, unknown> = { type: "message", content };

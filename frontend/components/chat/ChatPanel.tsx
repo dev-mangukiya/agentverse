@@ -1635,7 +1635,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
           </div>
 
           <div
-            className="relative rounded-2xl transition-all duration-300 overflow-hidden"
+            className="relative rounded-2xl transition-all duration-300"
             style={{
               background: "var(--input-bg)",
               backdropFilter: "blur(24px) saturate(1.4)",

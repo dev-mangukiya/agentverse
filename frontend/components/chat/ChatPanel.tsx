@@ -1117,9 +1117,76 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
               animate={{ opacity: 1, scale: 1, y: 0 }}
               transition={{ duration: 0.6, ease: [0.4, 0, 0.2, 1] }}
               className="relative z-10 mb-6 mx-auto"
-              style={{ width: "fit-content" }}
+              style={{ width: "80px", height: "80px" }}
             >
-              <AgentVerseLogo size={64} animated />
+              {/* Abstract multi-agent constellation — interconnected nodes */}
+              <svg width="80" height="80" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <linearGradient id="hero-grad" x1="0" y1="0" x2="80" y2="80" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="#6366f1" />
+                    <stop offset="50%" stopColor="#8b5cf6" />
+                    <stop offset="100%" stopColor="#06b6d4" />
+                  </linearGradient>
+                  <radialGradient id="hero-glow" cx="40" cy="40" r="36" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="#8b5cf6" stopOpacity="0.12" />
+                    <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0" />
+                  </radialGradient>
+                </defs>
+
+                {/* Ambient glow */}
+                <circle cx="40" cy="40" r="36" fill="url(#hero-glow)" />
+
+                {/* Connection lines — agent orchestration paths */}
+                <line x1="40" y1="16" x2="18" y2="50" stroke="url(#hero-grad)" strokeWidth="0.8" opacity="0.3" />
+                <line x1="40" y1="16" x2="62" y2="50" stroke="url(#hero-grad)" strokeWidth="0.8" opacity="0.3" />
+                <line x1="40" y1="16" x2="40" y2="64" stroke="url(#hero-grad)" strokeWidth="0.8" opacity="0.2" />
+                <line x1="18" y1="50" x2="62" y2="50" stroke="url(#hero-grad)" strokeWidth="0.8" opacity="0.25" />
+                <line x1="18" y1="50" x2="40" y2="64" stroke="url(#hero-grad)" strokeWidth="0.8" opacity="0.25" />
+                <line x1="62" y1="50" x2="40" y2="64" stroke="url(#hero-grad)" strokeWidth="0.8" opacity="0.25" />
+
+                {/* Central orchestrator node — larger */}
+                <circle cx="40" cy="16" r="6" fill="none" stroke="url(#hero-grad)" strokeWidth="1.2" opacity="0.5">
+                  <animate attributeName="r" values="6;7;6" dur="3s" repeatCount="indefinite" />
+                </circle>
+                <circle cx="40" cy="16" r="3.5" fill="url(#hero-grad)" opacity="0.9">
+                  <animate attributeName="opacity" values="0.9;0.6;0.9" dur="3s" repeatCount="indefinite" />
+                </circle>
+
+                {/* Agent node — left */}
+                <circle cx="18" cy="50" r="4.5" fill="none" stroke="url(#hero-grad)" strokeWidth="1" opacity="0.4">
+                  <animate attributeName="r" values="4.5;5.5;4.5" dur="3.5s" begin="0.5s" repeatCount="indefinite" />
+                </circle>
+                <circle cx="18" cy="50" r="2.5" fill="url(#hero-grad)" opacity="0.7">
+                  <animate attributeName="opacity" values="0.7;0.4;0.7" dur="3.5s" begin="0.5s" repeatCount="indefinite" />
+                </circle>
+
+                {/* Agent node — right */}
+                <circle cx="62" cy="50" r="4.5" fill="none" stroke="url(#hero-grad)" strokeWidth="1" opacity="0.4">
+                  <animate attributeName="r" values="4.5;5.5;4.5" dur="4s" begin="1s" repeatCount="indefinite" />
+                </circle>
+                <circle cx="62" cy="50" r="2.5" fill="url(#hero-grad)" opacity="0.7">
+                  <animate attributeName="opacity" values="0.7;0.4;0.7" dur="4s" begin="1s" repeatCount="indefinite" />
+                </circle>
+
+                {/* Agent node — bottom center */}
+                <circle cx="40" cy="64" r="4.5" fill="none" stroke="url(#hero-grad)" strokeWidth="1" opacity="0.4">
+                  <animate attributeName="r" values="4.5;5.5;4.5" dur="3.2s" begin="1.5s" repeatCount="indefinite" />
+                </circle>
+                <circle cx="40" cy="64" r="2.5" fill="url(#hero-grad)" opacity="0.7">
+                  <animate attributeName="opacity" values="0.7;0.4;0.7" dur="3.2s" begin="1.5s" repeatCount="indefinite" />
+                </circle>
+
+                {/* Tiny data particles along the paths */}
+                <circle r="1.2" fill="#6366f1" opacity="0.6">
+                  <animateMotion dur="2.5s" repeatCount="indefinite" path="M40,16 L18,50" />
+                </circle>
+                <circle r="1.2" fill="#8b5cf6" opacity="0.6">
+                  <animateMotion dur="3s" repeatCount="indefinite" path="M40,16 L62,50" />
+                </circle>
+                <circle r="1" fill="#06b6d4" opacity="0.5">
+                  <animateMotion dur="3.5s" repeatCount="indefinite" path="M18,50 L62,50" />
+                </circle>
+              </svg>
             </motion.div>
 
             <motion.h1

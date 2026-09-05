@@ -29,18 +29,18 @@ export function NotificationCenter({ onNotificationClick }: { onNotificationClic
   const [mounted, setMounted] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
+  const [pos, setPos] = useState<{ bottom: number; left: number }>({ bottom: 0, left: 0 });
 
   // SSR-safe: only render Portal after mount to avoid hydration mismatch
   useEffect(() => { setMounted(true); }, []);
 
-  // Compute fixed position from bell button rect
+  // Compute fixed position from bell button rect — opens UPWARD from sidebar bottom
   const updatePosition = useCallback(() => {
     if (!buttonRef.current) return;
     const rect = buttonRef.current.getBoundingClientRect();
     setPos({
-      top: rect.bottom + 8,
-      right: Math.max(8, window.innerWidth - rect.right),
+      bottom: Math.max(8, window.innerHeight - rect.top + 8),
+      left: rect.left,
     });
   }, []);
 
@@ -82,23 +82,17 @@ export function NotificationCenter({ onNotificationClick }: { onNotificationClic
           setOpen(!open);
           if (!open) markAllRead();
         }}
-        className="w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 relative"
+        className="w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-200 relative"
         style={{
-          backgroundColor: "var(--bg-hover)",
           color: "var(--text-muted)",
-          border: "1px solid var(--border-subtle)",
         }}
         aria-label="Notifications"
         title="Notifications"
         onMouseEnter={(e) => {
-          e.currentTarget.style.backgroundColor = "var(--bg-elevated)";
-          e.currentTarget.style.borderColor = "var(--border-muted)";
-          e.currentTarget.style.color = "var(--text-primary)";
+          e.currentTarget.style.backgroundColor = "var(--bg-hover)";
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.backgroundColor = "var(--bg-hover)";
-          e.currentTarget.style.borderColor = "var(--border-subtle)";
-          e.currentTarget.style.color = "var(--text-muted)";
+          e.currentTarget.style.backgroundColor = "transparent";
         }}
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
@@ -136,20 +130,20 @@ export function NotificationCenter({ onNotificationClick }: { onNotificationClic
           {open && (
             <motion.div
               ref={panelRef}
-              initial={{ opacity: 0, y: -8, scale: 0.95 }}
+              initial={{ opacity: 0, y: 8, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -8, scale: 0.95 }}
+              exit={{ opacity: 0, y: 8, scale: 0.95 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
               className="fixed w-80 max-h-[420px] rounded-xl shadow-2xl overflow-hidden flex flex-col"
               style={{
-                top: pos.top,
-                right: pos.right,
+                bottom: pos.bottom,
+                left: pos.left,
                 zIndex: 9999,
                 background: "var(--glass-bg)",
                 backdropFilter: "blur(40px) saturate(1.6)",
                 WebkitBackdropFilter: "blur(40px) saturate(1.6)",
                 border: "1px solid var(--glass-border)",
-                boxShadow: "0 16px 48px rgba(0,0,0,0.25), 0 0 60px -20px var(--brand-glow)",
+                boxShadow: "0 -8px 32px rgba(0,0,0,0.25)",
               }}
             >
               {/* Header */}

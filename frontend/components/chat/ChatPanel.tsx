@@ -1606,10 +1606,10 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         </div>
       )}
 
-      {/* Input bar — hidden when empty (input rendered inline above) */}
+      {/* Input bar — only rendered when there are messages (empty state has its own inline input) */}
+      {!isEmpty && (
       <div
         ref={inputBarRef}
-        style={isEmpty ? { display: "none" } : {}}
         className="px-2 md:px-4 pb-3 md:pb-5 pt-2 flex-shrink-0 input-safe-area"
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
@@ -1802,7 +1802,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
           </p>
         </div>
       </div>
-
+      )}
       {/* Camera modal */}
       {cameraOpen && (
         <div className="camera-modal">

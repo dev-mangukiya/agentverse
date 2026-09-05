@@ -176,6 +176,23 @@ export default function Home() {
 
       {/* Main content */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden" style={{ backgroundColor: "var(--bg-base)" }}>
+        {/* Floating mobile hamburger — visible on ALL views */}
+        <button
+          className="fixed top-3 left-3 z-[60] lg:hidden w-10 h-10 rounded-xl flex items-center justify-center"
+          style={{
+            backgroundColor: "var(--bg-elevated)",
+            border: "1px solid var(--border-subtle)",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+            color: "var(--text-secondary)",
+          }}
+          onClick={() => setMobileSidebarOpen(true)}
+          aria-label="Open menu"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+        </button>
+
         <div className="flex-1 overflow-hidden relative">
           {/* Chat view — ALWAYS MOUNTED to keep WebSocket alive */}
           <div

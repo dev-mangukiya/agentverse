@@ -9,6 +9,7 @@ import { agentMeta } from "@/components/agents/AgentCard";
 import { useNotifications } from "@/components/notifications/NotificationProvider";
 import { ExportMenu } from "./ExportMenu";
 import { PromptTemplates } from "./PromptTemplates";
+import { AgentVerseLogo } from "@/components/brand/AgentVerseLogo";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 const WS_BASE = API_URL.replace("http", "ws");
@@ -1007,22 +1008,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         style={{ borderBottom: "1px solid var(--border-subtle)" }}
       >
         <div className="flex items-center gap-2.5">
-          <div
-            className="w-6 h-6 rounded-lg flex items-center justify-center text-white relative overflow-hidden"
-            style={{
-              background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #06b6d4 100%)",
-            }}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="relative z-10">
-              <circle cx="12" cy="12" r="10" stroke="white" strokeWidth="1.2" opacity="0.5"/>
-              <circle cx="12" cy="12" r="5.5" stroke="white" strokeWidth="0.8" opacity="0.4"/>
-              <line x1="12" y1="2" x2="12" y2="22" stroke="white" strokeWidth="0.8" opacity="0.6"/>
-              <line x1="2" y1="12" x2="22" y2="12" stroke="white" strokeWidth="0.8" opacity="0.6"/>
-              <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" stroke="white" strokeWidth="0.8" opacity="0.5"/>
-              <line x1="19.07" y1="4.93" x2="4.93" y2="19.07" stroke="white" strokeWidth="0.8" opacity="0.5"/>
-              <circle cx="12" cy="12" r="1.8" fill="white" opacity="0.9"/>
-            </svg>
-          </div>
+          <AgentVerseLogo size={24} animated={false} />
           <span className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>AgentVerse</span>
 
           {/* Active agents mini bar */}

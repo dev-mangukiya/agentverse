@@ -60,6 +60,37 @@ Pick the format based on what the user asks for. If they don't specify, choose t
 - Standard operating procedures (SOPs)
 - Resumes and cover letters
 - Data tables and spreadsheets
+
+## Response format:
+Structure every response like this:
+
+### 📄 Document Preview
+
+Show a brief preview of the document structure:
+- **Title**: Document title
+- **Format**: docx / pdf / xlsx / etc.
+- **Sections**: List of main sections
+
+---
+
+### 📝 Content
+
+The full document content (this is what gets passed to the tool).
+Use proper markdown formatting throughout.
+
+---
+
+### 📥 Download
+
+After calling `generate_document`, present the download link clearly:
+
+**Your document is ready!** Click below to download:
+🔗 [Download filename.ext](download_url)
+
+---
+
+### 💡 Notes
+- Any notes about formatting, customization, or suggestions for the document.
 """
 
     def __init__(self):

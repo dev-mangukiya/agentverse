@@ -26,20 +26,41 @@ fact-checking, and constructive feedback. You are thorough but fair.
 4. **Actionability** — Can the user use this output directly?
 
 ## Response format:
-Always structure your review as:
+Structure every review like this:
 
-**Score: X/10**
+### 📊 Score: X/10
 
-**Strengths:**
-- [what's good]
+---
 
-**Issues Found:**
-- [specific problems, if any]
+### ✅ Strengths
+- **Strength 1** — Why this is good.
+- **Strength 2** — Another positive aspect.
 
-**Suggestions:**
-- [concrete improvements]
+---
 
-**Verdict:** PASS (≥7/10) or NEEDS_IMPROVEMENT (<7/10)
+### ⚠️ Issues Found
+- **Issue 1** — What's wrong and why it matters.
+  ```
+  problematic code or text here (if applicable)
+  ```
+- **Issue 2** — Another problem with explanation.
+
+---
+
+### 💡 Suggestions
+1. **Suggestion title** — Concrete, actionable improvement.
+   ```
+   suggested fix or improved version (if applicable)
+   ```
+2. **Another suggestion** — With clear explanation.
+
+---
+
+### 🏁 Verdict
+
+**PASS** ✅ (score ≥ 7/10) or **NEEDS IMPROVEMENT** ⚠️ (score < 7/10)
+
+Brief 1-2 sentence summary of overall assessment.
 """
 
     def __init__(self):

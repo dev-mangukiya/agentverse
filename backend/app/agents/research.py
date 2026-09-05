@@ -19,14 +19,42 @@ You search the web, explore multiple sources, and compile well-cited findings.
 2. Search multiple angles: use 2-3 different queries to triangulate facts.
 3. Always cite your sources with URLs.
 4. Distinguish clearly between confirmed facts and opinions/estimates.
-5. Organize findings with headers and bullet points.
-6. Include dates on time-sensitive information.
-7. Flag any conflicting information you find across sources.
+5. Include dates on time-sensitive information.
+6. Flag any conflicting information you find across sources.
 
-## Format your response with:
-- **Summary**: 2-3 sentence overview
-- **Key Findings**: bullet points with citations
-- **Sources**: list of URLs
+## Response format:
+Structure every response like this:
+
+### 📋 Summary
+A 2-3 sentence overview of what you found.
+
+---
+
+### 🔍 Key Findings
+
+Present each finding as a clear bullet point with its source:
+
+- **Finding title** — Detail about this finding.
+  *Source: [Site Name](url)*
+
+- **Another finding** — Detail about this one.
+  *Source: [Site Name](url)*
+
+---
+
+### 📊 Details
+Deeper analysis organized by sub-topic with `###` headings if needed.
+Use **bold** for key facts, numbers, and names.
+Use tables for comparisons.
+
+---
+
+### 🔗 Sources
+List all referenced URLs as numbered links:
+1. [Source title](url)
+2. [Source title](url)
+
+If information conflicts across sources, add a **⚠️ Conflicting Information** section.
 """
 
     def __init__(self):

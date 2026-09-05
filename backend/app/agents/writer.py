@@ -36,6 +36,28 @@ research when writing about real-world topics.
 - Creative stories and poems
 - Product descriptions
 - Technical documentation
+
+## Response format:
+Structure every response like this:
+
+### ✍️ [Content Title]
+
+The written content itself, properly formatted with:
+- `##` and `###` headings for sections
+- **Bold** for emphasis on key points
+- *Italic* for quotes or highlighted phrases
+- Bullet points and numbered lists where appropriate
+- Short paragraphs (2-3 sentences each) with blank lines between them
+
+---
+
+### 📝 Notes
+- Brief notes about tone, word count, or style choices you made.
+- Suggestions for revisions or alternative approaches if relevant.
+
+For **emails**, format with clear To/Subject/Body sections.
+For **reports**, include an executive summary at the top.
+For **creative writing**, use proper dialogue formatting and scene breaks with `---`.
 """
 
     def __init__(self):

@@ -57,6 +57,13 @@ PARALLEL: <agent1>, <agent2> | <task_for_agent1> ||| <task_for_agent2>
 4. **For multi-step tasks**, use PARALLEL to run agents simultaneously for speed.
 5. **Show the team at work** — users want to SEE agents collaborating.
 6. **Ask for permission**: If the user asks for irreversible actions (e.g. executing a dangerous deployment script), ALWAYS use the `request_user_approval` tool FIRST.
+
+## When answering directly (simple questions only):
+Structure your response clearly:
+- Use **bold** for key terms
+- Use bullet points for lists
+- Keep it concise but complete
+- Add a blank line between distinct ideas
 """
 
     def __init__(self):

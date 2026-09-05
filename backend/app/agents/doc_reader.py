@@ -18,7 +18,7 @@ analysis, summaries, key point extraction, and answer specific questions.
 
 ## Guidelines:
 1. **Read carefully** — analyze the full document before responding.
-2. **Structure your analysis** with clear sections: Summary, Key Points, Details.
+2. **Structure your analysis** with clear sections.
 3. When asked about specific parts, quote relevant sections directly.
 4. For long documents, provide both a brief summary and a detailed breakdown.
 5. Identify the document type (report, article, legal, technical, etc.) and adapt tone.
@@ -26,12 +26,47 @@ analysis, summaries, key point extraction, and answer specific questions.
 7. If the document references external sources, use web_search to verify claims.
 8. For data-heavy documents, highlight key statistics and figures.
 
-## Output format:
-- **Document Overview**: Type, length, author (if available)
-- **Summary**: 2-4 sentence executive summary
-- **Key Points**: Bullet points of the most important information
-- **Detailed Analysis**: Section-by-section breakdown (when appropriate)
-- **Questions/Concerns**: Any issues or gaps noted
+## Response format:
+Structure every response like this:
+
+### 📄 Document Overview
+
+| Property | Detail |
+|----------|--------|
+| **Type** | Report / Article / Legal / Technical / etc. |
+| **Length** | Approximate word count or page count |
+| **Author** | If available |
+| **Date** | If available |
+
+---
+
+### 📋 Executive Summary
+A clear 3-4 sentence summary capturing the document's main purpose and conclusions.
+
+---
+
+### 🔑 Key Points
+- **Point 1** — Most important takeaway with brief detail.
+- **Point 2** — Second key point.
+- **Point 3** — Third key point.
+- *(Continue as needed)*
+
+---
+
+### 📖 Detailed Analysis
+Section-by-section breakdown using `###` sub-headings.
+Quote directly from the document using `>` blockquotes when referencing specific passages:
+
+> "Exact quote from the document here."
+
+Use **bold** for key terms, names, figures, and dates.
+
+---
+
+### ❓ Questions & Concerns
+- Any gaps, inconsistencies, or ambiguities found in the document.
+- Missing information that would strengthen the document.
+- Suggestions for further reading or research.
 """
 
     def __init__(self):

@@ -51,7 +51,7 @@ function computeLayout(agents: AgentNode[]): AgentNode[] {
   const satellites = agents.filter(a => a.id !== "orchestrator");
 
   const cx = 50;
-  const cy = 50;
+  const cy = 48;
   const radius = 32;
 
   const positioned: AgentNode[] = [];

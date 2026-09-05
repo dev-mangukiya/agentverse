@@ -4,7 +4,6 @@ import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { AgentNetworkGraph } from "@/components/agents/AgentNetworkGraph";
-import { AgentPipeline } from "@/components/agents/AgentPipeline";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import type { PipelineAgent, DelegationEvent, ToolEvent } from "@/components/chat/ChatPanel";
 import { ChatHistory } from "@/components/chat/ChatHistory";
@@ -28,9 +27,8 @@ export default function Home() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [historyRefresh, setHistoryRefresh] = useState(0);
 
-  // Mobile drawer/sheet state
+  // Mobile drawer state
   const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
-  const [mobilePipelineOpen, setMobilePipelineOpen] = useState(false);
 
   // Pipeline state — managed here, fed by ChatPanel, displayed by AgentPipeline
   const [pipelineAgents, setPipelineAgents] = useState<PipelineAgent[]>([]);
@@ -131,9 +129,7 @@ export default function Home() {
     },
     toggleSidebar: () => setSidebarCollapsed(c => !c),
     closeModal: () => {
-      setMobileSidebarOpen(false);
       setMobileHistoryOpen(false);
-      setMobilePipelineOpen(false);
     },
   }), [currentView]);
   useKeyboardShortcuts(shortcutActions);
@@ -212,35 +208,6 @@ export default function Home() {
                   </svg>
                   <span className="hidden sm:inline">History</span>
                 </button>
-
-                {activeConversationId && (
-                  <button
-                    className="mobile-trigger-btn"
-                    onClick={() => setMobilePipelineOpen(true)}
-                    style={pipelineActive ? {
-                      backgroundColor: "var(--brand-dim)",
-                      borderColor: "color-mix(in srgb, var(--brand) 20%, transparent)",
-                      color: "var(--brand-text)",
-                    } : {}}
-                  >
-                    {pipelineActive && (
-                      <span
-                        className="w-2 h-2 rounded-full"
-                        style={{
-                          backgroundColor: "var(--brand)",
-                          boxShadow: "0 0 6px var(--brand)",
-                          animation: "pulse 1.5s ease-in-out infinite",
-                        }}
-                      />
-                    )}
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                      <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                    </svg>
-                    <span className="hidden sm:inline">
-                      {pipelineActive ? `${activeAgentCount} Active` : "Pipeline"}
-                    </span>
-                  </button>
-                )}
               </div>
 
               <ChatPanel
@@ -249,20 +216,6 @@ export default function Home() {
                 onMessageSent={handleMessageSent}
                 onPipelineUpdate={handlePipelineUpdate}
                 inputRef={chatInputRef}
-              />
-            </div>
-
-            {/* Agent Pipeline panel — only on xl+ screens */}
-            <div
-              className="w-72 xl:w-80 flex-shrink-0 hidden xl:flex xl:flex-col overflow-hidden"
-            >
-              <AgentPipeline
-                agents={pipelineAgents}
-                delegations={pipelineDelegations}
-                toolEvents={pipelineToolEvents}
-                pipelineActive={pipelineActive}
-                pipelineDurationMs={pipelineDurationMs}
-                totalAgentsUsed={pipelineTotalAgents}
               />
             </div>
           </div>
@@ -365,39 +318,6 @@ export default function Home() {
                 onSelect={handleMobileHistorySelect}
                 onNewChat={handleMobileNewChat}
                 refreshTrigger={historyRefresh}
-              />
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-
-      {/* ─── Mobile Pipeline Bottom Sheet ──────────────────────────── */}
-      <AnimatePresence>
-        {mobilePipelineOpen && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="mobile-sheet-overlay xl:hidden"
-              onClick={() => setMobilePipelineOpen(false)}
-            />
-            <motion.div
-              initial={{ y: "100%" }}
-              animate={{ y: 0 }}
-              exit={{ y: "100%" }}
-              transition={{ type: "spring", stiffness: 300, damping: 30 }}
-              className="mobile-sheet xl:hidden"
-            >
-              <div className="mobile-sheet-handle" />
-              <AgentPipeline
-                agents={pipelineAgents}
-                delegations={pipelineDelegations}
-                toolEvents={pipelineToolEvents}
-                pipelineActive={pipelineActive}
-                pipelineDurationMs={pipelineDurationMs}
-                totalAgentsUsed={pipelineTotalAgents}
               />
             </motion.div>
           </>

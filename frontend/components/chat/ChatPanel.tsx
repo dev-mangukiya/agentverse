@@ -1684,76 +1684,76 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
               </div>
             )}
 
-            {/* Input row */}
-            <div className="flex items-center gap-1.5 md:gap-2 px-3 md:px-4 py-2.5 md:py-3">
-              {/* Upload button — always visible */}
+            {/* Input row — Gemini style: + menu, textarea, mic, send */}
+            <div className="flex items-center gap-2 px-3 md:px-4 py-2.5 md:py-3 relative">
+              {/* Plus button — opens action menu */}
               <button
-                className="upload-btn"
-                onClick={() => fileInputRef.current?.click()}
-                title="Attach files (images, code, documents)"
-                disabled={isThinking}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </button>
-
-              {/* Expand button — mobile only, shows camera/mic */}
-              <button
-                className="upload-btn input-expand-btn"
+                className="upload-btn flex-shrink-0"
                 onClick={() => setInputExpanded(!inputExpanded)}
                 title="More actions"
                 disabled={isThinking}
-                style={{
-                  display: "none", // CSS overrides to flex on mobile
-                  ...(inputExpanded ? { color: "var(--brand)", backgroundColor: "var(--brand-dim)" } : {}),
-                }}
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ transform: inputExpanded ? "rotate(45deg)" : "none", transition: "transform 0.2s" }}>
+                <svg
+                  width="18" height="18" viewBox="0 0 24 24" fill="none"
+                  style={{ transform: inputExpanded ? "rotate(45deg)" : "none", transition: "transform 0.2s" }}
+                >
                   <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                 </svg>
               </button>
 
-              {/* Camera button — hidden on mobile unless expanded */}
-              <button
-                className={`upload-btn ${inputExpanded ? '' : 'input-secondary-actions'}`}
-                onClick={openCamera}
-                title="Take a photo"
-                disabled={isThinking}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                  <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  <circle cx="12" cy="13" r="4" stroke="currentColor" strokeWidth="1.5"/>
-                </svg>
-              </button>
-              
-              {/* Voice recording button — hidden on mobile unless expanded */}
-              <button
-                className={`upload-btn ${inputExpanded ? '' : 'input-secondary-actions'} ${isRecording ? 'text-red-500 animate-pulse' : ''}`}
-                onClick={toggleRecording}
-                title="Voice dictation"
-                disabled={isThinking}
-                style={isRecording ? { color: "var(--red)", backgroundColor: "color-mix(in srgb, var(--red) 15%, transparent)" } : {}}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </button>
+              {/* Plus menu popup — Gemini style */}
+              <AnimatePresence>
+                {inputExpanded && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute left-3 bottom-full mb-2 w-56 rounded-xl overflow-hidden shadow-xl z-50"
+                    style={{
+                      background: "var(--glass-bg)",
+                      backdropFilter: "blur(40px) saturate(1.6)",
+                      WebkitBackdropFilter: "blur(40px) saturate(1.6)",
+                      border: "1px solid var(--glass-border)",
+                      boxShadow: "0 -8px 32px rgba(0,0,0,0.2)",
+                    }}
+                  >
+                    <div className="p-1.5">
+                      {[
+                        {
+                          label: "Upload files",
+                          icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+                          onClick: () => { fileInputRef.current?.click(); setInputExpanded(false); },
+                        },
+                        {
+                          label: "Take a photo",
+                          icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><circle cx="12" cy="13" r="4" stroke="currentColor" strokeWidth="1.5"/></svg>,
+                          onClick: () => { openCamera(); setInputExpanded(false); },
+                        },
+                        {
+                          label: "Prompt templates",
+                          icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 5h16M4 5v14a2 2 0 002 2h12a2 2 0 002-2V5M10 10h4M10 14h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+                          onClick: () => { setShowTemplates(!showTemplates); setInputExpanded(false); },
+                        },
+                      ].map((item) => (
+                        <button
+                          key={item.label}
+                          onClick={item.onClick}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors text-left"
+                          style={{ color: "var(--text-secondary)" }}
+                          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--bg-hover)"; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
+                        >
+                          <span style={{ color: "var(--text-muted)" }}>{item.icon}</span>
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
-              {/* Template button */}
-              <button
-                className={`upload-btn ${inputExpanded ? '' : 'input-secondary-actions'}`}
-                onClick={() => setShowTemplates(!showTemplates)}
-                title="Prompt templates"
-                disabled={isThinking}
-                style={showTemplates ? { color: "var(--brand)", backgroundColor: "var(--brand-dim)" } : {}}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                  <path d="M4 5h16M4 5v14a2 2 0 002 2h12a2 2 0 002-2V5M10 10h4M10 14h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </button>
-
+              {/* Textarea */}
               <textarea
                 ref={inputRef}
                 value={input}
@@ -1765,25 +1765,43 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                   }
                 }}
                 onPaste={handlePaste}
-                placeholder={attachedFiles.length > 0 ? "Add a message about your files…" : "Ask your multi-agent team anything…"}
+                placeholder={attachedFiles.length > 0 ? "Add a message about your files…" : "Ask AgentVerse anything…"}
                 rows={1}
                 className="flex-1 bg-transparent text-sm outline-none resize-none leading-6 max-h-[180px] overflow-y-auto"
                 style={{ color: "var(--text-primary)" }}
                 disabled={isThinking}
               />
+
+              {/* Mic button — always visible like Gemini */}
               <button
-                onClick={() => handleSend()}
-                disabled={(!input.trim() && attachedFiles.length === 0) || isThinking}
-                className="send-btn flex-shrink-0"
+                className={`upload-btn flex-shrink-0 ${isRecording ? 'text-red-500 animate-pulse' : ''}`}
+                onClick={toggleRecording}
+                title="Voice input"
+                disabled={isThinking}
+                style={isRecording ? { color: "var(--red)", backgroundColor: "color-mix(in srgb, var(--red) 15%, transparent)" } : {}}
               >
-                {isThinking ? (
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                ) : (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                    <path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                )}
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
               </button>
+
+              {/* Send button — visible when there's input */}
+              {(input.trim() || attachedFiles.length > 0) && (
+                <button
+                  onClick={() => handleSend()}
+                  disabled={isThinking}
+                  className="send-btn flex-shrink-0"
+                >
+                  {isThinking ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                      <path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  )}
+                </button>
+              )}
             </div>
           </div>
 

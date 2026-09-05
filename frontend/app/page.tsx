@@ -3,7 +3,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/layout/Sidebar";
-import { Header } from "@/components/layout/Header";
 import { AgentNetworkGraph } from "@/components/agents/AgentNetworkGraph";
 import { AgentPipeline } from "@/components/agents/AgentPipeline";
 import { ChatPanel } from "@/components/chat/ChatPanel";
@@ -164,16 +163,10 @@ export default function Home() {
           onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
           pipelineActive={pipelineActive}
           activeAgentCount={activeAgentCount}
-        />
-      </div>
-
-      {/* Main content */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden" style={{ backgroundColor: "var(--bg-base)" }}>
-        <Header
-          currentView={currentView}
-          onMobileMenuToggle={() => setMobileSidebarOpen(!mobileSidebarOpen)}
-          pipelineActive={pipelineActive}
-          activeAgents={pipelineAgents.filter(a => ["activated", "thinking", "tool_call"].includes(a.status))}
+          activeConversationId={activeConversationId}
+          onSelectConversation={setActiveConversationId}
+          onNewChat={handleNewChat}
+          historyRefreshTrigger={historyRefresh}
           backendStatus={backendStatus}
           onAuthChange={() => {
             setActiveConversationId(null);
@@ -184,33 +177,32 @@ export default function Home() {
             setActiveConversationId(convId);
           }}
         />
+      </div>
 
+      {/* Main content */}
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden" style={{ backgroundColor: "var(--bg-base)" }}>
         <div className="flex-1 overflow-hidden relative">
           {/* Chat view — ALWAYS MOUNTED to keep WebSocket alive */}
           <div
             className="absolute inset-0 flex overflow-hidden"
             style={{ display: currentView === "chat" ? "flex" : "none" }}
           >
-            {/* Chat history sidebar — only on xl+ screens to give chat area room */}
-            <div
-              className="w-52 flex-shrink-0 hidden xl:flex xl:flex-col overflow-hidden"
-              style={{ borderRight: "1px solid var(--border-subtle)" }}
-            >
-              <ChatHistory
-                activeId={activeConversationId}
-                onSelect={setActiveConversationId}
-                onNewChat={handleNewChat}
-                refreshTrigger={historyRefresh}
-              />
-            </div>
-
-            {/* Chat panel — main area */}
+            {/* Chat panel — main area (no separate history column, it's in sidebar now) */}
             <div className="flex-1 min-w-0 relative">
-              {/* Mobile-only action bar for history & pipeline access */}
+              {/* Mobile-only action bar for sidebar + history + pipeline access */}
               <div
-                className="flex xl:hidden items-center gap-2 px-3 py-2 flex-shrink-0"
+                className="flex lg:hidden items-center gap-2 px-3 py-2 flex-shrink-0"
                 style={{ borderBottom: "1px solid var(--border-subtle)" }}
               >
+                {/* Hamburger to open sidebar */}
+                <button
+                  className="mobile-trigger-btn"
+                  onClick={() => setMobileSidebarOpen(true)}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                  </svg>
+                </button>
                 <button
                   className="mobile-trigger-btn"
                   onClick={() => setMobileHistoryOpen(true)}

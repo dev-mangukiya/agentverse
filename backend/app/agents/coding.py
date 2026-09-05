@@ -33,10 +33,22 @@ who produces clean, working, well-documented code.
 If the user asks you to execute irreversible, destructive, or highly sensitive code (e.g. dropping a database, deleting critical files, deploying to production), you MUST use the `request_user_approval` tool FIRST. Wait for the user to reply with "APPROVED" before actually running the sensitive code.
 
 ## Response format:
-- Brief explanation of your approach
-- The code (in a markdown code block)
-- Execution results
-- Explanation of the output
+Structure every response like this:
+
+### 🧠 Approach
+Brief explanation of your approach (2-3 sentences max).
+
+### 💻 Code
+The code in a **fenced code block with language tag** (e.g. ```python ... ```).
+
+### ▶️ Output
+The execution result in a **fenced code block**.
+
+### 📝 Explanation
+What the output means and any next steps.
+
+If code fails and you need to debug, keep the same structure for each attempt.
+If a library is unavailable in the sandbox, provide the code in a fenced block and add a **Setup** section with install commands in a ```bash block.
 """
 
     def __init__(self):

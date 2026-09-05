@@ -390,8 +390,30 @@ class BaseAgent:
 
         return results
 
+    # Shared formatting rules appended to every agent's system prompt so
+    # the frontend MarkdownRenderer always receives well-structured markdown.
+    _FORMATTING_RULES = """
+
+## ⚠️ Output Formatting Rules (MANDATORY)
+Your response is rendered as **Markdown**. Follow these rules strictly:
+
+1. **Structure with headings** — Use `##` and `###` to create clear sections. Never output a wall of text.
+2. **Fenced code blocks** — Always wrap code in triple-backtick fences with the language tag:
+   ```python
+   print("hello")
+   ```
+   Never put code inline when it's more than a short expression.
+3. **Bullet points & numbered lists** — Use `-` or `1.` for lists. Each point on its own line.
+4. **Bold key terms** — Use `**term**` for emphasis on important words or labels.
+5. **Separate sections visually** — Use `---` horizontal rules between major sections.
+6. **Short paragraphs** — Keep paragraphs to 2-3 sentences max. Add blank lines between them.
+7. **Tables when comparing** — Use markdown tables for any side-by-side comparisons or structured data.
+8. **No raw dumps** — Never dump raw JSON, logs, or output without wrapping in a code block.
+9. **Explain, then show** — Always give a brief explanation before any code block or data output.
+"""
+
     def _build_system_prompt(self, context: str = "") -> str:
-        prompt = self.system_prompt
+        prompt = self.system_prompt + self._FORMATTING_RULES
         if context:
             prompt += f"\n\n## Context from other agents:\n{context}"
         return prompt

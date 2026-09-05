@@ -1293,7 +1293,11 @@ def _detect_intent(user_input: str) -> str | None:
                  "write a blog", "write a poem", "write a letter", "summarize this", "paraphrase",
                  "write a summary", "create content"]
     data_kw = ["analyze data", "data analysis", "statistics", "calculate statistics",
-               "analyze this dataset", "plot", "graph", "chart", "distribution"]
+               "analyze this dataset", "plot", "graph", "chart", "distribution",
+               "analyze trends", "trend analysis", "market analysis", "industry analysis",
+               "growth rate", "forecast", "compare data", "metrics", "benchmark",
+               "correlation", "regression", "analyze the", "insights on",
+               "analyze this", "breakdown of", "performance analysis"]
     critic_kw = ["review this", "critique this", "evaluate this", "give feedback on",
                  "check my", "what do you think of", "rate this", "score this"]
     doc_gen_kw = ["generate a document", "create a pdf", "create a doc", "make a pdf",
@@ -1314,15 +1318,16 @@ def _detect_intent(user_input: str) -> str | None:
     for kw in coding_kw:
         if kw in text:
             return "coding"
+    # Check data BEFORE research — "analyze trends" should go to data, not research
+    for kw in data_kw:
+        if kw in text:
+            return "data"
     for kw in writer_kw:
         if kw in text:
             return "writer"
     for kw in research_kw:
         if kw in text:
             return "research"
-    for kw in data_kw:
-        if kw in text:
-            return "data"
     for kw in critic_kw:
         if kw in text:
             return "critic"

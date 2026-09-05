@@ -23,6 +23,8 @@ interface Message {
   contributing_agents?: string[];
   pipeline_duration_ms?: number;
   feedback?: "up" | "down" | null;
+  critic_score?: number | null;
+  critic_review?: string | null;
 }
 
 interface ToolActivity {
@@ -751,6 +753,16 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             // Don't clear streamingMessageRef here — the "response" handler
             // needs it to replace the streamed placeholder with the final message.
             break;
+
+          case "critic_review":
+            // Critic review event — store the review data for the current streaming message
+            // The actual score/review will be attached via the response event's message data
+            cb.updateAgent("critic", {
+              status: "complete",
+              durationMs: 0,
+              summary: data.score ? `Score: ${data.score}/10` : "Review complete",
+            });
+            break;
         }
       };
 
@@ -1371,10 +1383,64 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                           })()
                       }
 
-                      {/* Feedback buttons + download links for agent messages */}
+                      {/* Feedback buttons + download links + critic score for agent messages */}
                       {msg.role === "agent" && (
-                        <div className="flex items-center gap-1 mt-2 pt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
-                          {/* Download link detection */}
+                        <div className="mt-2 pt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+                          {/* Critic score badge + expandable review */}
+                          {msg.critic_score != null && (
+                            <div className="mb-2">
+                              <button
+                                onClick={() => {
+                                  const el = document.getElementById(`critic-review-${msg.id}`);
+                                  if (el) el.style.display = el.style.display === "none" ? "block" : "none";
+                                }}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer"
+                                style={{
+                                  backgroundColor: msg.critic_score >= 7
+                                    ? "color-mix(in srgb, #22c55e 12%, transparent)"
+                                    : msg.critic_score >= 5
+                                    ? "color-mix(in srgb, #eab308 12%, transparent)"
+                                    : "color-mix(in srgb, #ef4444 12%, transparent)",
+                                  color: msg.critic_score >= 7
+                                    ? "#22c55e"
+                                    : msg.critic_score >= 5
+                                    ? "#eab308"
+                                    : "#ef4444",
+                                  border: `1px solid ${msg.critic_score >= 7
+                                    ? "color-mix(in srgb, #22c55e 25%, transparent)"
+                                    : msg.critic_score >= 5
+                                    ? "color-mix(in srgb, #eab308 25%, transparent)"
+                                    : "color-mix(in srgb, #ef4444 25%, transparent)"}`,
+                                }}
+                                title="Click to view critic review"
+                              >
+                                {msg.critic_score >= 7 ? "✅" : msg.critic_score >= 5 ? "⚠️" : "❌"}
+                                <span>Quality: {msg.critic_score}/10</span>
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="6 9 12 15 18 9" />
+                                </svg>
+                              </button>
+                              {msg.critic_review && (
+                                <div
+                                  id={`critic-review-${msg.id}`}
+                                  style={{
+                                    display: "none",
+                                    marginTop: "8px",
+                                    padding: "12px 16px",
+                                    borderRadius: "10px",
+                                    backgroundColor: "var(--bg-elevated)",
+                                    border: "1px solid var(--border-subtle)",
+                                    fontSize: "13px",
+                                    lineHeight: "1.6",
+                                  }}
+                                >
+                                  <MarkdownRenderer content={msg.critic_review} />
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-1">
                           {msg.content.match(/\[DOWNLOAD_LINK:([^:]+):([^\]]+)\]/) && (() => {
                             const m = msg.content.match(/\[DOWNLOAD_LINK:([^:]+):([^\]]+)\]/);
                             if (!m) return null;
@@ -1437,6 +1503,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                                 </svg>
                               </button>
                             ))}
+                          </div>
                           </div>
                         </div>
                       )}

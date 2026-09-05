@@ -82,6 +82,8 @@ class Message(Base):
     content = Column(Text, nullable=False)
     tool_name = Column(String(50), nullable=True)
     feedback = Column(String(10), nullable=True)  # "up", "down", or null
+    critic_score = Column(Integer, nullable=True)  # 1-10 quality score from Critic agent
+    critic_review = Column(Text, nullable=True)  # Full critic review markdown
     created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
     conversation = relationship("Conversation", back_populates="messages")
@@ -95,6 +97,8 @@ class Message(Base):
             "content": self.content,
             "tool_name": self.tool_name,
             "feedback": self.feedback,
+            "critic_score": self.critic_score,
+            "critic_review": self.critic_review,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 

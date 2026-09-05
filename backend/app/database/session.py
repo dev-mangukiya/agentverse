@@ -68,6 +68,14 @@ async def init_db() -> None:
                     sync_conn.execute(text(
                         "ALTER TABLE messages ADD COLUMN feedback VARCHAR(10)"
                     ))
+                if "critic_score" not in msg_columns:
+                    sync_conn.execute(text(
+                        "ALTER TABLE messages ADD COLUMN critic_score INTEGER"
+                    ))
+                if "critic_review" not in msg_columns:
+                    sync_conn.execute(text(
+                        "ALTER TABLE messages ADD COLUMN critic_review TEXT"
+                    ))
 
             await conn.run_sync(_check_and_add_columns)
         except Exception:

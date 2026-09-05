@@ -638,6 +638,59 @@ async def _process_user_message(
                 await _send_ws(websocket, {"type": "response", "agent": "orchestrator", "content": fast_response, "message": agent_msg.to_dict(), "contributing_agents": [], "pipeline_duration_ms": fast_duration})
             return
 
+        # ── Fast-path: on-demand critic review ────────────────────
+        _critic_request_kw = [
+            "show critic review", "show me the critic review", "show review",
+            "critic review", "show the review", "show quality review",
+            "what did the critic say", "critic score", "show score",
+        ]
+        content_lower = content.strip().lower()
+        if any(kw in content_lower for kw in _critic_request_kw):
+            # Find the last agent message in this conversation
+            async with async_session_factory() as db:
+                stmt = (
+                    select(Message)
+                    .where(Message.conversation_id == conversation_id)
+                    .where(Message.role == "agent")
+                    .order_by(Message.created_at.desc())
+                    .limit(1)
+                )
+                result = await db.execute(stmt)
+                last_agent_msg = result.scalar_one_or_none()
+
+                if last_agent_msg and last_agent_msg.critic_review:
+                    score = last_agent_msg.critic_score
+                    review = last_agent_msg.critic_review
+                    response_text = (
+                        f"### 🔍 Critic Review for {last_agent_msg.agent_name or 'agent'}'s output\n\n"
+                        f"**Score: {score}/10** {'✅' if score and score >= 7 else '⚠️' if score and score >= 5 else '❌'}\n\n"
+                        f"---\n\n{review}"
+                    )
+                elif last_agent_msg and not last_agent_msg.critic_review:
+                    response_text = "No critic review is available for the last response. The critic may have been skipped for this type of output."
+                else:
+                    response_text = "No previous agent response found to review."
+
+                # Save and send the review response
+                fast_start = time.time()
+                review_msg = Message(
+                    conversation_id=conversation_id,
+                    role="agent",
+                    agent_name="critic",
+                    content=response_text,
+                )
+                db.add(review_msg)
+                await db.commit()
+                fast_duration = int((time.time() - fast_start) * 1000)
+
+                await _send_ws(websocket, {"type": "pipeline_start", "timestamp": time.time()})
+                await _send_ws(websocket, {"type": "agent_activated", "agent": "critic", "task": "Showing review"})
+                await _stream_text(websocket, "critic", response_text)
+                await _send_ws(websocket, {"type": "agent_complete", "agent": "critic", "duration_ms": fast_duration, "summary": "Review retrieved"})
+                await _send_ws(websocket, {"type": "pipeline_complete", "total_duration_ms": fast_duration, "agents_used": 1, "contributing_agents": ["critic"]})
+                await _send_ws(websocket, {"type": "response", "agent": "critic", "content": response_text, "message": review_msg.to_dict(), "contributing_agents": ["critic"], "pipeline_duration_ms": fast_duration})
+            return
+
         # ── Pipeline Start Event ─────────────────────────────────
         await _send_ws(websocket, {
             "type": "pipeline_start",
@@ -917,12 +970,106 @@ async def _process_user_message(
                 # Stream orchestrator's response since it IS the final answer
                 await _stream_text(websocket, "orchestrator", orch_response)
 
-        # ── Step 3: Save and send final response ─────────────────
-        total_duration = int((time.time() - pipeline_start) * 1000)
+        # ── Step 3: Critic review + Save final response ──────────
+        total_duration_before_critic = int((time.time() - pipeline_start) * 1000)
 
         # Post-process markdown to fix common LLM formatting issues
         from app.agents.base import BaseAgent
         final_response = BaseAgent._clean_markdown(final_response)
+
+        # ── Step 3a: Critic review (skip for orchestrator direct, critic self, trivial) ──
+        critic_score = None
+        critic_review_text = None
+
+        should_review = (
+            final_agent_name != "critic"
+            and final_agent_name != "orchestrator" or contributing_agents
+        )
+        # Fix precedence: review if (not critic) AND (not orchestrator-direct OR has contributors)
+        should_review = (
+            final_agent_name != "critic"
+            and (final_agent_name != "orchestrator" or bool(contributing_agents))
+        )
+
+        if should_review:
+            try:
+                await _send_ws(websocket, {
+                    "type": "agent_activated",
+                    "agent": "critic",
+                    "task": "Reviewing output quality...",
+                })
+                await _send_ws(websocket, {
+                    "type": "thinking",
+                    "agent": "critic",
+                    "content": "Evaluating response quality...",
+                    "phase": "reviewing",
+                })
+
+                critic_agent = await _get_cached_agent("critic")
+                review_prompt = (
+                    f"Review this output from the **{final_agent_name}** agent.\n\n"
+                    f"**User's original request:**\n{content[:1000]}\n\n"
+                    f"**Agent's output:**\n{final_response[:3000]}"
+                )
+
+                critic_start = time.time()
+                raw_review = await asyncio.wait_for(
+                    critic_agent.run(review_prompt),
+                    timeout=30.0,
+                )
+                critic_duration = int((time.time() - critic_start) * 1000)
+
+                # Parse the [CRITIC_REVIEW] JSON block
+                critic_review_text = BaseAgent._clean_markdown(raw_review)
+                import re as _re
+                json_match = _re.search(
+                    r'\[CRITIC_REVIEW\]\s*(\{.*?\})\s*\[/CRITIC_REVIEW\]',
+                    raw_review,
+                    _re.DOTALL,
+                )
+                if json_match:
+                    try:
+                        review_data = json.loads(json_match.group(1))
+                        critic_score = int(review_data.get("score", 0))
+                        critic_score = max(1, min(10, critic_score))  # Clamp 1-10
+                    except (json.JSONDecodeError, ValueError, TypeError):
+                        critic_score = None
+
+                    # Strip the JSON block from the display review
+                    critic_review_text = _re.sub(
+                        r'\[CRITIC_REVIEW\].*?\[/CRITIC_REVIEW\]\s*',
+                        '',
+                        critic_review_text,
+                        flags=_re.DOTALL,
+                    ).strip()
+
+                await _send_ws(websocket, {
+                    "type": "agent_complete",
+                    "agent": "critic",
+                    "duration_ms": critic_duration,
+                    "summary": f"Score: {critic_score}/10" if critic_score else "Review complete",
+                })
+
+                # Send critic review event to frontend
+                await _send_ws(websocket, {
+                    "type": "critic_review",
+                    "score": critic_score,
+                    "review": critic_review_text,
+                    "agent_reviewed": final_agent_name,
+                })
+
+                logger.info(
+                    "critic.review_complete",
+                    agent=final_agent_name,
+                    score=critic_score,
+                    duration_ms=critic_duration,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("critic.timeout")
+            except Exception as exc:
+                logger.warning("critic.error", error=str(exc)[:200])
+
+        total_duration = int((time.time() - pipeline_start) * 1000)
 
         async with async_session_factory() as db:
             agent_msg = Message(
@@ -930,6 +1077,8 @@ async def _process_user_message(
                 role="agent",
                 agent_name=final_agent_name,
                 content=final_response,
+                critic_score=critic_score,
+                critic_review=critic_review_text,
             )
             db.add(agent_msg)
 
@@ -954,11 +1103,12 @@ async def _process_user_message(
             asyncio.create_task(_store_agent_memory())
 
             # Pipeline complete event
+            all_contributors = (contributing_agents if contributing_agents else []) + (["critic"] if critic_score is not None else [])
             await _send_ws(websocket, {
                 "type": "pipeline_complete",
                 "total_duration_ms": total_duration,
-                "agents_used": len(contributing_agents) + 1 if contributing_agents else 1,
-                "contributing_agents": contributing_agents if contributing_agents else [],
+                "agents_used": len(all_contributors) + 1,  # +1 for orchestrator
+                "contributing_agents": all_contributors,
             })
 
             await _send_ws(websocket, {

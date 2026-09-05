@@ -1140,7 +1140,6 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                     </svg>
                   </button>
                   <textarea
-                    ref={inputRef}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => {

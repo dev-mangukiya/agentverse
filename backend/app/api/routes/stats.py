@@ -26,7 +26,6 @@ _AGENT_META: dict[str, dict] = {
     "coding":        {"color": "#ea4335", "role": "Code Generation & Debug",    "x": 15, "y": 75},
     "writer":        {"color": "#fbbc04", "role": "Content & Reports",          "x": 72, "y": 78},
     "critic":        {"color": "#06b6d4", "role": "Quality & Evaluation",       "x": 42, "y": 85},
-    "memory":        {"color": "#8b5cf6", "role": "RAG & Vector Storage",       "x": 48, "y": 18},
     "doc_reader":    {"color": "#f97316", "role": "Document Analysis & Q&A",    "x": 85, "y": 50},
     "doc_generator": {"color": "#14b8a6", "role": "Document Generation",        "x": 85, "y": 75},
 }
@@ -189,13 +188,12 @@ async def get_agents(db: AsyncSession = Depends(get_db)) -> dict:
             "last_seen": last_seen,
         })
 
-    # Static edges (orchestrator → all, plus memory/critic connections)
+    # Static edges (orchestrator → all, plus critic connections)
     edges = [
         {"from": "orchestrator", "to": n}
-        for n in ["research", "data", "coding", "writer", "critic", "memory"]
+        for n in ["research", "data", "coding", "writer", "critic"]
         if n in all_names
     ] + [
-        {"from": "research", "to": "memory"},
         {"from": "coding", "to": "critic"},
         {"from": "writer", "to": "critic"},
     ]

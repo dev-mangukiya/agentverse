@@ -26,7 +26,6 @@ const agentIcons: Record<string, React.ReactNode> = {
   writer:       <PenIcon size={16} />,
   critic:       <SearchIcon size={16} />,
   data:         <BarChartIcon size={16} />,
-  memory:       <PuzzleIcon size={16} />,
   doc_reader:   <FileTextIcon size={16} />,
   doc_generator: <FilePlusIcon size={16} />,
 };
@@ -38,7 +37,6 @@ const agentMeta: Record<string, { icon: React.ReactNode; color: string; label: s
   writer:        { icon: agentIcons.writer, color: "var(--agent-writer)", label: "Writer", role: "Content & Reports" },
   critic:        { icon: agentIcons.critic, color: "var(--agent-critic)", label: "Critic", role: "Quality & Review" },
   data:          { icon: agentIcons.data, color: "var(--agent-data)", label: "Data Analyst", role: "Data & Insights" },
-  memory:        { icon: agentIcons.memory, color: "var(--agent-memory)", label: "Memory", role: "RAG & Vector Store" },
   doc_reader:    { icon: agentIcons.doc_reader, color: "#f97316", label: "Doc Reader", role: "Document Analysis & Q&A" },
   doc_generator: { icon: agentIcons.doc_generator, color: "#14b8a6", label: "Doc Generator", role: "Document Generation" },
 };

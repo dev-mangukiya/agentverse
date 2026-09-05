@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { BrainIcon, MicroscopeIcon, CodeIcon, PenIcon, SearchIcon, BarChartIcon, PuzzleIcon, FileTextIcon, FilePlusIcon } from "../icons/Icons";
+import { BrainIcon, MicroscopeIcon, CodeIcon, PenIcon, SearchIcon, BarChartIcon, FileTextIcon, FilePlusIcon } from "../icons/Icons";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -39,7 +39,6 @@ const agentIcons: Record<string, React.ReactNode> = {
   data_analyst: <BarChartIcon size={14} />,
   doc_reader: <FileTextIcon size={14} />,
   doc_generator: <FilePlusIcon size={14} />,
-  memory: <PuzzleIcon size={14} />,
 };
 
 /**

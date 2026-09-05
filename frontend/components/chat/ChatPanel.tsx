@@ -1116,29 +1116,10 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
               initial={{ opacity: 0, scale: 0.8, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               transition={{ duration: 0.6, ease: [0.4, 0, 0.2, 1] }}
-              className="relative z-10"
+              className="relative z-10 mb-6 mx-auto"
+              style={{ width: "fit-content" }}
             >
-              <div
-                className="w-18 h-18 rounded-3xl flex items-center justify-center mb-6 mx-auto relative overflow-hidden"
-                style={{
-                  width: "72px",
-                  height: "72px",
-                  background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 40%, #06b6d4 100%)",
-                  backgroundSize: "200% 200%",
-                  animation: "gradientShift 4s ease-in-out infinite",
-                  boxShadow: "0 12px 48px rgba(99,102,241,0.35), 0 0 80px rgba(139,92,246,0.15)",
-                }}
-              >
-                <span className="text-3xl relative z-10">✦</span>
-                <div
-                  className="absolute inset-0"
-                  style={{
-                    background: "linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.18) 50%, transparent 60%)",
-                    backgroundSize: "200% 100%",
-                    animation: "shine 3s ease-in-out infinite",
-                  }}
-                />
-              </div>
+              <AgentVerseLogo size={64} animated />
             </motion.div>
 
             <motion.h1

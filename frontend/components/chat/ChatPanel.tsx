@@ -9,7 +9,6 @@ import { agentMeta } from "@/components/agents/AgentCard";
 import { useNotifications } from "@/components/notifications/NotificationProvider";
 import { ExportMenu } from "./ExportMenu";
 import { PromptTemplates } from "./PromptTemplates";
-import { AgentVerseLogo } from "@/components/brand/AgentVerseLogo";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 const WS_BASE = API_URL.replace("http", "ws");
@@ -1020,76 +1019,65 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
   return (
     <div className="flex flex-col h-full" style={{ backgroundColor: "var(--bg-base)" }}>
-      {/* Top bar with active agent indicators */}
+      {/* Minimal status bar — no redundant logo (it's in the sidebar) */}
       <div
-        className="flex items-center justify-between px-3 md:px-5 h-11 md:h-12 flex-shrink-0"
-        style={{ borderBottom: "1px solid var(--border-subtle)" }}
+        className="flex items-center justify-end px-3 md:px-5 flex-shrink-0"
+        style={{
+          height: activeAgents.length > 0 || conversationId ? "40px" : "12px",
+          transition: "height 0.3s ease",
+        }}
       >
-        <div className="flex items-center gap-2.5">
-          <AgentVerseLogo size={24} animated={false} />
-          <span className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>AgentVerse</span>
-
-          {/* Active agents mini bar */}
-          {activeAgents.length > 0 && (
-            <motion.div
-              initial={{ opacity: 0, x: -8 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="flex items-center gap-1 ml-2 px-2.5 py-1 rounded-xl"
-              style={{
-                backgroundColor: "var(--brand-dim)",
-                border: "1px solid color-mix(in srgb, var(--brand) 10%, transparent)",
-              }}
-            >
-              {activeAgents.map(name => {
-                const meta = agentMeta[name];
-                return (
-                  <motion.div
-                    key={name}
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    className="w-4 h-4 rounded-md flex items-center justify-center"
-                    style={{
-                      backgroundColor: `color-mix(in srgb, ${meta?.color || "var(--brand)"} 20%, transparent)`,
-                      fontSize: "8px",
-                    }}
-                    title={`${meta?.label || name} active`}
-                  >
-                    {meta?.icon || "?"}
-                  </motion.div>
-                );
-              })}
-              <span className="text-[10px] font-medium ml-0.5" style={{ color: "var(--brand-text)" }}>
-                {activeAgents.length} active
-              </span>
-            </motion.div>
-          )}
-        </div>
-
-        {conversationId ? (
-          <div
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-medium transition-all duration-300"
+        {/* Active agents mini bar — only visible when agents are working */}
+        {activeAgents.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, x: -8 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="flex items-center gap-1 mr-auto px-2.5 py-1 rounded-xl"
             style={{
-              backgroundColor: wsConnected ? "var(--green-dim)" : "var(--red-dim)",
+              backgroundColor: "var(--brand-dim)",
+              border: "1px solid color-mix(in srgb, var(--brand) 10%, transparent)",
+            }}
+          >
+            {activeAgents.map(name => {
+              const meta = agentMeta[name];
+              return (
+                <motion.div
+                  key={name}
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  className="w-4 h-4 rounded-md flex items-center justify-center"
+                  style={{
+                    backgroundColor: `color-mix(in srgb, ${meta?.color || "var(--brand)"} 20%, transparent)`,
+                    fontSize: "8px",
+                  }}
+                  title={`${meta?.label || name} active`}
+                >
+                  {meta?.icon || "?"}
+                </motion.div>
+              );
+            })}
+            <span className="text-[10px] font-medium ml-0.5" style={{ color: "var(--brand-text)" }}>
+              {activeAgents.length} active
+            </span>
+          </motion.div>
+        )}
+
+        {/* Connection status — small pill, right-aligned */}
+        {conversationId && (
+          <div
+            className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10px] font-medium"
+            style={{
               color: wsConnected ? "var(--green)" : "var(--red)",
-              border: `1px solid color-mix(in srgb, ${wsConnected ? "var(--green)" : "var(--red)"} 15%, transparent)`,
+              opacity: 0.7,
             }}
           >
             <span
               className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${!wsConnected && "animate-pulse"}`}
               style={{
                 backgroundColor: wsConnected ? "var(--green)" : "var(--red)",
-                boxShadow: `0 0 4px ${wsConnected ? "var(--green)" : "var(--red)"}`,
               }}
             />
             {wsConnected ? "Connected" : "Reconnecting…"}
-          </div>
-        ) : (
-          <div
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-medium"
-            style={{ backgroundColor: "var(--bg-hover)", color: "var(--text-muted)" }}
-          >
-            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: "var(--text-muted)" }} />
-            Idle
           </div>
         )}
       </div>

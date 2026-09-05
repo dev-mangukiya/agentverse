@@ -920,6 +920,10 @@ async def _process_user_message(
         # ── Step 3: Save and send final response ─────────────────
         total_duration = int((time.time() - pipeline_start) * 1000)
 
+        # Post-process markdown to fix common LLM formatting issues
+        from app.agents.base import BaseAgent
+        final_response = BaseAgent._clean_markdown(final_response)
+
         async with async_session_factory() as db:
             agent_msg = Message(
                 conversation_id=conversation_id,
@@ -1267,7 +1271,7 @@ async def _run_agent_with_streaming(
                 if isinstance(response, AIMessage) and response.content:
                     rc = response.content
                     if isinstance(rc, list):
-                        rc = "".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in rc])
+                        rc = "\n".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in rc])
                     if rc.strip():
                         last_text_content = rc
 
@@ -1312,7 +1316,7 @@ async def _run_agent_with_streaming(
             else:
                 content = response.content if isinstance(response, AIMessage) else str(response)
                 if isinstance(content, list):
-                    content = "".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in content])
+                    content = "\n".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in content])
                 if content and content.strip():
                     return content
                 # If LLM returned empty content after tools, use accumulated text or tool results
@@ -1325,7 +1329,7 @@ async def _run_agent_with_streaming(
         # Exhausted tool rounds — return whatever we have
         content = response.content if isinstance(response, AIMessage) else str(response)
         if isinstance(content, list):
-            content = "".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in content])
+            content = "\n".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in content])
         if content and content.strip():
             return content
         if last_text_content:
@@ -1365,7 +1369,7 @@ async def _run_agent_with_streaming(
                 if isinstance(response, AIMessage) and response.content:
                     rc = response.content
                     if isinstance(rc, list):
-                        rc = "".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in rc])
+                        rc = "\n".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in rc])
                     if rc.strip():
                         last_text_content = rc
 
@@ -1411,7 +1415,7 @@ async def _run_agent_with_streaming(
                 # Final response — try to stream it token-by-token
                 content = response.content if isinstance(response, AIMessage) else str(response)
                 if isinstance(content, list):
-                    content = "".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in content])
+                    content = "\n".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in content])
 
                 if content and content.strip():
                     # Stream the already-generated content in chunks
@@ -1428,7 +1432,7 @@ async def _run_agent_with_streaming(
         # Exhausted rounds
         content = response.content if isinstance(response, AIMessage) else str(response)
         if isinstance(content, list):
-            content = "".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in content])
+            content = "\n".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in content])
         if content and content.strip():
             return content
         if last_text_content:

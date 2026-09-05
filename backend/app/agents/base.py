@@ -324,6 +324,45 @@ class BaseAgent:
             return llm.bind_tools(self.tools)
         return llm
 
+    @staticmethod
+    def _clean_markdown(text: str) -> str:
+        """Post-process LLM output to fix common markdown formatting issues.
+        
+        Gemini and other models sometimes produce markdown that doesn't render
+        well: missing blank lines before headings, code fences glued to text,
+        or headings without the ### prefix. This method fixes those patterns.
+        """
+        import re
+        if not text:
+            return text
+
+        # 1. Fix code fences glued to preceding text (e.g. "Code```python" → "Code\n\n```python")
+        text = re.sub(r'([^\n`])```', r'\1\n\n```', text)
+
+        # 2. Ensure blank line before headings (###, ##, #) if not already present
+        text = re.sub(r'([^\n])\n(#{1,6}\s)', r'\1\n\n\2', text)
+
+        # 3. Ensure blank line after code fence closing ``` before next content
+        text = re.sub(r'```\n([^\n])', r'```\n\n\1', text)
+
+        # 4. Ensure blank line before code fences if not already present
+        text = re.sub(r'([^\n])\n```', r'\1\n\n```', text)
+
+        # 5. Fix emoji headings without ### prefix (e.g. "🧠 Approach" → "### 🧠 Approach")
+        text = re.sub(
+            r'^((?:🧠|💻|▶️|📝|⚙️|📋|🔍|📊|🔗|✍️|✅|⚠️|💡|🏁|📄|🔑|📖|❓|🔎|📈|📥)\s.+)$',
+            r'### \1',
+            text,
+            flags=re.MULTILINE,
+        )
+        # Avoid double ### if the LLM already prefixed it
+        text = text.replace('### ### ', '### ')
+
+        # 6. Normalize excessive blank lines (3+ → 2)
+        text = re.sub(r'\n{4,}', '\n\n\n', text)
+
+        return text.strip()
+
     async def run(self, user_input: str, context: str = "") -> str:
         """Execute the agent with user input and optional context."""
         messages = [SystemMessage(content=self._build_system_prompt(context))]
@@ -359,6 +398,10 @@ class BaseAgent:
                 ).strip()
             else:
                 content = str(raw) if raw else ""
+
+            # Post-process markdown to fix common formatting issues
+            content = self._clean_markdown(content)
+
             logger.info(f"agent.{self.name}.complete", output_length=len(content))
             return content if content else "The agent processed your request but produced no text output."
 

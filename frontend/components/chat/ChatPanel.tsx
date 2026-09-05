@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { getSessionId } from "@/lib/session";
-import { getAuthHeaders } from "@/lib/auth";
+import { getAuthHeaders, useAuth } from "@/lib/auth";
 import { agentMeta } from "@/components/agents/AgentCard";
 import { useNotifications } from "@/components/notifications/NotificationProvider";
 import { ExportMenu } from "./ExportMenu";
@@ -999,6 +999,24 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   };
 
   const isEmpty = messages.length === 0 && !isThinking;
+  const { user } = useAuth();
+
+  // Gemini-style rotating greetings
+  const greeting = useMemo(() => {
+    const firstName = user?.name?.split(" ")[0] || "";
+    const greetings = [
+      `Hello${firstName ? `, ${firstName}` : ""}`,
+      `What can I help with${firstName ? `, ${firstName}` : ""}?`,
+      `Ready when you are${firstName ? `, ${firstName}` : ""}`,
+      `Let's build something${firstName ? `, ${firstName}` : ""}`,
+    ];
+    const hour = new Date().getHours();
+    if (hour < 12) greetings.unshift(`Good morning${firstName ? `, ${firstName}` : ""}`);
+    else if (hour < 17) greetings.unshift(`Good afternoon${firstName ? `, ${firstName}` : ""}`);
+    else greetings.unshift(`Good evening${firstName ? `, ${firstName}` : ""}`);
+    return greetings[Math.floor(Math.random() * greetings.length)];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.name]);
 
   return (
     <div className="flex flex-col h-full" style={{ backgroundColor: "var(--bg-base)" }}>
@@ -1079,181 +1097,139 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       {/* Messages area */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {isEmpty ? (
-          /* Multi-agent welcome screen */
-          <div className="flex flex-col items-center justify-center h-full px-4 md:px-6 pb-4 md:pb-8 relative">
-            {/* Ambient gradient orbs */}
-            <div className="absolute inset-0 overflow-hidden pointer-events-none">
-              <div
-                className="absolute w-64 h-64 rounded-full"
-                style={{
-                  top: "15%",
-                  left: "20%",
-                  background: "radial-gradient(circle, rgba(99,102,241,0.10), transparent 70%)",
-                  animation: "floatParticle 8s ease-in-out infinite",
-                }}
-              />
-              <div
-                className="absolute w-48 h-48 rounded-full"
-                style={{
-                  bottom: "20%",
-                  right: "15%",
-                  background: "radial-gradient(circle, rgba(139,92,246,0.08), transparent 70%)",
-                  animation: "floatParticle 10s ease-in-out 2s infinite",
-                }}
-              />
-              <div
-                className="absolute w-32 h-32 rounded-full"
-                style={{
-                  top: "40%",
-                  right: "30%",
-                  background: "radial-gradient(circle, rgba(6,182,212,0.06), transparent 70%)",
-                  animation: "floatParticle 7s ease-in-out 4s infinite",
-                }}
-              />
-            </div>
-
-            <motion.div
-              initial={{ opacity: 0, scale: 0.8, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              transition={{ duration: 0.6, ease: [0.4, 0, 0.2, 1] }}
-              className="relative z-10 mb-6 mx-auto"
-              style={{ width: "80px", height: "80px" }}
+          <div className="flex flex-col items-center justify-center h-full px-4 md:px-6 relative">
+            {/* ─── Gemini-style greeting ─── */}
+            <motion.h1
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, ease: [0.4, 0, 0.2, 1] }}
+              className="text-3xl md:text-4xl lg:text-5xl font-medium text-center relative z-10 mb-10 md:mb-14"
+              style={{
+                background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 30%, #a78bfa 60%, #06b6d4 100%)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                backgroundClip: "text",
+                letterSpacing: "-0.02em",
+                lineHeight: 1.2,
+              }}
             >
-              {/* Abstract multi-agent constellation — interconnected nodes */}
-              <svg width="80" height="80" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <defs>
-                  <linearGradient id="hero-grad" x1="0" y1="0" x2="80" y2="80" gradientUnits="userSpaceOnUse">
-                    <stop offset="0%" stopColor="#6366f1" />
-                    <stop offset="50%" stopColor="#8b5cf6" />
-                    <stop offset="100%" stopColor="#06b6d4" />
-                  </linearGradient>
-                  <radialGradient id="hero-glow" cx="40" cy="40" r="36" gradientUnits="userSpaceOnUse">
-                    <stop offset="0%" stopColor="#8b5cf6" stopOpacity="0.12" />
-                    <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0" />
-                  </radialGradient>
-                </defs>
+              {greeting}
+            </motion.h1>
 
-                {/* Ambient glow */}
-                <circle cx="40" cy="40" r="36" fill="url(#hero-glow)" />
-
-                {/* Connection lines — agent orchestration paths */}
-                <line x1="40" y1="16" x2="18" y2="50" stroke="url(#hero-grad)" strokeWidth="0.8" opacity="0.3" />
-                <line x1="40" y1="16" x2="62" y2="50" stroke="url(#hero-grad)" strokeWidth="0.8" opacity="0.3" />
-                <line x1="40" y1="16" x2="40" y2="64" stroke="url(#hero-grad)" strokeWidth="0.8" opacity="0.2" />
-                <line x1="18" y1="50" x2="62" y2="50" stroke="url(#hero-grad)" strokeWidth="0.8" opacity="0.25" />
-                <line x1="18" y1="50" x2="40" y2="64" stroke="url(#hero-grad)" strokeWidth="0.8" opacity="0.25" />
-                <line x1="62" y1="50" x2="40" y2="64" stroke="url(#hero-grad)" strokeWidth="0.8" opacity="0.25" />
-
-                {/* Central orchestrator node — larger */}
-                <circle cx="40" cy="16" r="6" fill="none" stroke="url(#hero-grad)" strokeWidth="1.2" opacity="0.5">
-                  <animate attributeName="r" values="6;7;6" dur="3s" repeatCount="indefinite" />
-                </circle>
-                <circle cx="40" cy="16" r="3.5" fill="url(#hero-grad)" opacity="0.9">
-                  <animate attributeName="opacity" values="0.9;0.6;0.9" dur="3s" repeatCount="indefinite" />
-                </circle>
-
-                {/* Agent node — left */}
-                <circle cx="18" cy="50" r="4.5" fill="none" stroke="url(#hero-grad)" strokeWidth="1" opacity="0.4">
-                  <animate attributeName="r" values="4.5;5.5;4.5" dur="3.5s" begin="0.5s" repeatCount="indefinite" />
-                </circle>
-                <circle cx="18" cy="50" r="2.5" fill="url(#hero-grad)" opacity="0.7">
-                  <animate attributeName="opacity" values="0.7;0.4;0.7" dur="3.5s" begin="0.5s" repeatCount="indefinite" />
-                </circle>
-
-                {/* Agent node — right */}
-                <circle cx="62" cy="50" r="4.5" fill="none" stroke="url(#hero-grad)" strokeWidth="1" opacity="0.4">
-                  <animate attributeName="r" values="4.5;5.5;4.5" dur="4s" begin="1s" repeatCount="indefinite" />
-                </circle>
-                <circle cx="62" cy="50" r="2.5" fill="url(#hero-grad)" opacity="0.7">
-                  <animate attributeName="opacity" values="0.7;0.4;0.7" dur="4s" begin="1s" repeatCount="indefinite" />
-                </circle>
-
-                {/* Agent node — bottom center */}
-                <circle cx="40" cy="64" r="4.5" fill="none" stroke="url(#hero-grad)" strokeWidth="1" opacity="0.4">
-                  <animate attributeName="r" values="4.5;5.5;4.5" dur="3.2s" begin="1.5s" repeatCount="indefinite" />
-                </circle>
-                <circle cx="40" cy="64" r="2.5" fill="url(#hero-grad)" opacity="0.7">
-                  <animate attributeName="opacity" values="0.7;0.4;0.7" dur="3.2s" begin="1.5s" repeatCount="indefinite" />
-                </circle>
-
-                {/* Tiny data particles along the paths */}
-                <circle r="1.2" fill="#6366f1" opacity="0.6">
-                  <animateMotion dur="2.5s" repeatCount="indefinite" path="M40,16 L18,50" />
-                </circle>
-                <circle r="1.2" fill="#8b5cf6" opacity="0.6">
-                  <animateMotion dur="3s" repeatCount="indefinite" path="M40,16 L62,50" />
-                </circle>
-                <circle r="1" fill="#06b6d4" opacity="0.5">
-                  <animateMotion dur="3.5s" repeatCount="indefinite" path="M18,50 L62,50" />
-                </circle>
-              </svg>
+            {/* ─── Centered input bar (Gemini style) ─── */}
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2, duration: 0.5 }}
+              className="w-full max-w-2xl relative z-10 mb-6"
+            >
+              <div
+                className="relative rounded-full transition-all duration-300 overflow-hidden"
+                style={{
+                  background: "var(--input-bg)",
+                  border: "1px solid var(--input-border)",
+                  boxShadow: "0 2px 12px rgba(0,0,0,0.08)",
+                }}
+                onFocusCapture={(e) => {
+                  const el = e.currentTarget as HTMLElement;
+                  el.style.borderColor = "color-mix(in srgb, var(--brand) 40%, transparent)";
+                  el.style.boxShadow = "0 4px 20px rgba(99,102,241,0.12)";
+                }}
+                onBlurCapture={(e) => {
+                  const el = e.currentTarget as HTMLElement;
+                  el.style.borderColor = "var(--input-border)";
+                  el.style.boxShadow = "0 2px 12px rgba(0,0,0,0.08)";
+                }}
+              >
+                <div className="flex items-center gap-2 px-4 md:px-5 py-3 md:py-3.5">
+                  <button
+                    className="upload-btn flex-shrink-0"
+                    onClick={() => fileInputRef.current?.click()}
+                    title="Attach files"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                    </svg>
+                  </button>
+                  <textarea
+                    ref={inputRef}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSend();
+                      }
+                    }}
+                    onPaste={handlePaste}
+                    placeholder="Ask AgentVerse anything..."
+                    rows={1}
+                    className="flex-1 bg-transparent text-sm md:text-base outline-none resize-none leading-6 max-h-[60px] overflow-y-auto"
+                    style={{ color: "var(--text-primary)" }}
+                  />
+                  <button
+                    className={`upload-btn flex-shrink-0 ${isRecording ? 'text-red-500 animate-pulse' : ''}`}
+                    onClick={toggleRecording}
+                    title="Voice input"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                      <path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      <path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </button>
+                  {(input.trim() || attachedFiles.length > 0) && (
+                    <button
+                      onClick={() => handleSend()}
+                      className="send-btn flex-shrink-0"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              </div>
             </motion.div>
 
-            <motion.h1
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.15, duration: 0.5 }}
-              className="text-xl md:text-2xl font-bold mb-2 text-center gradient-text relative z-10"
+            {/* ─── Minimal suggestion chips ─── */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.4, duration: 0.5 }}
+              className="flex flex-wrap justify-center gap-2 relative z-10 max-w-xl"
             >
-              Multi-Agent AI Workforce
-            </motion.h1>
-            <motion.p
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.25, duration: 0.5 }}
-              className="text-xs md:text-sm mb-4 md:mb-8 text-center max-w-md relative z-10"
-              style={{ color: "var(--text-muted)" }}
-            >
-              Your request is analyzed by the Orchestrator and delegated to specialized agents who collaborate in real-time.
-            </motion.p>
-
-            {/* Suggestion cards with agent badges */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-3 max-w-md w-full px-2 relative z-10">
               {SUGGESTIONS.map((s, i) => {
                 const meta = agentMeta[s.agent];
                 return (
                   <motion.button
                     key={s.text}
-                    initial={{ opacity: 0, y: 16 }}
+                    initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.3 + i * 0.08, duration: 0.4 }}
+                    transition={{ delay: 0.45 + i * 0.06, duration: 0.3 }}
                     onClick={() => handleSend(s.text)}
-                    className="flex items-start gap-3 px-4 py-3.5 rounded-2xl text-left transition-all duration-300 group relative overflow-hidden"
+                    className="flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium transition-all duration-200"
                     style={{
-                      background: "var(--glass-bg)",
-                      backdropFilter: "blur(16px) saturate(1.2)",
-                      WebkitBackdropFilter: "blur(16px) saturate(1.2)",
-                      border: "1px solid var(--glass-border)",
+                      background: "var(--bg-elevated)",
+                      border: "1px solid var(--border-subtle)",
+                      color: "var(--text-secondary)",
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = "var(--bg-elevated)";
-                      e.currentTarget.style.borderColor = `color-mix(in srgb, ${meta?.color || "var(--brand)"} 30%, transparent)`;
-                      e.currentTarget.style.transform = "translateY(-2px)";
-                      e.currentTarget.style.boxShadow = `0 8px 24px rgba(0,0,0,0.12), 0 0 30px -10px color-mix(in srgb, ${meta?.color || "var(--brand)"} 20%, transparent)`;
+                      e.currentTarget.style.borderColor = `color-mix(in srgb, ${meta?.color || "var(--brand)"} 40%, transparent)`;
+                      e.currentTarget.style.color = meta?.color || "var(--brand)";
+                      e.currentTarget.style.background = `color-mix(in srgb, ${meta?.color || "var(--brand)"} 8%, var(--bg-elevated))`;
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.background = "var(--glass-bg)";
-                      e.currentTarget.style.borderColor = "var(--glass-border)";
-                      e.currentTarget.style.transform = "translateY(0)";
-                      e.currentTarget.style.boxShadow = "none";
+                      e.currentTarget.style.borderColor = "var(--border-subtle)";
+                      e.currentTarget.style.color = "var(--text-secondary)";
+                      e.currentTarget.style.background = "var(--bg-elevated)";
                     }}
                   >
-                    <span className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center mt-0.5" style={{ backgroundColor: `color-mix(in srgb, ${meta?.color || 'var(--brand)'} 15%, transparent)`, color: meta?.color || 'var(--brand)' }}>
-                      {meta?.icon || <span className="text-sm font-bold">{s.agent[0].toUpperCase()}</span>}
-                    </span>
-                    <div>
-                      <div className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>{s.text}</div>
-                      <div className="text-[10px] mt-1.5 font-semibold flex items-center gap-1" style={{ color: meta?.color || "var(--text-faint)" }}>
-                        <svg width="8" height="8" viewBox="0 0 24 24" fill="none">
-                          <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                        {meta?.label || s.agent} Agent
-                      </div>
-                    </div>
+                    <span style={{ color: meta?.color, fontSize: "12px" }}>{meta?.icon}</span>
+                    {s.text}
                   </motion.button>
                 );
               })}
-            </div>
+            </motion.div>
           </div>
         ) : (
           /* Message list */
@@ -1643,9 +1619,10 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         </div>
       )}
 
-      {/* Input bar */}
+      {/* Input bar — hidden when empty (input rendered inline above) */}
       <div
         ref={inputBarRef}
+        style={isEmpty ? { display: "none" } : {}}
         className="px-2 md:px-4 pb-3 md:pb-5 pt-2 flex-shrink-0 input-safe-area"
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}

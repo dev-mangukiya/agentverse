@@ -83,7 +83,6 @@ export default function Home() {
   const handleMessageSent = useCallback(() => { setHistoryRefresh((n) => n + 1); }, []);
   const handleNavigate = useCallback((view: View) => {
     setCurrentView(view);
-    setMobileSidebarOpen(false);
   }, []);
 
   // Close mobile drawers when selecting a conversation

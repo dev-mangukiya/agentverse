@@ -1418,7 +1418,7 @@ async def _run_agent_with_streaming(
         last_text_content = ""
         tool_results_log = []
 
-        for _ in range(5):  # max 5 tool rounds
+        for _ in range(getattr(agent, 'max_tool_rounds', 5)):  # respect per-agent limit
             response = await _invoke_with_retry(llm, messages)
 
             if hasattr(response, "tool_calls") and response.tool_calls:
@@ -1517,7 +1517,7 @@ async def _run_agent_with_streaming(
         last_text_content = ""
         tool_results_log = []
 
-        for round_idx in range(5):
+        for round_idx in range(getattr(agent, 'max_tool_rounds', 5)):  # respect per-agent limit
             response = await _invoke_with_retry(llm, messages)
 
             if hasattr(response, "tool_calls") and response.tool_calls:

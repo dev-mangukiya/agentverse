@@ -313,6 +313,7 @@ class BaseAgent:
     name: str = "base"
     role: str = "General-purpose AI agent"
     system_prompt: str = "You are a helpful AI assistant."
+    max_tool_rounds: int = 5  # Override in subclasses that need more rounds
 
     def __init__(self, tools: list[BaseTool] | None = None):
         self.tools = tools or []
@@ -376,10 +377,9 @@ class BaseAgent:
         try:
             response = await _invoke_with_retry(llm, messages)
 
-            # Handle tool calls — loop up to max_rounds in case the LLM
-            # needs multiple rounds (e.g., search → refine → search again)
-            max_rounds = 5
-            for _ in range(max_rounds):
+            # Handle tool calls — loop up to max_tool_rounds in case the LLM
+            # needs multiple rounds (e.g., search → fetch → refine → fetch)
+            for _ in range(self.max_tool_rounds):
                 if not (hasattr(response, "tool_calls") and response.tool_calls):
                     break
                 tool_results = await self._execute_tool_calls(response.tool_calls)

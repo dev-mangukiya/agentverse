@@ -40,7 +40,7 @@ async def web_search(query: str) -> str:
         from ddgs import DDGS
         results = []
         with DDGS() as ddgs:
-            for r in ddgs.text(query, max_results=5):
+            for r in ddgs.text(query, max_results=10):
                 results.append(f"**{r['title']}**\n{r['body']}\nSource: {r['href']}")
         return results
 
@@ -52,6 +52,74 @@ async def web_search(query: str) -> str:
         logger.warning("tool.web_search.ddg_failed", error=str(exc))
 
     return f"Search completed for '{query}' but no results were returned. Please try a different query."
+
+
+@tool
+async def fetch_url(url: str) -> str:
+    """Fetch and extract the main text content from a web page URL.
+    Use this after web_search to read the full content of promising results
+    so you can cite accurate facts, dates, and details instead of guessing.
+
+    Args:
+        url: The full URL to fetch content from (e.g., 'https://example.com/article').
+    """
+    logger.info("tool.fetch_url", url=url)
+
+    import asyncio
+
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    def _fetch():
+        import urllib.request
+        import ssl
+
+        # Generous but bounded timeout
+        ctx = ssl.create_default_context()
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; AgentVerse/1.0)"})
+        try:
+            with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
+                # Limit download to 50KB to avoid memory issues
+                raw = resp.read(50_000)
+                html = raw.decode("utf-8", errors="replace")
+        except Exception as exc:
+            return f"Failed to fetch URL: {exc}"
+
+        # Try trafilatura first (best at extracting article text)
+        try:
+            import trafilatura
+            text = trafilatura.extract(
+                html,
+                include_comments=False,
+                include_tables=True,
+                favor_recall=True,
+            )
+            if text and len(text.strip()) > 100:
+                # Truncate to keep context window manageable
+                if len(text) > 8000:
+                    text = text[:8000] + "\n\n[Content truncated — 8000 char limit]"
+                return f"Content from {url}:\n\n{text}"
+        except ImportError:
+            pass
+        except Exception:
+            pass
+
+        # Fallback: basic tag stripping
+        import re as _re
+        text = _re.sub(r'<script[^>]*>.*?</script>', '', html, flags=_re.DOTALL | _re.IGNORECASE)
+        text = _re.sub(r'<style[^>]*>.*?</style>', '', html, flags=_re.DOTALL | _re.IGNORECASE)
+        text = _re.sub(r'<[^>]+>', ' ', text)
+        text = _re.sub(r'\s+', ' ', text).strip()
+        if len(text) > 8000:
+            text = text[:8000] + "\n\n[Content truncated — 8000 char limit]"
+        if len(text) > 100:
+            return f"Content from {url}:\n\n{text}"
+        return f"Could not extract meaningful text from {url}. The page may require JavaScript or login."
+
+    try:
+        return await asyncio.to_thread(_fetch)
+    except Exception as exc:
+        return f"Error fetching {url}: {exc}"
 
 
 @tool
@@ -182,6 +250,6 @@ async def write_file(file_path: str, content: str) -> str:
 
 # ── Tool collections per agent role ──────────────────────
 
-RESEARCH_TOOLS = [web_search, open_url, get_current_time, search_memory]
+RESEARCH_TOOLS = [web_search, fetch_url, open_url, get_current_time, search_memory]
 CODING_TOOLS = [run_code, read_file, write_file, calculate, request_user_approval]
 GENERAL_TOOLS = [web_search, open_url, run_code, calculate, get_current_time, read_file, write_file, request_user_approval, search_github_repos, create_linear_issue, send_slack_message, search_memory]

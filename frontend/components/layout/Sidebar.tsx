@@ -258,7 +258,7 @@ export function Sidebar({
         )}
 
         {/* Bottom bar: settings + user account (like Gemini) */}
-        <div className="flex-shrink-0 px-3 pb-3 pt-1 overflow-hidden" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+        <div className="flex-shrink-0 px-3 pb-3 pt-1" style={{ borderTop: "1px solid var(--border-subtle)" }}>
           {/* System status + settings row */}
           {!collapsed && (
             <div className="flex items-center gap-1.5 mb-2 px-1">
@@ -326,7 +326,7 @@ export function Sidebar({
                 onClick={() => setUserMenuOpen(!userMenuOpen)}
                 className={clsx(
                   "w-full flex items-center gap-2.5 rounded-xl transition-all duration-200",
-                  collapsed ? "justify-center p-2" : "px-3 py-2"
+                  collapsed ? "justify-center p-2 overflow-hidden" : "px-3 py-2"
                 )}
                 style={{ color: "var(--text-secondary)" }}
                 onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--bg-hover)"; }}
@@ -362,7 +362,7 @@ export function Sidebar({
                 onClick={() => setAuthModalOpen(true)}
                 className={clsx(
                   "w-full flex items-center gap-2.5 rounded-xl transition-all duration-200",
-                  collapsed ? "justify-center p-2" : "px-3 py-2"
+                  collapsed ? "justify-center p-2 overflow-hidden" : "px-3 py-2"
                 )}
                 style={{ color: "var(--text-secondary)" }}
                 onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--bg-hover)"; }}

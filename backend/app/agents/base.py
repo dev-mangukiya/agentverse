@@ -127,6 +127,7 @@ def _create_google_llm(api_key: str, model: str = "gemini-2.5-flash", temperatur
         model=model if "gemini" in model else "gemini-2.5-flash",
         google_api_key=api_key,
         temperature=temperature,
+        max_output_tokens=8192,
         max_retries=0,  # Don't let LangChain retry the same rate-limited key; our rotation handles it
     )
     _llm_cache[cache_key] = llm
@@ -273,9 +274,9 @@ async def _invoke_with_retry(llm, messages, max_retries=0):
     3. If all Google keys exhausted, fall back to HuggingFace
     """
     try:
-        return await asyncio.wait_for(llm.ainvoke(messages), timeout=90)
+        return await asyncio.wait_for(llm.ainvoke(messages), timeout=120)
     except asyncio.TimeoutError:
-        raise RuntimeError("LLM request timed out after 90 seconds.")
+        raise RuntimeError("LLM request timed out after 120 seconds.")
     except Exception as exc:
         if _is_transient_error(exc):
             # Mark the current key as unavailable if it's a Google LLM

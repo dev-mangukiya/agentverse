@@ -1597,13 +1597,15 @@ async def _run_agent_with_streaming(
         return "(Agent finished with no text output)"
 
     try:
+        # Scale timeout with tool rounds — research agents need more time
+        agent_timeout = max(120.0, getattr(agent, 'max_tool_rounds', 5) * 18.0)
         if stream:
-            return await asyncio.wait_for(_execute_streaming(), timeout=120.0)
+            return await asyncio.wait_for(_execute_streaming(), timeout=agent_timeout)
         else:
-            return await asyncio.wait_for(_execute(), timeout=120.0)
+            return await asyncio.wait_for(_execute(), timeout=agent_timeout)
     except asyncio.TimeoutError:
         logger.warning("agent.timeout", agent=agent.name)
-        return f"Agent '{agent.name}' timed out after 120 seconds. Please try a simpler request or smaller file."
+        return f"Agent '{agent.name}' timed out after {int(agent_timeout)} seconds. Please try a simpler request or smaller file."
 
 # ── Dashboard events WebSocket ────────────────────────────
 

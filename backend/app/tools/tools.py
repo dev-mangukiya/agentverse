@@ -41,7 +41,8 @@ async def web_search(query: str) -> str:
         results = []
         with DDGS() as ddgs:
             for r in ddgs.text(query, max_results=10):
-                results.append(f"**{r['title']}**\n{r['body']}\nSource: {r['href']}")
+                date_info = f"\nPublished: {r['date']}" if r.get('date') else ""
+                results.append(f"**{r['title']}**\n{r['body']}{date_info}\nSource: {r['href']}")
         return results
 
     try:

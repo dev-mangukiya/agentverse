@@ -259,12 +259,14 @@ export function Sidebar({
 
         {/* Bottom bar: settings + user account (like Gemini) */}
         <div className="flex-shrink-0 px-3 pb-3 pt-1" style={{ borderTop: "1px solid var(--border-subtle)" }}>
-          {/* System status + settings row */}
-          {!collapsed && (
-            <div className="flex items-center gap-1.5 mb-2 px-1">
+          {/* System status + settings row — always visible */}
+            <div className={clsx(
+              "flex items-center gap-1.5 mb-2",
+              collapsed ? "justify-center" : "px-1"
+            )}>
               {/* System status dot */}
               <div
-                className="flex items-center gap-1.5 flex-1"
+                className={clsx("flex items-center gap-1.5", !collapsed && "flex-1")}
                 title={backendStatus === "online" ? "System Online" : backendStatus === "waking" ? "Waking up..." : "Offline"}
               >
                 {backendStatus === "waking" ? (
@@ -284,13 +286,15 @@ export function Sidebar({
                     }}
                   />
                 )}
-                <span className="text-[10px] font-medium" style={{
-                  color: backendStatus === "online" ? "var(--green)"
-                    : backendStatus === "waking" ? "var(--yellow, #eab308)"
-                    : "var(--red)",
-                }}>
-                  {backendStatus === "online" ? "Online" : backendStatus === "waking" ? "Waking..." : "Offline"}
-                </span>
+                {!collapsed && (
+                  <span className="text-[10px] font-medium" style={{
+                    color: backendStatus === "online" ? "var(--green)"
+                      : backendStatus === "waking" ? "var(--yellow, #eab308)"
+                      : "var(--red)",
+                  }}>
+                    {backendStatus === "online" ? "Online" : backendStatus === "waking" ? "Waking..." : "Offline"}
+                  </span>
+                )}
               </div>
 
               {/* Theme toggle */}
@@ -317,7 +321,6 @@ export function Sidebar({
               {/* Notifications */}
               <NotificationCenter onNotificationClick={onNotificationClick} />
             </div>
-          )}
 
           {/* User account (like Gemini bottom) */}
           <div className="relative" ref={menuRef}>
@@ -336,10 +339,11 @@ export function Sidebar({
                 <div
                   className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
                   style={{
-                    background: "linear-gradient(135deg, #6366f1, #8b5cf6, #06b6d4)",
+                    backgroundColor: "var(--bg-elevated)",
+                    border: "1px solid var(--border-muted)",
                   }}
                 >
-                  <span className="text-xs font-bold text-white">{userInitial}</span>
+                  <span className="text-xs font-bold" style={{ color: "var(--text-muted)" }}>{userInitial}</span>
                 </div>
                 {!collapsed && (
                   <div className="flex-1 text-left min-w-0">
@@ -372,12 +376,13 @@ export function Sidebar({
                 <div
                   className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
                   style={{
-                    background: "linear-gradient(135deg, #6366f1, #8b5cf6, #06b6d4)",
+                    backgroundColor: "var(--bg-elevated)",
+                    border: "1px solid var(--border-muted)",
                   }}
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="8" r="4" fill="white" opacity="0.9"/>
-                    <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" fill="white" opacity="0.9"/>
+                    <circle cx="12" cy="8" r="4" fill="var(--text-muted)" opacity="0.9"/>
+                    <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" fill="var(--text-muted)" opacity="0.9"/>
                   </svg>
                 </div>
                 {!collapsed && (

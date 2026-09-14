@@ -1093,14 +1093,11 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.7, ease: [0.4, 0, 0.2, 1] }}
-              className="text-3xl md:text-4xl lg:text-5xl font-medium text-center relative z-10 mb-10 md:mb-14"
+              className="text-xl md:text-2xl font-medium text-center relative z-10 mb-10 md:mb-14"
               style={{
-                background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 30%, #a78bfa 60%, #06b6d4 100%)",
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-                backgroundClip: "text",
+                color: "var(--text-secondary)",
                 letterSpacing: "-0.02em",
-                lineHeight: 1.2,
+                lineHeight: 1.3,
               }}
             >
               {greeting}
@@ -1210,7 +1207,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                     onPaste={handlePaste}
                     placeholder="Ask AgentVerse anything..."
                     rows={1}
-                    className="flex-1 bg-transparent text-sm md:text-base outline-none resize-none leading-6 max-h-[60px] overflow-y-auto"
+                    className="flex-1 bg-transparent text-sm md:text-base outline-none resize-none leading-6 max-h-[160px] overflow-y-auto"
                     style={{ color: "var(--text-primary)" }}
                   />
                   <button
@@ -1260,17 +1257,15 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                       color: "var(--text-secondary)",
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = `color-mix(in srgb, ${meta?.color || "var(--brand)"} 40%, transparent)`;
-                      e.currentTarget.style.color = meta?.color || "var(--brand)";
-                      e.currentTarget.style.background = `color-mix(in srgb, ${meta?.color || "var(--brand)"} 8%, var(--bg-elevated))`;
+                      e.currentTarget.style.borderColor = "var(--border-muted)";
+                      e.currentTarget.style.background = "var(--bg-hover)";
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.borderColor = "var(--border-subtle)";
-                      e.currentTarget.style.color = "var(--text-secondary)";
                       e.currentTarget.style.background = "var(--bg-elevated)";
                     }}
                   >
-                    <span style={{ color: meta?.color, fontSize: "12px" }}>{meta?.icon}</span>
+                    <span style={{ color: "var(--text-muted)", fontSize: "12px" }}>{meta?.icon}</span>
                     {s.text}
                   </motion.button>
                 );

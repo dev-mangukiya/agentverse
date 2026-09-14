@@ -167,28 +167,28 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
           }}
           onMouseEnter={(e) => {
             e.currentTarget.style.backgroundColor = "var(--bg-elevated)";
-            e.currentTarget.style.borderColor = "color-mix(in srgb, var(--brand) 20%, transparent)";
-            e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.1)";
+            e.currentTarget.style.borderColor = "var(--border-strong)";
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.backgroundColor = "var(--bg-raised)";
             e.currentTarget.style.borderColor = "var(--border-muted)";
-            e.currentTarget.style.boxShadow = "none";
           }}
         >
           <div
             className="w-5 h-5 rounded-lg flex items-center justify-center flex-shrink-0 relative overflow-hidden"
             style={{
-              background: "linear-gradient(135deg, #6366f1, #8b5cf6, #06b6d4)",
+              backgroundColor: "var(--bg-elevated)",
+              border: "1px solid var(--border-muted)",
             }}
           >
             <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-              <path d="M6 2v8M2 6h8" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+              <path d="M6 2v8M2 6h8" stroke="var(--text-muted)" strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
           </div>
-          <span className="text-sm font-medium transition-colors" style={{ color: "var(--text-secondary)" }}>
+          <span className="text-sm font-medium transition-colors flex-1 text-left" style={{ color: "var(--text-secondary)" }}>
             New chat
           </span>
+          <span className="text-[10px] font-medium" style={{ color: "var(--text-faint)" }}>⌘N</span>
         </button>
       </div>
 
@@ -208,7 +208,7 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
             placeholder="Search chats..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-8 py-2 rounded-xl text-xs transition-all duration-200 outline-none"
+            className="w-full pl-9 pr-14 py-2 rounded-xl text-xs transition-all duration-200 outline-none"
             style={{
               backgroundColor: "var(--bg-raised)",
               border: "1px solid var(--border-subtle)",
@@ -223,6 +223,14 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
               e.currentTarget.style.backgroundColor = "var(--bg-raised)";
             }}
           />
+          {!searchQuery && (
+            <span
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-medium pointer-events-none"
+              style={{ color: "var(--text-faint)" }}
+            >
+              ⌘K
+            </span>
+          )}
           {searchQuery && (
             <button
               onClick={() => setSearchQuery("")}
@@ -279,7 +287,7 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
 
         {!loading && !fetchError && !searching && displayList.length === 0 && (
           <div className="text-center py-8 px-4">
-            <div className="text-sm font-medium mb-1" style={{ color: "var(--text-faint)", fontFamily: "monospace" }}>{searchResults !== null ? "No results" : "No chats"}</div>
+            <div className="text-sm font-medium mb-1" style={{ color: "var(--text-faint)" }}>{searchResults !== null ? "No results" : "No chats"}</div>
             <div className="text-xs" style={{ color: "var(--text-faint)" }}>
               {searchResults !== null ? "No matching chats found" : "Your chats will appear here"}
             </div>

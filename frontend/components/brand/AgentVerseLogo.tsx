@@ -221,7 +221,7 @@ export function AgentVerseLogo({
             }}
           >
             <span style={{ color: "var(--text-primary)" }}>Agent</span>
-            <span className="gradient-text">Verse</span>
+            <span style={{ color: "var(--brand)" }}>Verse</span>
           </div>
           {showTagline && (
             <div

@@ -156,21 +156,19 @@ export function PromptTemplates({ onSelect, onInsert, onClose }: PromptTemplates
               border: "1px solid var(--border-subtle)",
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = template.color;
-              e.currentTarget.style.boxShadow = `0 0 16px ${template.color}15`;
-              e.currentTarget.style.transform = "translateY(-2px)";
+              e.currentTarget.style.borderColor = "var(--border-muted)";
+              e.currentTarget.style.backgroundColor = "var(--bg-elevated)";
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.borderColor = "var(--border-subtle)";
-              e.currentTarget.style.boxShadow = "none";
-              e.currentTarget.style.transform = "translateY(0)";
+              e.currentTarget.style.backgroundColor = "var(--bg-panel)";
             }}
           >
             <div
               className="w-9 h-9 rounded-lg flex items-center justify-center"
               style={{
-                backgroundColor: `color-mix(in srgb, ${template.color} 12%, var(--bg-panel))`,
-                color: template.color,
+                backgroundColor: "var(--bg-raised)",
+                color: "var(--text-muted)",
               }}
             >
               {template.icon}

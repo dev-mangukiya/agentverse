@@ -7,12 +7,12 @@
 /* ─── Design tokens — Gemini-Inspired Aurora Theme ──────────────────────── */
 :root,
 [data-theme="dark"] {
-  /* Backgrounds — deep charcoal with purple-blue undertones */
-  --bg-base:        #0f0f17;
-  --bg-sidebar:     #111119;
-  --bg-panel:       #14141f;
-  --bg-raised:      #1a1a28;
-  --bg-elevated:    #212133;
+  /* Backgrounds — warm charcoal, neutral undertones */
+  --bg-base:        #161616;
+  --bg-sidebar:     #1a1a1a;
+  --bg-panel:       #1e1e1e;
+  --bg-raised:      #252525;
+  --bg-elevated:    #2c2c2c;
   --bg-hover:       rgba(255,255,255,0.04);
   --bg-active:      rgba(99,102,241,0.10);
 

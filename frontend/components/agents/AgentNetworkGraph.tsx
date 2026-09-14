@@ -582,6 +582,33 @@ function AgentNetworkGraphInner({ fullscreen }: { fullscreen?: boolean }) {
     []
   );
 
+  /* ── ReactFlow-level event handlers (guaranteed to fire) ── */
+  const handleNodeMouseEnter = useCallback(
+    (_event: React.MouseEvent, node: Node) => {
+      setHovered(node.id);
+    },
+    []
+  );
+
+  const handleNodeMouseLeave = useCallback(
+    (_event: React.MouseEvent, _node: Node) => {
+      setHovered(null);
+    },
+    []
+  );
+
+  const handleNodeClick = useCallback(
+    (_event: React.MouseEvent, node: Node) => {
+      setSelected((prev) => (prev === node.id ? null : node.id));
+    },
+    []
+  );
+
+  const handlePaneClick = useCallback(() => {
+    setSelected(null);
+    setHovered(null);
+  }, []);
+
   // Compute which node IDs are connected to hovered
   const connectedTo = useMemo(() => {
     if (!hovered) return null;
@@ -720,6 +747,10 @@ function AgentNetworkGraphInner({ fullscreen }: { fullscreen?: boolean }) {
             edges={edges}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
+            onNodeClick={handleNodeClick}
+            onNodeMouseEnter={handleNodeMouseEnter}
+            onNodeMouseLeave={handleNodeMouseLeave}
+            onPaneClick={handlePaneClick}
             fitView
             fitViewOptions={{ padding: 0.25 }}
             panOnDrag={false}
@@ -729,11 +760,17 @@ function AgentNetworkGraphInner({ fullscreen }: { fullscreen?: boolean }) {
             nodesDraggable={false}
             nodesConnectable={false}
             nodesFocusable={true}
-            elementsSelectable={false}
+            elementsSelectable={true}
             preventScrolling={false}
             proOptions={{ hideAttribution: true }}
             style={{ background: "transparent" }}
-          />
+          >
+            {/* cursor:pointer on nodes as interactive affordance */}
+            <style>{`
+              .react-flow__node { cursor: pointer !important; }
+              .react-flow__node:hover { z-index: 20 !important; }
+            `}</style>
+          </ReactFlow>
         )}
       </div>
 

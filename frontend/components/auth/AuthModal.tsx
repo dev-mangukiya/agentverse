@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/lib/auth";
 
@@ -13,6 +14,9 @@ interface AuthModalProps {
 }
 
 export function AuthModal({ open, onClose, onSuccess }: AuthModalProps) {
+  /* Portal mount guard — avoid SSR mismatch */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const { login, register, googleLogin } = useAuth();
   const [tab, setTab] = useState<"login" | "register">("login");
   const [name, setName] = useState("");
@@ -138,7 +142,20 @@ export function AuthModal({ open, onClose, onSuccess }: AuthModalProps) {
     }
   };
 
-  return (
+  // Close on Escape key
+  useEffect(() => {
+    if (!open) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [open, onClose]);
+
+  /* Don't render on server — portal needs document.body */
+  if (!mounted) return null;
+
+  return createPortal(
     <AnimatePresence>
       {open && (
         <>
@@ -466,6 +483,8 @@ export function AuthModal({ open, onClose, onSuccess }: AuthModalProps) {
           </motion.div>
         </>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }
+

@@ -335,7 +335,26 @@ const handleStyle: React.CSSProperties = {
 
 /* ─── Custom Edge ─────────────────────────────────────────── */
 
-type NetworkEdgeData = { isHighlighted: boolean; isDimmed: boolean };
+type NetworkEdgeData = {
+  isHighlighted: boolean;
+  isDimmed: boolean;
+  isLive: boolean;
+};
+
+/* Inject a global @keyframes rule for the flowing-dash animation once */
+if (typeof document !== "undefined") {
+  const STYLE_ID = "agent-network-edge-keyframes";
+  if (!document.getElementById(STYLE_ID)) {
+    const style = document.createElement("style");
+    style.id = STYLE_ID;
+    style.textContent = `
+      @keyframes agentNetworkDashFlow {
+        to { stroke-dashoffset: -24; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+}
 
 function NetworkEdge({
   id,
@@ -350,6 +369,7 @@ function NetworkEdge({
   const data = rawData as unknown as NetworkEdgeData | undefined;
   const isHighlighted = data?.isHighlighted ?? false;
   const isDimmed = data?.isDimmed ?? false;
+  const isLive = data?.isLive ?? false;
 
   const [edgePath] = getSmoothStepPath({
     sourceX,
@@ -361,23 +381,58 @@ function NetworkEdge({
     borderRadius: 20,
   });
 
+  // Determine visual state
+  const strokeWidth = isLive ? 2.2 : isHighlighted ? 1.5 : 1;
+  const strokeOpacity = isDimmed
+    ? 0.06
+    : isLive
+      ? 0.85
+      : isHighlighted
+        ? 0.55
+        : 0.22;
+
   return (
     <>
+      {/* Glow layer for live edges */}
+      {isLive && (
+        <path
+          d={edgePath}
+          fill="none"
+          stroke="var(--brand)"
+          strokeWidth="6"
+          strokeOpacity="0.15"
+          strokeLinecap="round"
+          style={{ pointerEvents: "none", filter: "blur(3px)" }}
+        />
+      )}
       <BaseEdge
         id={id}
         path={edgePath}
         style={{
           stroke: "var(--brand)",
-          strokeWidth: isHighlighted ? 1.5 : 1,
-          strokeOpacity: isDimmed ? 0.06 : isHighlighted ? 0.55 : 0.22,
-          strokeDasharray: isHighlighted ? "none" : "5 6",
-          transition: "all 0.3s ease",
+          strokeWidth,
+          strokeOpacity,
+          strokeDasharray: isLive ? "8 16" : isHighlighted ? "none" : "5 6",
+          transition: isLive ? "none" : "all 0.3s ease",
+          pointerEvents: "none" as const,
+          ...(isLive
+            ? {
+                animation: "agentNetworkDashFlow 0.6s linear infinite",
+              }
+            : {}),
         }}
       />
-      {/* Animated dot along edge when highlighted */}
-      {isHighlighted && (
-        <circle r="2.5" fill="var(--brand)" opacity="0.6">
-          <animateMotion dur="1.8s" repeatCount="indefinite" path={edgePath} />
+      {/* Traveling dot along edge — orchestrator → agent direction */}
+      {isLive && (
+        <circle r="3" fill="var(--brand)" opacity="0.8">
+          <animateMotion
+            dur="1.4s"
+            repeatCount="indefinite"
+            path={edgePath}
+            keyPoints="0;1"
+            keyTimes="0;1"
+            calcMode="linear"
+          />
         </circle>
       )}
     </>
@@ -570,9 +625,14 @@ function AgentNetworkGraphInner({ fullscreen }: { fullscreen?: boolean }) {
           connectedTo?.has(edge.target) &&
           connectedTo?.has(edge.source));
       const isDimmed = hovered !== null && !isHighlighted;
+      // Live: only the single edge to the specific hovered agent
+      const isLive =
+        hovered !== null &&
+        hovered !== "orchestrator" &&
+        edge.target === hovered;
       return {
         ...edge,
-        data: { isHighlighted, isDimmed },
+        data: { isHighlighted, isDimmed, isLive },
       };
     });
   }, [baseEdges, hovered, connectedTo]);
@@ -668,6 +728,7 @@ function AgentNetworkGraphInner({ fullscreen }: { fullscreen?: boolean }) {
             zoomOnDoubleClick={false}
             nodesDraggable={false}
             nodesConnectable={false}
+            nodesFocusable={true}
             elementsSelectable={false}
             preventScrolling={false}
             proOptions={{ hideAttribution: true }}

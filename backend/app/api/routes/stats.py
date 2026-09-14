@@ -289,7 +289,6 @@ async def get_agent_analytics(db: AsyncSession = Depends(get_db)) -> dict:
         day_end = day_start + timedelta(days=1)
         count_result = await db.execute(
             select(func.count(Message.id)).where(
-                Message.role == "agent",
                 Message.created_at >= day_start,
                 Message.created_at < day_end,
             )

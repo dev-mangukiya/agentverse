@@ -3,7 +3,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/layout/Sidebar";
-import { AgentNetworkGraph } from "@/components/agents/AgentNetworkGraph";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import type { PipelineAgent, DelegationEvent, ToolEvent } from "@/components/chat/ChatPanel";
 import { ChatHistory } from "@/components/chat/ChatHistory";
@@ -251,12 +250,9 @@ export default function Home() {
               >
                 <KPICards />
                 <AgentAnalytics />
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
-                  <div className="lg:col-span-2"><AgentNetworkGraph /></div>
-                  <div className="space-y-4 md:space-y-6">
-                    <SystemHealth />
-                    <ActivityFeed />
-                  </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+                  <SystemHealth />
+                  <ActivityFeed />
                 </div>
               </motion.div>
             )}

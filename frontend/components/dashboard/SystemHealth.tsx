@@ -30,7 +30,6 @@ const serviceIcons: Record<string, React.ReactNode> = {
 
 export function SystemHealth() {
   const [services, setServices] = useState<HealthService[]>([]);
-  const [overall, setOverall] = useState<string>("checking");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -38,7 +37,6 @@ export function SystemHealth() {
       try {
         const res = await fetch(`${API_URL}/health`);
         const data = await res.json();
-        setOverall(data.status);
         if (data.services && typeof data.services === "object") {
           const mapped = Object.entries(data.services).map(([key, value]) => {
             const v = value as string;
@@ -50,7 +48,6 @@ export function SystemHealth() {
           setServices(mapped);
         }
       } catch {
-        setOverall("offline");
         setServices([{ name: "Backend", status: "unreachable" }]);
       } finally {
         setLoading(false);
@@ -62,14 +59,7 @@ export function SystemHealth() {
     return () => clearInterval(interval);
   }, []);
 
-  const statusColor = (s: string) => {
-    if (s === "ok") return "status-dot--ok";
-    if (s === "loading") return "status-dot--pending";
-    if (s === "optional") return "";
-    return "status-dot--error";
-  };
-
-  const statusBarColor = (s: string) => {
+  const statusDotColor = (s: string) => {
     if (s === "ok") return "var(--green)";
     if (s === "loading") return "var(--yellow)";
     if (s === "optional") return "var(--text-faint)";
@@ -86,8 +76,11 @@ export function SystemHealth() {
   const okCount = services.filter(s => s.status === "ok").length;
 
   return (
-    <div className="glass-panel p-5 card-shine">
-      <div className="flex items-center justify-between mb-4 relative z-10">
+    <div
+      className="rounded-2xl p-5"
+      style={{ backgroundColor: "var(--bg-raised)", border: "1px solid var(--border-subtle)" }}
+    >
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>System Health</h3>
           {!loading && (
@@ -96,22 +89,13 @@ export function SystemHealth() {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <span className={`status-dot ${statusColor(overall)}`} />
-          <span
-            className="text-[10px] font-semibold uppercase tracking-wider"
-            style={{ color: overall === "ok" ? "var(--green)" : overall === "checking" ? "var(--yellow)" : "var(--red)" }}
-          >
-            {overall === "ok" ? "Healthy" : overall === "checking" ? "Checking" : "Issues"}
-          </span>
-        </div>
       </div>
 
-      <div className="space-y-2.5 relative z-10">
+      <div className="space-y-1.5">
         {loading && (
-          <div className="space-y-2.5">
+          <div className="space-y-2">
             {[1, 2, 3].map(i => (
-              <div key={i} className="shimmer-loading h-12 rounded-xl" />
+              <div key={i} className="shimmer-loading h-10 rounded-xl" />
             ))}
           </div>
         )}
@@ -122,44 +106,24 @@ export function SystemHealth() {
             initial={{ opacity: 0, x: -12 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: i * 0.08, duration: 0.3 }}
-            className="flex items-center justify-between py-2.5 px-3.5 rounded-xl transition-all duration-200"
-            style={{
-              backgroundColor: "var(--bg-raised)",
-              border: "1px solid var(--border-subtle)",
-            }}
+            className="flex items-center justify-between py-2 px-3 rounded-xl transition-colors duration-150"
             onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = "var(--bg-elevated)";
-              e.currentTarget.style.borderColor = "var(--border-muted)";
+              e.currentTarget.style.backgroundColor = "var(--bg-hover)";
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = "var(--bg-raised)";
-              e.currentTarget.style.borderColor = "var(--border-subtle)";
+              e.currentTarget.style.backgroundColor = "transparent";
             }}
           >
-            <div className="flex items-center gap-3">
-              <span className="flex items-center">{serviceIcons[svc.name] || <SettingsIcon size={14} />}</span>
-              <div>
-                <span className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>{svc.name}</span>
-              </div>
-            </div>
             <div className="flex items-center gap-2.5">
-              {/* Status bar */}
-              <div
-                className="w-16 h-1.5 rounded-full overflow-hidden"
-                style={{ backgroundColor: "var(--bg-hover)" }}
-              >
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: svc.status === "ok" ? "100%" : svc.status === "loading" ? "50%" : "15%" }}
-                  transition={{ delay: i * 0.1 + 0.2, duration: 0.6, ease: "easeOut" }}
-                  className="h-full rounded-full"
-                  style={{
-                    backgroundColor: statusBarColor(svc.status),
-                    boxShadow: `0 0 6px ${statusBarColor(svc.status)}`,
-                  }}
-                />
-              </div>
-              <span className="text-[10px] font-mono font-medium w-20 text-right" style={{ color: "var(--text-faint)" }}>
+              <span style={{ color: "var(--text-faint)" }}>{serviceIcons[svc.name] || <SettingsIcon size={14} />}</span>
+              <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>{svc.name}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span
+                className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                style={{ backgroundColor: statusDotColor(svc.status) }}
+              />
+              <span className="text-[10px] font-medium" style={{ color: "var(--text-faint)" }}>
                 {statusLabel(svc.status)}
               </span>
             </div>

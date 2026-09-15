@@ -115,7 +115,15 @@ export function SystemHealth() {
             }}
           >
             <div className="flex items-center gap-2.5">
-              <span style={{ color: "var(--text-faint)" }}>{serviceIcons[svc.name] || <SettingsIcon size={14} />}</span>
+              <div
+                className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0"
+                style={{
+                  backgroundColor: "color-mix(in srgb, var(--text-faint) 10%, var(--bg-elevated))",
+                  color: "var(--text-muted)",
+                }}
+              >
+                {serviceIcons[svc.name] || <SettingsIcon size={14} />}
+              </div>
               <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>{svc.name}</span>
             </div>
             <div className="flex items-center gap-1.5">

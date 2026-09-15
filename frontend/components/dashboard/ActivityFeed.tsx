@@ -41,14 +41,39 @@ function stripMarkdown(text: string): string {
     .trim();
 }
 
-/** Remove bracket placeholders like [Recipient Name/Email] */
+/** Remove bracket placeholders like [Recipient Name/Email] and filter internal reasoning */
 function cleanContent(text: string): string {
   let cleaned = stripMarkdown(text);
   // Replace [placeholder text] with ellipsis
   cleaned = cleaned.replace(/\[[A-Z][^\]]{3,60}\]/g, "…");
   // Collapse multiple ellipsis
   cleaned = cleaned.replace(/…(\s*…)+/g, "…");
-  return cleaned.trim();
+  cleaned = cleaned.trim();
+
+  // Filter out internal reasoning / planning-stage text.
+  // These are agent "thinking out loud" steps, not completed action summaries.
+  const reasoningPatterns = [
+    /^Approach\s*[—–-]\s*/i,
+    /^(Let me|I will|I need to|I should|I'll|First,?\s+I('ll|\s+will))\s/i,
+    /^(My approach|My plan|Here's my plan|I'm going to|To (do|solve|answer|help|address) this)\s/i,
+    /^(Analyzing|Thinking about|Considering|Looking at|Examining)\s/i,
+  ];
+
+  for (const pattern of reasoningPatterns) {
+    if (pattern.test(cleaned)) {
+      // Try to find an actionable summary after the reasoning prefix
+      // Look for sentences that describe what was done (past tense / completed)
+      const afterPrefix = cleaned.replace(pattern, "").trim();
+      // If the remainder is still mostly planning language, replace entirely
+      if (afterPrefix.length < 20 || /^(the user|what kind|but|however|so I)/i.test(afterPrefix)) {
+        return "Processing request…";
+      }
+      // Otherwise return the cleaned remainder, capped
+      return afterPrefix.length > 100 ? afterPrefix.slice(0, 100) + "…" : afterPrefix;
+    }
+  }
+
+  return cleaned;
 }
 
 /** Deduplicate: if consecutive entries are within 2s and one is orchestrator, drop orchestrator */

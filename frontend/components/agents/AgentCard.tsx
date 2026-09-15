@@ -2,7 +2,8 @@
 
 import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
-import { BrainIcon, MicroscopeIcon, CodeIcon, PenIcon, SearchIcon, BarChartIcon, PuzzleIcon, BotIcon, FileTextIcon, FilePlusIcon } from "../icons/Icons";
+import { getAgent, getAgentIcon } from "@/config/agents";
+import { BotIcon } from "../icons/Icons";
 
 type AgentStatus = "idle" | "activated" | "thinking" | "tool_call" | "complete" | "error";
 
@@ -18,28 +19,6 @@ interface AgentCardProps {
   startTime?: number;
   compact?: boolean;
 }
-
-const agentIcons: Record<string, React.ReactNode> = {
-  orchestrator: <BrainIcon size={16} />,
-  research:     <MicroscopeIcon size={16} />,
-  coding:       <CodeIcon size={16} />,
-  writer:       <PenIcon size={16} />,
-  critic:       <SearchIcon size={16} />,
-  data:         <BarChartIcon size={16} />,
-  doc_reader:   <FileTextIcon size={16} />,
-  doc_generator: <FilePlusIcon size={16} />,
-};
-
-const agentMeta: Record<string, { icon: React.ReactNode; color: string; label: string; role: string }> = {
-  orchestrator:  { icon: agentIcons.orchestrator, color: "var(--agent-orchestrator)", label: "Orchestrator", role: "Planning & Coordination" },
-  research:      { icon: agentIcons.research, color: "var(--agent-research)", label: "Research", role: "Web Search & Analysis" },
-  coding:        { icon: agentIcons.coding, color: "var(--agent-coding)", label: "Coding", role: "Code & Execution" },
-  writer:        { icon: agentIcons.writer, color: "var(--agent-writer)", label: "Writer", role: "Content & Reports" },
-  critic:        { icon: agentIcons.critic, color: "var(--agent-critic)", label: "Critic", role: "Quality & Review" },
-  data:          { icon: agentIcons.data, color: "var(--agent-data)", label: "Data Analyst", role: "Data & Insights" },
-  doc_reader:    { icon: agentIcons.doc_reader, color: "#f97316", label: "Doc Reader", role: "Document Analysis & Q&A" },
-  doc_generator: { icon: agentIcons.doc_generator, color: "#14b8a6", label: "Doc Generator", role: "Document Generation" },
-};
 
 const statusConfig: Record<AgentStatus, { label: string; animation: boolean }> = {
   idle:       { label: "Idle", animation: false },
@@ -78,11 +57,12 @@ export function AgentCard({
   startTime,
   compact = false,
 }: AgentCardProps) {
-  const meta = agentMeta[name.toLowerCase()] || {
-    icon: <BotIcon size={16} />,
-    color: "var(--brand)",
-    label: name.charAt(0).toUpperCase() + name.slice(1),
-    role: "Agent",
+  const agentInfo = getAgent(name);
+  const meta = {
+    icon: agentInfo.icon,
+    color: agentInfo.color,
+    label: agentInfo.displayName,
+    role: agentInfo.description,
   };
 
   const isActive = status === "activated" || status === "thinking" || status === "tool_call";
@@ -242,5 +222,3 @@ export function AgentCard({
     </motion.div>
   );
 }
-
-export { agentMeta };

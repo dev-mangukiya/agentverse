@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MessageSquareIcon } from "../icons/Icons";
+import { getAgent, getAgentIcon } from "@/config/agents";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -149,19 +150,16 @@ export function ActivityFeed() {
                 <div
                   className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0"
                   style={{
-                    backgroundColor: "var(--bg-elevated)",
-                    color: "var(--text-faint)",
+                    backgroundColor: `color-mix(in srgb, ${getAgent(item.agent).color} 12%, var(--bg-elevated))`,
+                    color: getAgent(item.agent).color,
                   }}
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="8" r="3.5" stroke="currentColor" strokeWidth="1.5"/>
-                    <path d="M5 20a7 7 0 0 1 14 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                  </svg>
+                  <span style={{ fontSize: "12px", display: "flex" }}>{getAgentIcon(item.agent, 12)}</span>
                 </div>
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>{item.agent}</span>
+                  <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>{getAgent(item.agent).displayName}</span>
                   <span className="text-[10px]" style={{ color: "var(--text-faint)" }}>{formatRelative(item.created_at)}</span>
                 </div>
                 <p className="text-xs leading-relaxed line-clamp-2" style={{ color: "var(--text-muted)" }}>

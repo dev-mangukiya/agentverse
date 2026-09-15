@@ -5,7 +5,16 @@ import { motion, AnimatePresence } from "framer-motion";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
-import { agentMeta } from "./AgentCard";
+import { getAgent, getAgentIcon } from "@/config/agents";
+
+function timeAgo(iso: string): string {
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (diff < 1) return "just now";
+  if (diff < 60) return `${diff}m ago`;
+  const hr = Math.floor(diff / 60);
+  if (hr < 24) return `${hr}h ago`;
+  return `${Math.floor(hr / 24)}d ago`;
+}
 
 export interface Agent {
   id: string;
@@ -39,9 +48,26 @@ export function AgentBuilder() {
   
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [viewingAgent, setViewingAgent] = useState<Agent | null>(null);
+  const [agentStats, setAgentStats] = useState<Record<string, { total_messages: number; avg_response_ms: number | null; last_active: string | null }>>({});
 
   useEffect(() => {
     fetchAgents();
+    // Fetch per-agent stats
+    const fetchStats = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/v1/stats/agent-analytics`);
+        if (res.ok) {
+          const data = await res.json();
+          const map: Record<string, any> = {};
+          (data.agents || []).forEach((a: any) => {
+            map[a.name] = { total_messages: a.total_messages, avg_response_ms: a.avg_response_ms, last_active: a.last_active };
+          });
+          setAgentStats(map);
+        }
+      } catch { /* silently fail */ }
+    };
+    fetchStats();
   }, []);
 
   const fetchAgents = async () => {
@@ -185,47 +211,65 @@ export function AgentBuilder() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4 overflow-y-auto pb-8">
-        {agents.map((agent) => (
+        {agents.map((agent) => {
+          const info = getAgent(agent.name);
+          const stats = agentStats[agent.name];
+          return (
           <div 
             key={agent.id}
-            className="glass-panel p-5 rounded-xl card-shine group relative flex flex-col"
+            className="rounded-2xl p-5 group relative flex flex-col transition-colors duration-200"
             style={{ 
-              border: agent.is_builtin ? "1px solid color-mix(in srgb, var(--border-subtle) 80%, var(--green))" : "1px solid var(--border-subtle)",
+              backgroundColor: "var(--bg-raised)",
+              border: "1px solid var(--border-subtle)",
             }}
           >
-            <div className="relative z-10 flex flex-col h-full">
+            <div className="flex flex-col h-full">
             <div className="flex justify-between items-start mb-3">
               <div 
-                className="w-12 h-12 rounded-xl flex items-center justify-center shadow-lg flex-shrink-0"
+                className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
                 style={{ 
-                  background: agentMeta[agent.name]
-                    ? `color-mix(in srgb, ${agentMeta[agent.name].color} 15%, var(--bg-hover))`
-                    : "color-mix(in srgb, var(--bg-hover) 80%, transparent)",
-                  color: agentMeta[agent.name]?.color || "var(--text-secondary)",
+                  backgroundColor: `color-mix(in srgb, ${info.color} 12%, var(--bg-elevated))`,
+                  color: info.color,
                 }}
               >
-                {agentMeta[agent.name]
-                  ? <span className="scale-125">{agentMeta[agent.name].icon}</span>
-                  : <span className="text-xl">{agent.emoji || agent.name[0]?.toUpperCase()}</span>
-                }
+                <span style={{ fontSize: "16px", display: "flex" }}>{info.icon}</span>
               </div>
               
-              {!agent.is_builtin && (
-              <div className="agent-card-actions opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
-                  <button onClick={() => openEdit(agent)} className="text-xs px-2.5 py-1.5 rounded-lg bg-black/20 hover:bg-black/40" style={{ color: "var(--text-secondary)" }}>Edit</button>
-                  <button onClick={() => handleDelete(agent.id)} className="text-xs px-2.5 py-1.5 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/40">Del</button>
-                </div>
-              )}
+              <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1.5">
+                <button
+                  onClick={() => setViewingAgent(agent)}
+                  className="text-[10px] px-2 py-1 rounded-lg transition-colors"
+                  style={{ backgroundColor: "var(--bg-hover)", color: "var(--text-muted)" }}
+                >
+                  View Config
+                </button>
+                {!agent.is_builtin && (
+                  <>
+                    <button onClick={() => openEdit(agent)} className="text-[10px] px-2 py-1 rounded-lg transition-colors" style={{ backgroundColor: "var(--bg-hover)", color: "var(--text-muted)" }}>Edit</button>
+                    <button onClick={() => handleDelete(agent.id)} className="text-[10px] px-2 py-1 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20">Del</button>
+                  </>
+                )}
+              </div>
             </div>
             
-            <h3 className="font-semibold text-base mb-1" style={{ color: "var(--text-primary)" }}>
-              {agent.name}
-              {agent.is_builtin && <span className="ml-2 text-[9px] px-1.5 py-0.5 rounded uppercase font-bold" style={{ backgroundColor: "var(--green)", color: "#000" }}>Core</span>}
+            <h3 className="font-semibold text-sm mb-0.5" style={{ color: "var(--text-primary)" }}>
+              {info.displayName}
             </h3>
             
-            <p className="text-xs line-clamp-2 mb-4 flex-1" style={{ color: "var(--text-muted)" }}>
+            <p className="text-xs line-clamp-2 mb-3" style={{ color: "var(--text-muted)" }}>
               {agent.description}
             </p>
+
+            {/* Per-agent stats */}
+            {stats && (
+              <div className="flex items-center gap-3 mb-3 text-[10px]" style={{ color: "var(--text-faint)" }}>
+                <span>{stats.total_messages} msgs</span>
+                <span>·</span>
+                <span>{stats.avg_response_ms ? `${(stats.avg_response_ms / 1000).toFixed(1)}s avg` : "—"}</span>
+                <span>·</span>
+                <span>{stats.last_active ? timeAgo(stats.last_active) : "never"}</span>
+              </div>
+            )}
             
             {agent.tools && agent.tools.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-auto">
@@ -243,7 +287,8 @@ export function AgentBuilder() {
             )}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <AnimatePresence>
@@ -361,6 +406,70 @@ export function AgentBuilder() {
                     {saving ? "Saving..." : (editAgent ? "Save Changes" : "Create Agent")}
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* View Config Modal */}
+      <AnimatePresence>
+        {viewingAgent && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={() => setViewingAgent(null)}
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="rounded-2xl p-5 w-full max-w-lg relative z-10 max-h-[80vh] overflow-y-auto"
+              style={{ backgroundColor: "var(--bg-panel)", border: "1px solid var(--border-light)", boxShadow: "0 20px 40px rgba(0,0,0,0.4)" }}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center"
+                  style={{
+                    backgroundColor: `color-mix(in srgb, ${getAgent(viewingAgent.name).color} 12%, var(--bg-elevated))`,
+                    color: getAgent(viewingAgent.name).color,
+                  }}
+                >
+                  {getAgentIcon(viewingAgent.name, 16)}
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{getAgent(viewingAgent.name).displayName}</h3>
+                  <p className="text-[10px]" style={{ color: "var(--text-faint)" }}>{viewingAgent.description}</p>
+                </div>
+              </div>
+              
+              <div className="mb-3">
+                <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--text-faint)" }}>System Prompt</div>
+                <pre className="text-xs p-3 rounded-xl overflow-x-auto whitespace-pre-wrap" style={{ backgroundColor: "var(--bg-raised)", color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" }}>
+                  {viewingAgent.system_prompt || "(no system prompt)"}
+                </pre>
+              </div>
+
+              {viewingAgent.tools && viewingAgent.tools.length > 0 && (
+                <div className="mb-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--text-faint)" }}>Tools</div>
+                  <div className="flex flex-wrap gap-1">
+                    {viewingAgent.tools.map(t => (
+                      <span key={t} className="text-[10px] px-2 py-0.5 rounded" style={{ backgroundColor: "var(--bg-hover)", color: "var(--text-secondary)" }}>{t}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end mt-4">
+                <button
+                  onClick={() => setViewingAgent(null)}
+                  className="px-4 py-2 rounded-lg text-xs font-medium transition-colors"
+                  style={{ backgroundColor: "var(--bg-hover)", color: "var(--text-secondary)" }}
+                >
+                  Close
+                </button>
               </div>
             </motion.div>
           </div>

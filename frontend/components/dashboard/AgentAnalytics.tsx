@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
+import { getAgent } from "@/config/agents";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -257,7 +258,7 @@ export function AgentAnalytics() {
                   >
                     <td className="py-2.5 px-3">
                       <span className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>
-                        {agent.name}
+                        {getAgent(agent.name).displayName}
                       </span>
                     </td>
                     <td className="py-2.5 px-3 text-right">

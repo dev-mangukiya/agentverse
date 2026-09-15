@@ -2,7 +2,8 @@
 
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { AgentCard, agentMeta } from "./AgentCard";
+import { AgentCard } from "./AgentCard";
+import { getAgent, AGENT_REGISTRY } from "@/config/agents";
 import { SearchIcon, GlobeIcon, ZapIcon, CpuIcon, ClockIcon, FileIcon, PenIcon, SettingsIcon } from "../icons/Icons";
 
 type AgentStatus = "idle" | "activated" | "thinking" | "tool_call" | "complete" | "error";
@@ -155,7 +156,7 @@ export function AgentPipeline({
 
               {/* Agent roster */}
               <div className="w-full space-y-1.5">
-                {Object.entries(agentMeta).slice(0, 6).map(([key, meta], i) => (
+                {Object.entries(AGENT_REGISTRY).slice(0, 6).map(([key, meta], i) => (
                   <motion.div
                     key={key}
                     initial={{ opacity: 0, x: -10 }}
@@ -182,10 +183,10 @@ export function AgentPipeline({
                     </div>
                     <div className="flex-1 text-left">
                       <div className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-                        {meta.label}
+                        {meta.displayName}
                       </div>
                       <div className="text-[10px]" style={{ color: "var(--text-faint)" }}>
-                        {meta.role}
+                        {meta.description}
                       </div>
                     </div>
                     <div
@@ -210,7 +211,7 @@ export function AgentPipeline({
             >
               {/* Pipeline nodes */}
               {agents.map((agent, i) => {
-                const meta = agentMeta[agent.name.toLowerCase()];
+                const meta = getAgent(agent.name.toLowerCase());
                 const isActive = agent.status === "activated" || agent.status === "thinking" || agent.status === "tool_call";
                 const isComplete = agent.status === "complete";
 

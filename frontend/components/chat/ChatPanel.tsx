@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { getSessionId } from "@/lib/session";
 import { getAuthHeaders, useAuth } from "@/lib/auth";
-import { agentMeta } from "@/components/agents/AgentCard";
+import { getAgent } from "@/config/agents";
 import { useNotifications } from "@/components/notifications/NotificationProvider";
 import { ExportMenu } from "./ExportMenu";
 import { PromptTemplates } from "./PromptTemplates";
@@ -1041,7 +1041,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             }}
           >
             {activeAgents.map(name => {
-              const meta = agentMeta[name];
+              const meta = getAgent(name);
               return (
                 <motion.div
                   key={name}
@@ -1052,7 +1052,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                     backgroundColor: `color-mix(in srgb, ${meta?.color || "var(--brand)"} 20%, transparent)`,
                     fontSize: "8px",
                   }}
-                  title={`${meta?.label || name} active`}
+                  title={`${meta?.displayName || name} active`}
                 >
                   {meta?.icon || "?"}
                 </motion.div>
@@ -1242,7 +1242,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
               className="flex flex-wrap justify-center gap-2 relative z-10 max-w-xl"
             >
               {SUGGESTIONS.map((s, i) => {
-                const meta = agentMeta[s.agent];
+                const meta = getAgent(s.agent);
                 return (
                   <motion.button
                     key={s.text}
@@ -1277,7 +1277,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
           <div className="w-full max-w-3xl mx-auto px-2 md:px-6 py-4 md:py-6 space-y-4 md:space-y-6">
             <AnimatePresence initial={false}>
               {messages.map((msg, idx) => {
-                const meta = msg.agent_name ? agentMeta[msg.agent_name.toLowerCase()] : null;
+                const meta = msg.agent_name ? getAgent(msg.agent_name.toLowerCase()) : null;
                 return (
                   <motion.div
                     key={`${msg.id}-${idx}`}
@@ -1347,11 +1347,11 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                             style={{ "--agent-color": meta?.color || "var(--brand)" } as React.CSSProperties}
                           >
                             <span className="badge-dot" />
-                            {meta?.label || msg.agent_name} Agent
+                            {meta?.displayName || msg.agent_name}
                           </span>
                           {msg.contributing_agents && msg.contributing_agents.length > 0 && (
                             <span className="text-[10px]" style={{ color: "var(--text-faint)" }}>
-                              with {msg.contributing_agents.map(a => agentMeta[a]?.label || a).join(", ")}
+                              with {msg.contributing_agents.map(a => getAgent(a).displayName).join(", ")}
                             </span>
                           )}
                           {msg.pipeline_duration_ms && (
@@ -1598,7 +1598,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                 <div className="flex items-center gap-3">
                   {/* Agent icon with animated gradient background */}
                   {(() => {
-                    const meta = agentMeta[thinkingAgent?.toLowerCase()];
+                    const meta = thinkingAgent ? getAgent(thinkingAgent.toLowerCase()) : null;
                     return (
                       <div
                         className="relative overflow-hidden flex items-center justify-center"
@@ -1631,8 +1631,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                   <span className="text-xs font-medium gradient-text">
                     {thinkingPhase === "planning" && "Orchestrator is analyzing your request..."}
                     {thinkingPhase === "synthesizing" && "Orchestrator is combining agent results..."}
-                    {thinkingPhase === "executing" && `${agentMeta[thinkingAgent?.toLowerCase()]?.label || thinkingAgent} is working...`}
-                    {!thinkingPhase && `${agentMeta[thinkingAgent?.toLowerCase()]?.label || thinkingAgent || "Agent"} is thinking…`}
+                    {thinkingPhase === "executing" && `${thinkingAgent ? getAgent(thinkingAgent.toLowerCase()).displayName : thinkingAgent} is working...`}
+                    {!thinkingPhase && `${thinkingAgent ? getAgent(thinkingAgent.toLowerCase()).displayName : "Agent"} is thinking…`}
                   </span>
                 </div>
               </motion.div>

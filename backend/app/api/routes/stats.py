@@ -20,14 +20,14 @@ _START_TIME = time.time()
 # Static agent graph positions and metadata (extended by live data)
 # Positions use a spread-out layout to avoid overlap on all screen sizes
 _AGENT_META: dict[str, dict] = {
-    "orchestrator":  {"color": "#4285f4", "role": "Planning & Delegation",    "x": 42, "y": 55},
-    "research":      {"color": "#34a853", "role": "Web Search & Analysis",      "x": 18, "y": 25},
-    "data":          {"color": "#a855f7", "role": "Data Processing & Viz",      "x": 72, "y": 22},
-    "coding":        {"color": "#ea4335", "role": "Code Generation & Debug",    "x": 15, "y": 75},
-    "writer":        {"color": "#fbbc04", "role": "Content & Reports",          "x": 72, "y": 78},
-    "critic":        {"color": "#06b6d4", "role": "Quality & Evaluation",       "x": 42, "y": 85},
-    "doc_reader":    {"color": "#f97316", "role": "Document Analysis & Q&A",    "x": 85, "y": 50},
-    "doc_generator": {"color": "#14b8a6", "role": "Document Generation",        "x": 85, "y": 75},
+    "orchestrator":  {"role": "Planning & Delegation",    "x": 42, "y": 55},
+    "research":      {"role": "Web Search & Analysis",      "x": 18, "y": 25},
+    "data":          {"role": "Data Processing & Viz",      "x": 72, "y": 22},
+    "coding":        {"role": "Code Generation & Debug",    "x": 15, "y": 75},
+    "writer":        {"role": "Content & Reports",          "x": 72, "y": 78},
+    "critic":        {"role": "Quality & Evaluation",       "x": 42, "y": 85},
+    "doc_reader":    {"role": "Document Analysis & Q&A",    "x": 85, "y": 50},
+    "doc_generator": {"role": "Document Generation",        "x": 85, "y": 75},
 }
 
 
@@ -159,7 +159,6 @@ async def get_agents(db: AsyncSession = Depends(get_db)) -> dict:
 
     for name in all_names:
         meta = _AGENT_META.get(name, {
-            "color": "#9aa0a6",
             "role": "Agent",
             "x": 50,
             "y": 50,
@@ -181,7 +180,6 @@ async def get_agents(db: AsyncSession = Depends(get_db)) -> dict:
             "label": name.replace("_", " ").title() + " Agent" if name != "orchestrator" else "Chief Orchestrator",
             "role": meta["role"],
             "status": status,
-            "color": meta["color"],
             "x": meta["x"],
             "y": meta["y"],
             "message_count": msg_count,
@@ -275,7 +273,6 @@ async def get_agent_analytics(db: AsyncSession = Depends(get_db)) -> dict:
         agents.append({
             "name": name,
             "label": meta.get("role", name.replace("_", " ").title()),
-            "color": meta.get("color", "#9aa0a6"),
             "total_messages": row.total_messages,
             "last_active": row.last_active.isoformat() if row.last_active else None,
             "first_seen": row.first_seen.isoformat() if row.first_seen else None,

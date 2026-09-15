@@ -4,32 +4,10 @@ import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { getAuthHeaders } from "@/lib/auth";
-import { MicroscopeIcon, CodeIcon, PenIcon, TargetIcon, BarChartIcon, ScaleIcon, BotIcon, FileTextIcon, FilePlusIcon } from "../icons/Icons";
+import { getAgent, getAgentIcon, AGENT_REGISTRY } from "@/config/agents";
+import { BotIcon, ScaleIcon } from "../icons/Icons";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
-
-const agentIconMap: Record<string, React.ReactNode> = {
-  research: <MicroscopeIcon size={16} />,
-  coding: <CodeIcon size={16} />,
-  writer: <PenIcon size={16} />,
-  critic: <TargetIcon size={16} />,
-  data_analyst: <BarChartIcon size={16} />,
-  data: <BarChartIcon size={16} />,
-  doc_reader: <FileTextIcon size={16} />,
-  doc_generator: <FilePlusIcon size={16} />,
-};
-
-// Colors for built-in agents; custom agents get assigned from the palette
-const BUILTIN_COLORS: Record<string, string> = {
-  research: "#10b981",
-  coding: "#3b82f6",
-  writer: "#f59e0b",
-  critic: "#06b6d4",
-  data_analyst: "#a855f7",
-  data: "#a855f7",
-  doc_reader: "#f97316",
-  doc_generator: "#14b8a6",
-};
 
 const COLOR_PALETTE = [
   "#ec4899", "#8b5cf6", "#ef4444", "#84cc16", "#f43f5e",
@@ -39,7 +17,6 @@ const COLOR_PALETTE = [
 interface AgentOption {
   id: string;
   label: string;
-  color: string;
   is_builtin: boolean;
 }
 
@@ -66,23 +43,14 @@ export function AgentComparison() {
         const res = await fetch(`${API_URL}/api/v1/agents`);
         if (res.ok) {
           const data = await res.json();
-          let colorIdx = 0;
           const agents: AgentOption[] = (data.agents || [])
-            .filter((a: any) => a.name !== "orchestrator") // Orchestrator can't be compared directly
-            .map((a: any) => {
-              const id = a.name;
-              const color = BUILTIN_COLORS[id] || COLOR_PALETTE[colorIdx++ % COLOR_PALETTE.length];
-              return {
-                id,
-                label: a.is_builtin
-                  ? `${a.name.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())} Agent`
-                  : `${a.emoji || "🤖"} ${a.name.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}`,
-                color,
-                is_builtin: a.is_builtin,
-              };
-            });
+            .filter((a: any) => a.name !== "orchestrator")
+            .map((a: any) => ({
+              id: a.name,
+              label: getAgent(a.name).displayName,
+              is_builtin: a.is_builtin,
+            }));
           setAllAgents(agents);
-          // Default selection: first 2 agents
           if (agents.length >= 2) {
             setSelectedAgents([agents[0].id, agents[1].id]);
           }
@@ -152,24 +120,30 @@ export function AgentComparison() {
     }
   };
 
-  const getAgent = (id: string) => allAgents.find((a) => a.id === id);
+  const getAgentOption = (id: string) => allAgents.find((a) => a.id === id);
+  const atLimit = selectedAgents.length >= 3;
 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="px-6 py-4 flex-shrink-0" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
         <h2 className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>
-          <span className="inline-flex items-center gap-1.5"><ScaleIcon size={16} /> Agent Comparison</span>
+          Agent Comparison
         </h2>
         <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-          Run the same prompt through 2-3 agents and compare responses side-by-side
+          Run the same prompt through 2–3 agents and compare responses side-by-side
         </p>
       </div>
 
       {/* Agent selector */}
       <div className="px-6 py-4 flex-shrink-0" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-        <div className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-faint)" }}>
-          Select 2-3 agents
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-faint)" }}>
+            Select agents
+          </div>
+          <div className="text-[11px] font-medium tabular-nums" style={{ color: selectedAgents.length >= 2 ? "var(--text-muted)" : "var(--text-faint)" }}>
+            {selectedAgents.length}/3
+          </div>
         </div>
         {fetchingAgents ? (
           <div className="text-xs py-2" style={{ color: "var(--text-muted)" }}>Loading agents...</div>
@@ -177,30 +151,32 @@ export function AgentComparison() {
           <div className="flex flex-wrap gap-2">
             {allAgents.map((agent) => {
               const isSelected = selectedAgents.includes(agent.id);
+              const info = getAgent(agent.id);
+              const isDisabled = !isSelected && atLimit;
               return (
                 <button
                   key={agent.id}
                   onClick={() => toggleAgent(agent.id)}
+                  disabled={isDisabled}
                   className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-200"
                   style={{
-                    background: isSelected ? `${agent.color}15` : "var(--glass-bg)",
-                    backdropFilter: "blur(12px)",
-                    WebkitBackdropFilter: "blur(12px)",
-                    border: `1.5px solid ${isSelected ? agent.color : "var(--glass-border)"}`,
-                    color: isSelected ? agent.color : "var(--text-muted)",
-                    boxShadow: isSelected ? `0 0 16px ${agent.color}20` : "none",
+                    background: isSelected ? "color-mix(in srgb, var(--brand) 10%, transparent)" : "var(--bg-raised)",
+                    border: `1.5px solid ${isSelected ? "var(--brand)" : "var(--border-subtle)"}`,
+                    color: isSelected ? "var(--text-primary)" : "var(--text-muted)",
+                    opacity: isDisabled ? 0.4 : 1,
+                    cursor: isDisabled ? "not-allowed" : "pointer",
                   }}
                 >
-                  <span className="flex items-center">{agentIconMap[agent.id] || <BotIcon size={14} />}</span>
+                  <span className="flex items-center" style={{ color: info.color }}>{info.icon}</span>
                   {agent.label}
                   {!agent.is_builtin && (
-                    <span className="text-[8px] px-1 py-0.5 rounded-full uppercase font-bold" style={{ backgroundColor: `${agent.color}20`, color: agent.color }}>
+                    <span className="text-[8px] px-1 py-0.5 rounded-full uppercase font-bold" style={{ backgroundColor: "var(--bg-hover)", color: "var(--text-faint)" }}>
                       Custom
                     </span>
                   )}
                   {isSelected && (
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-                      <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      <path d="M20 6L9 17l-5-5" stroke="var(--brand)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
                   )}
                 </button>
@@ -264,21 +240,21 @@ export function AgentComparison() {
             <div className="flex flex-col items-center gap-4">
               <div className="flex gap-2">
                 {selectedAgents.map((id) => {
-                  const agent = getAgent(id);
+                  const info = getAgent(id);
                   return (
                     <motion.div
                       key={id}
                       animate={{ scale: [1, 1.2, 1] }}
                       transition={{ duration: 1.2, repeat: Infinity, delay: selectedAgents.indexOf(id) * 0.3 }}
                       className="w-10 h-10 rounded-full flex items-center justify-center text-lg"
-                      style={{ backgroundColor: `${agent?.color || "#666"}20`, border: `2px solid ${agent?.color || "#666"}40` }}
+                      style={{ backgroundColor: `color-mix(in srgb, ${info.color} 12%, var(--bg-elevated))`, border: `2px solid color-mix(in srgb, ${info.color} 25%, transparent)` }}
                     >
-                      {agentIconMap[id] || <BotIcon size={14} />}
+                      <span style={{ color: info.color }}>{info.icon}</span>
                     </motion.div>
                   );
                 })}
               </div>
-              {/* Gemini-style shimmer bar */}
+              {/* Shimmer bar */}
               <div
                 className="rounded-full overflow-hidden"
                 style={{ width: "180px", height: "4px", backgroundColor: "var(--bg-raised)" }}
@@ -293,7 +269,7 @@ export function AgentComparison() {
                   }}
                 />
               </div>
-              <span className="text-xs font-medium gradient-text">
+              <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
                 Running agents in parallel...
               </span>
             </div>
@@ -302,12 +278,8 @@ export function AgentComparison() {
 
         {!loading && results.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16">
-            <div className="mb-3" style={{ color: "var(--text-faint)" }}><ScaleIcon size={32} /></div>
-            <div className="text-sm font-medium mb-1" style={{ color: "var(--text-secondary)" }}>
-              Ready to compare
-            </div>
             <div className="text-xs text-center max-w-[280px]" style={{ color: "var(--text-faint)" }}>
-              Select agents, enter a prompt, and see how different agents respond to the same question
+              Enter a prompt above to start
             </div>
           </div>
         )}
@@ -315,7 +287,7 @@ export function AgentComparison() {
         {!loading && results.length > 0 && (
           <div className={`grid gap-4 ${results.length === 2 ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1 md:grid-cols-3"}`}>
             {results.map((result, i) => {
-              const agent = getAgent(result.agent);
+              const info = getAgent(result.agent);
               return (
                 <motion.div
                   key={result.agent}
@@ -324,29 +296,24 @@ export function AgentComparison() {
                   transition={{ delay: i * 0.1 }}
                   className="rounded-2xl overflow-hidden flex flex-col"
                   style={{
-                    background: "var(--glass-bg)",
-                    backdropFilter: "blur(20px) saturate(1.3)",
-                    WebkitBackdropFilter: "blur(20px) saturate(1.3)",
-                    border: `1px solid ${agent?.color || "var(--glass-border)"}30`,
+                    backgroundColor: "var(--bg-raised)",
+                    border: "1px solid var(--border-subtle)",
                   }}
                 >
-                  {/* Gradient top accent */}
+                  {/* Subtle top accent */}
                   <div style={{
-                    height: "3px",
-                    background: `linear-gradient(90deg, ${agent?.color || "var(--brand)"}80, ${agent?.color || "var(--brand)"}20, transparent)`,
+                    height: "2px",
+                    background: `linear-gradient(90deg, ${info.color}80, ${info.color}20, transparent)`,
                   }} />
                   {/* Agent header */}
                   <div
                     className="flex items-center justify-between px-4 py-3"
-                    style={{
-                      background: `linear-gradient(135deg, ${agent?.color || "#666"}08, transparent)`,
-                      borderBottom: `1px solid ${agent?.color || "var(--border-subtle)"}15`,
-                    }}
+                    style={{ borderBottom: "1px solid var(--border-subtle)" }}
                   >
                     <div className="flex items-center gap-2">
-                      <span className="flex items-center">{agentIconMap[result.agent] || <BotIcon size={16} />}</span>
-                      <span className="text-sm font-semibold" style={{ color: agent?.color || "var(--text-primary)" }}>
-                        {agent?.label || result.agent}
+                      <span className="flex items-center" style={{ color: info.color }}>{info.icon}</span>
+                      <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                        {info.displayName}
                       </span>
                     </div>
                     <div className="flex items-center gap-2">

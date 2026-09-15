@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { agentMeta } from "@/components/agents/AgentCard";
+import { getAgent } from "@/config/agents";
 import { BotIcon } from "@/components/icons/Icons";
 import { useTheme } from "@/lib/theme";
 import { useNotifications } from "@/components/notifications/NotificationProvider";
@@ -125,7 +125,7 @@ export function Header({ currentView, onMobileMenuToggle, pipelineActive, active
                   />
                   <div className="hidden sm:flex items-center gap-1">
                     {activeAgents.slice(0, 3).map((agent) => {
-                      const meta = agentMeta[agent.name?.toLowerCase()];
+                      const meta = agent.name ? getAgent(agent.name.toLowerCase()) : null;
                       return (
                         <motion.div
                           key={agent.name}
@@ -138,7 +138,7 @@ export function Header({ currentView, onMobileMenuToggle, pipelineActive, active
                             border: `1px solid color-mix(in srgb, ${meta?.color || "var(--brand)"} 25%, transparent)`,
                             fontSize: "10px",
                           }}
-                          title={meta?.label || agent.name}
+                          title={meta?.displayName || agent.name}
                         >
                           {meta?.icon || <BotIcon size={12} />}
                         </motion.div>

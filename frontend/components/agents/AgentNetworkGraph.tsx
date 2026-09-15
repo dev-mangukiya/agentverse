@@ -17,16 +17,7 @@ import {
   type EdgeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import {
-  BrainIcon,
-  MicroscopeIcon,
-  CodeIcon,
-  PenIcon,
-  SearchIcon,
-  BarChartIcon,
-  FileTextIcon,
-  FilePlusIcon,
-} from "../icons/Icons";
+import { getAgent, getAgentIcon } from "@/config/agents";
 
 const API_URL = (
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
@@ -37,7 +28,6 @@ interface AgentData {
   label: string;
   role: string;
   status: "active" | "idle" | "working";
-  color: string;
   message_count: number;
   last_seen: string | null;
 }
@@ -47,18 +37,6 @@ const statusColors: Record<string, string> = {
   active: "var(--green)",
   working: "var(--yellow)",
   idle: "var(--text-faint)",
-};
-
-const agentIcons: Record<string, React.ReactNode> = {
-  orchestrator: <BrainIcon size={14} />,
-  research: <MicroscopeIcon size={14} />,
-  coding: <CodeIcon size={14} />,
-  writer: <PenIcon size={14} />,
-  critic: <SearchIcon size={14} />,
-  data: <BarChartIcon size={14} />,
-  data_analyst: <BarChartIcon size={14} />,
-  doc_reader: <FileTextIcon size={14} />,
-  doc_generator: <FilePlusIcon size={14} />,
 };
 
 /* ─── Custom Node: Orchestrator ───────────────────────────── */
@@ -74,7 +52,8 @@ type OrchestratorNodeData = AgentData & {
 
 function OrchestratorNode({ data: rawData }: NodeProps) {
   const data = rawData as unknown as OrchestratorNodeData;
-  const { isHovered, isSelected, isDimmed, color } = data;
+  const { isHovered, isSelected, isDimmed } = data;
+  const color = getAgent(data.id).color;
   const size = 60;
 
   return (
@@ -147,7 +126,7 @@ function OrchestratorNode({ data: rawData }: NodeProps) {
             letterSpacing: "-0.3px",
           }}
         >
-          {agentIcons[data.id] || data.label[0]}
+          {getAgentIcon(data.id, 17)}
         </span>
       </div>
 
@@ -212,7 +191,8 @@ type AgentNodeData = AgentData & {
 
 function AgentNode({ data: rawData }: NodeProps) {
   const data = rawData as unknown as AgentNodeData;
-  const { isHovered, isSelected, isDimmed, color } = data;
+  const { isHovered, isSelected, isDimmed } = data;
+  const color = getAgent(data.id).color;
   const size = 48;
 
   return (
@@ -272,7 +252,7 @@ function AgentNode({ data: rawData }: NodeProps) {
             letterSpacing: "-0.3px",
           }}
         >
-          {agentIcons[data.id] || data.label[0]}
+          {getAgentIcon(data.id, 14)}
         </span>
       </div>
 
@@ -795,22 +775,22 @@ function AgentNetworkGraphInner({ fullscreen }: { fullscreen?: boolean }) {
             <div
               style={{
                 height: "2px",
-                background: `linear-gradient(90deg, ${selectedAgent.color}, ${selectedAgent.color}40, transparent)`,
+                background: `linear-gradient(90deg, ${getAgent(selectedAgent.id).color}, ${getAgent(selectedAgent.id).color}40, transparent)`,
               }}
             />
             <div className="px-4 py-3 flex items-center gap-3">
               <div
                 className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
                 style={{
-                  backgroundColor: `color-mix(in srgb, ${selectedAgent.color} 12%, var(--bg-panel))`,
-                  border: `1px solid ${selectedAgent.color}30`,
+                  backgroundColor: `color-mix(in srgb, ${getAgent(selectedAgent.id).color} 12%, var(--bg-panel))`,
+                  border: `1px solid ${getAgent(selectedAgent.id).color}30`,
                 }}
               >
                 <span
                   className="font-bold"
-                  style={{ color: selectedAgent.color, fontSize: "14px" }}
+                  style={{ color: getAgent(selectedAgent.id).color, fontSize: "14px" }}
                 >
-                  {agentIcons[selectedAgent.id] || selectedAgent.label[0]}
+                  {getAgentIcon(selectedAgent.id, 14)}
                 </span>
               </div>
               <div className="flex-1 min-w-0">

@@ -144,7 +144,7 @@ export function ExportMenu({ messages, conversationTitle }: ExportMenuProps) {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(!open)}
-        className="w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200"
+        className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors duration-150"
         style={{
           color: "var(--text-muted)",
           backgroundColor: "transparent",

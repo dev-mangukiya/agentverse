@@ -160,7 +160,7 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
       <div className="px-3 pt-3 pb-2 flex-shrink-0">
         <button
           onClick={onNewChat}
-          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group relative overflow-hidden"
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors duration-150 group relative overflow-hidden"
           style={{
             backgroundColor: "var(--bg-raised)",
             border: "1px solid var(--border-muted)",
@@ -208,7 +208,7 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
             placeholder="Search chats..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-14 py-2 rounded-xl text-xs transition-all duration-200 outline-none"
+            className="w-full pl-9 pr-14 py-2 rounded-xl text-xs transition-colors duration-150 outline-none"
             style={{
               backgroundColor: "var(--bg-raised)",
               border: "1px solid var(--border-subtle)",
@@ -277,7 +277,7 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
             <div className="text-xs mb-2" style={{ color: "var(--red)" }}>Failed to load</div>
             <button
               onClick={() => { setLoading(true); fetchConversations(); }}
-              className="px-3 py-1.5 rounded-xl text-xs transition-all"
+              className="px-3 py-1.5 rounded-xl text-xs transition-colors"
               style={{ color: "var(--text-muted)", backgroundColor: "var(--bg-hover)" }}
             >
               Retry
@@ -311,7 +311,7 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
               >
                 <button
                   onClick={() => onSelect(conv.id)}
-                  className="w-full text-left flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 relative overflow-hidden"
+                  className="w-full text-left flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm transition-colors duration-150 relative overflow-hidden"
                   style={{
                     backgroundColor: isActive ? "var(--bg-active)" : isHovered ? "var(--bg-hover)" : "transparent",
                     color: isActive ? "var(--brand-text)" : "var(--text-secondary)",
@@ -342,7 +342,7 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
                         initial={{ opacity: 0, scale: 0.5 }}
                         animate={{ opacity: 1, scale: 1 }}
                         onClick={(e) => handlePin(e, conv.id)}
-                        className="flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center transition-all"
+                        className="flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center transition-colors"
                         style={{
                           color: conv.is_pinned ? "var(--brand)" : "var(--text-muted)",
                           backgroundColor: conv.is_pinned ? "var(--brand-dim)" : "var(--bg-hover)",
@@ -357,7 +357,7 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
                         initial={{ opacity: 0, scale: 0.5 }}
                         animate={{ opacity: 1, scale: 1 }}
                         onClick={(e) => handleDelete(e, conv.id)}
-                        className="flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center transition-all"
+                        className="flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center transition-colors"
                         style={{ color: "var(--text-muted)", backgroundColor: "var(--bg-hover)" }}
                         onMouseEnter={(e) => {
                           e.currentTarget.style.color = "var(--red)";

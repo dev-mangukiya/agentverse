@@ -220,7 +220,7 @@ export function FileManager({ onReattach, onClose }: FileManagerProps) {
 
       {/* Drop zone */}
       <div
-        className="mx-3 mt-3 mb-2 py-6 rounded-xl border-2 border-dashed flex flex-col items-center justify-center transition-all duration-200 cursor-pointer"
+        className="mx-3 mt-3 mb-2 py-6 rounded-xl border-2 border-dashed flex flex-col items-center justify-center transition-colors duration-150 cursor-pointer"
         style={{
           borderColor: dragOver ? "var(--brand)" : "var(--border-muted)",
           backgroundColor: dragOver ? "var(--brand-dim)" : "var(--bg-raised)",

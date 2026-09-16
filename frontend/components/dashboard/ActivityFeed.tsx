@@ -160,16 +160,10 @@ export function ActivityFeed() {
           {dedupedActivities.map((item, i) => (
             <motion.div
               key={`${item.created_at}-${i}`}
-              initial={{ opacity: 0, x: -12 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: i * 0.04, duration: 0.25 }}
-              className="flex gap-3 py-2.5 transition-colors duration-150 rounded-lg px-1 -mx-1"
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = "var(--bg-hover)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = "transparent";
-              }}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: Math.min(i, 6) * 0.035, duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+              className="flex gap-3 py-2.5 activity-row rounded-lg px-1 -mx-1"
             >
               <div className="flex flex-col items-center">
                 <div

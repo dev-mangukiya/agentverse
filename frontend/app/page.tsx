@@ -241,10 +241,10 @@ export default function Home() {
             {currentView === "dashboard" && (
               <motion.div
                 key="dashboard"
-                initial={{ opacity: 0, y: 10 }}
+                initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.25 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
                 className="h-full overflow-y-auto p-3 md:p-6 pb-8 md:pb-10 space-y-4 md:space-y-6"
                 style={{ backgroundColor: "var(--bg-base)" }}
               >
@@ -260,10 +260,10 @@ export default function Home() {
             {currentView === "agents" && (
               <motion.div
                 key="agents"
-                initial={{ opacity: 0, y: 10 }}
+                initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.25 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
                 className="h-full flex flex-col overflow-hidden"
                 style={{ backgroundColor: "var(--bg-base)" }}
               >
@@ -276,11 +276,12 @@ export default function Home() {
                     <button
                       key={tab.id}
                       onClick={() => setAgentTab(tab.id)}
-                      className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200"
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium"
                       style={{
                         backgroundColor: agentTab === tab.id ? "var(--brand-dim)" : "transparent",
                         color: agentTab === tab.id ? "var(--brand-text)" : "var(--text-muted)",
                         border: `1px solid ${agentTab === tab.id ? "color-mix(in srgb, var(--brand) 20%, transparent)" : "transparent"}`,
+                        transition: "background-color var(--duration-instant) var(--ease-out), color var(--duration-instant) var(--ease-out), border-color var(--duration-instant) var(--ease-out)",
                       }}
                     >
                       <span>{tab.icon}</span>
@@ -288,16 +289,33 @@ export default function Home() {
                     </button>
                   ))}
                 </div>
-                {/* Tab content */}
+                {/* Tab content with crossfade */}
                 <div className="flex-1 overflow-y-auto">
-                  {agentTab === "builder" && (
-                    <div className="p-3 md:p-6">
-                      <AgentBuilder />
-                    </div>
-                  )}
-                  {agentTab === "compare" && (
-                    <AgentComparison />
-                  )}
+                  <AnimatePresence mode="wait">
+                    {agentTab === "builder" && (
+                      <motion.div
+                        key="builder"
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
+                        className="p-3 md:p-6"
+                      >
+                        <AgentBuilder />
+                      </motion.div>
+                    )}
+                    {agentTab === "compare" && (
+                      <motion.div
+                        key="compare"
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
+                      >
+                        <AgentComparison />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               </motion.div>
             )}

@@ -85,7 +85,7 @@ export function Header({ currentView, onMobileMenuToggle, pipelineActive, active
             {onMobileMenuToggle && (
               <button
                 onClick={onMobileMenuToggle}
-                className="lg:hidden p-2 rounded-xl transition-all duration-200"
+                className="lg:hidden p-2 rounded-xl transition-colors duration-150"
                 style={{ color: "var(--text-muted)" }}
                 aria-label="Toggle menu"
                 onMouseEnter={(e) => {
@@ -157,7 +157,7 @@ export function Header({ currentView, onMobileMenuToggle, pipelineActive, active
           <div className="flex items-center gap-2.5 ml-auto">
             {/* System status badge */}
             <div
-              className="items-center gap-1.5 px-3 py-1.5 rounded-xl border hidden sm:flex transition-all duration-200"
+              className="items-center gap-1.5 px-3 py-1.5 rounded-xl border hidden sm:flex transition-colors duration-150"
               style={{
                 backgroundColor: backendStatus === "online" ? "var(--green-dim)"
                   : backendStatus === "waking" ? "color-mix(in srgb, var(--yellow, #eab308) 10%, var(--bg-panel))"
@@ -198,7 +198,7 @@ export function Header({ currentView, onMobileMenuToggle, pipelineActive, active
             {/* Theme toggle */}
             <button
               onClick={toggleTheme}
-              className="w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 relative overflow-hidden"
+              className="w-9 h-9 rounded-xl flex items-center justify-center transition-colors duration-150 relative overflow-hidden"
               style={{
                 backgroundColor: "var(--bg-hover)",
                 color: "var(--text-muted)",

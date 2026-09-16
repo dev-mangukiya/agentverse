@@ -146,8 +146,9 @@ export function AgentAnalytics() {
   };
 
   const SortHeader = ({ label, field, align }: { label: string; field: SortKey; align?: string }) => (
-    <th
-      className={`text-[10px] font-semibold uppercase tracking-wider py-2.5 px-3 cursor-pointer select-none transition-colors duration-150 ${align === "right" ? "text-right" : "text-left"}`}
+    <div
+      role="columnheader"
+      className={`text-[10px] font-semibold uppercase tracking-wider py-2.5 px-3 cursor-pointer select-none ${align === "right" ? "text-right" : "text-left"}`}
       style={{ color: sortKey === field ? "var(--text-secondary)" : "var(--text-faint)" }}
       onClick={() => handleSort(field)}
     >
@@ -155,7 +156,7 @@ export function AgentAnalytics() {
       {sortKey === field && (
         <span className="ml-1 text-[9px]">{sortAsc ? "↑" : "↓"}</span>
       )}
-    </th>
+    </div>
   );
 
   if (loading) {
@@ -219,7 +220,7 @@ export function AgentAnalytics() {
         </ResponsiveContainer>
       </div>
 
-      {/* Agent table */}
+      {/* Agent table — div-grid with ARIA roles for reliable layout animation */}
       <div
         className="rounded-2xl overflow-hidden"
         style={{ backgroundColor: "var(--bg-raised)", border: "1px solid var(--border-subtle)" }}
@@ -230,68 +231,87 @@ export function AgentAnalytics() {
           </span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                <SortHeader label="Agent" field="name" />
-                <SortHeader label="Messages" field="total_messages" align="right" />
-                <SortHeader label="Avg Response" field="avg_response_ms" align="right" />
-                <SortHeader label="Last Active" field="last_active" align="right" />
-                <th className="text-[10px] font-semibold uppercase tracking-wider py-2.5 px-3 text-right" style={{ color: "var(--text-faint)" }}>
-                  Status
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedAgents.map((agent, i) => {
-                const status = getStatus(agent.last_active, agent.total_messages);
-                return (
-                  <motion.tr
-                    key={agent.name}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: i * 0.03 }}
-                    className="transition-colors duration-150"
-                    style={{ borderBottom: i < sortedAgents.length - 1 ? "1px solid var(--border-subtle)" : undefined }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = "var(--bg-hover)"; }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = "transparent"; }}
-                  >
-                    <td className="py-2.5 px-3">
-                      <span className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>
-                        {getAgent(agent.name).displayName}
+          {/* Header row */}
+          <div
+            role="row"
+            className="grid gap-0"
+            style={{
+              gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr",
+              borderBottom: "1px solid var(--border-subtle)",
+            }}
+          >
+            <SortHeader label="Agent" field="name" />
+            <SortHeader label="Messages" field="total_messages" align="right" />
+            <SortHeader label="Avg Response" field="avg_response_ms" align="right" />
+            <SortHeader label="Last Active" field="last_active" align="right" />
+            <div
+              role="columnheader"
+              className="text-[10px] font-semibold uppercase tracking-wider py-2.5 px-3 text-right"
+              style={{ color: "var(--text-faint)" }}
+            >
+              Status
+            </div>
+          </div>
+          {/* Data rows */}
+          <div role="rowgroup">
+            {sortedAgents.map((agent, i) => {
+              const status = getStatus(agent.last_active, agent.total_messages);
+              return (
+                <motion.div
+                  key={agent.name}
+                  role="row"
+                  layout
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{
+                    layout: { duration: 0.26, ease: [0.4, 0, 0.2, 1] },
+                    opacity: { duration: 0.18, delay: i * 0.035 },
+                    y: { duration: 0.18, delay: i * 0.035 },
+                  }}
+                  className="grid gap-0 analytics-row rounded-lg"
+                  style={{
+                    gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr",
+                    borderBottom: i < sortedAgents.length - 1 ? "1px solid var(--border-subtle)" : undefined,
+                  }}
+                >
+                  <div role="cell" className="py-2.5 px-3">
+                    <span className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>
+                      {getAgent(agent.name).displayName}
+                    </span>
+                  </div>
+                  <div role="cell" className="py-2.5 px-3 text-right">
+                    <span className="text-xs font-semibold tabular-nums" style={{ color: "var(--text-secondary)" }}>
+                      {agent.total_messages}
+                    </span>
+                  </div>
+                  <div role="cell" className="py-2.5 px-3 text-right">
+                    <span className="text-xs tabular-nums" style={{ color: "var(--text-muted)" }}>
+                      {formatMs(agent.avg_response_ms)}
+                    </span>
+                  </div>
+                  <div role="cell" className="py-2.5 px-3 text-right">
+                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                      {timeAgo(agent.last_active)}
+                    </span>
+                  </div>
+                  <div role="cell" className="py-2.5 px-3">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <motion.span
+                        className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ duration: 0.18 }}
+                        style={{ backgroundColor: statusColors[status] }}
+                      />
+                      <span className="text-[10px] font-medium" style={{ color: "var(--text-faint)" }}>
+                        {status}
                       </span>
-                    </td>
-                    <td className="py-2.5 px-3 text-right">
-                      <span className="text-xs font-semibold tabular-nums" style={{ color: "var(--text-secondary)" }}>
-                        {agent.total_messages}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3 text-right">
-                      <span className="text-xs tabular-nums" style={{ color: "var(--text-muted)" }}>
-                        {formatMs(agent.avg_response_ms)}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3 text-right">
-                      <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                        {timeAgo(agent.last_active)}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <span
-                          className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: statusColors[status] }}
-                        />
-                        <span className="text-[10px] font-medium" style={{ color: "var(--text-faint)" }}>
-                          {status}
-                        </span>
-                      </div>
-                    </td>
-                  </motion.tr>
-                );
-              })}
-            </tbody>
-          </table>
+                    </div>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
         </div>
       </div>
     </motion.div>

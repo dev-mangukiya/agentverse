@@ -155,7 +155,7 @@ export function WelcomeModal() {
                   <div className="space-y-2.5">
                     <button
                       onClick={handleSignIn}
-                      className="w-full py-3 rounded-xl text-sm font-semibold transition-all duration-200"
+                      className="w-full py-3 rounded-xl text-sm font-semibold transition-colors duration-150"
                       style={{
                         background: "linear-gradient(135deg, var(--aurora-1), var(--aurora-3))",
                         color: "white",
@@ -174,7 +174,7 @@ export function WelcomeModal() {
                     </button>
                     <button
                       onClick={handleDismiss}
-                      className="w-full py-2.5 rounded-xl text-xs font-medium transition-all duration-200"
+                      className="w-full py-2.5 rounded-xl text-xs font-medium transition-colors duration-150"
                       style={{
                         color: "var(--text-muted)",
                         backgroundColor: "transparent",

@@ -94,6 +94,17 @@
   --aurora-3: #8b5cf6;
   --aurora-4: #06b6d4;
   --aurora-5: #10b981;
+
+  /* ─── Motion tokens ────────────────────────────────────────
+   * Keep in sync with config/motion.ts (seconds → milliseconds)
+   */
+  --duration-instant: 100ms;
+  --duration-fast:    180ms;
+  --duration-base:    260ms;
+  --ease-out:         cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out:      cubic-bezier(0.4, 0, 0.2, 1);
+
+  scroll-behavior: smooth;
 }
 
 /* ─── Light Theme ────────────────────────────────────────────────────────── */
@@ -243,7 +254,7 @@
     border-radius: 24px;
     position: relative;
     overflow: hidden;
-    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: background-color var(--duration-base) var(--ease-in-out), border-color var(--duration-base) var(--ease-in-out), transform var(--duration-base) var(--ease-in-out), opacity var(--duration-base) var(--ease-in-out);
   }
 
   .glass-panel-premium::before {
@@ -300,7 +311,8 @@
 
   /* ── Buttons ─────────────────────────────────────────────────────── */
   .btn-primary {
-    @apply px-5 py-2.5 rounded-full font-medium text-sm transition-all duration-200;
+    @apply px-5 py-2.5 rounded-full font-medium text-sm;
+    transition: background-color var(--duration-instant) var(--ease-out), color var(--duration-instant) var(--ease-out), border-color var(--duration-instant) var(--ease-out), transform var(--duration-instant) var(--ease-out), opacity var(--duration-instant) var(--ease-out);
     background: linear-gradient(135deg, var(--brand) 0%, var(--brand-secondary) 50%, var(--brand-accent) 100%);
     background-size: 200% 200%;
     animation: gradientShift 4s ease-in-out infinite;
@@ -321,7 +333,8 @@
   .btn-primary:active { transform: translateY(0); }
 
   .btn-ghost {
-    @apply px-4 py-2 rounded-full font-medium text-sm transition-all duration-200;
+    @apply px-4 py-2 rounded-full font-medium text-sm;
+    transition: background-color var(--duration-instant) var(--ease-out), color var(--duration-instant) var(--ease-out), border-color var(--duration-instant) var(--ease-out), transform var(--duration-instant) var(--ease-out), opacity var(--duration-instant) var(--ease-out);
     background: var(--bg-hover);
     color: var(--text-muted);
     border: 1px solid var(--border-muted);
@@ -330,7 +343,8 @@
 
   /* ── Nav items ───────────────────────────────────────────────────── */
   .nav-item {
-    @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer w-full text-left;
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium cursor-pointer w-full text-left;
+    transition: background-color var(--duration-instant) var(--ease-out), color var(--duration-instant) var(--ease-out), border-color var(--duration-instant) var(--ease-out), transform var(--duration-instant) var(--ease-out), opacity var(--duration-instant) var(--ease-out);
     color: var(--text-muted);
     position: relative;
   }
@@ -353,7 +367,8 @@
 
   /* ── Conversation items ──────────────────────────────────────────── */
   .conv-item {
-    @apply flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all duration-150 cursor-pointer w-full text-left;
+    @apply flex items-center gap-2 px-3 py-2 rounded-xl text-sm cursor-pointer w-full text-left;
+    transition: background-color var(--duration-instant) var(--ease-out), color var(--duration-instant) var(--ease-out), border-color var(--duration-instant) var(--ease-out), transform var(--duration-instant) var(--ease-out), opacity var(--duration-instant) var(--ease-out);
     color: var(--text-muted);
   }
   .conv-item:hover { background: var(--bg-hover); color: var(--text-primary); }
@@ -361,7 +376,8 @@
 
   /* ── Send button ─────────────────────────────────────────────────── */
   .send-btn {
-    @apply w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 flex-shrink-0;
+    @apply w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0;
+    transition: background-color var(--duration-instant) var(--ease-out), color var(--duration-instant) var(--ease-out), transform var(--duration-instant) var(--ease-out), opacity var(--duration-instant) var(--ease-out);
     background: linear-gradient(135deg, var(--brand) 0%, var(--brand-secondary) 50%, var(--brand-accent) 100%);
     background-size: 200% 200%;
     animation: gradientShift 4s ease-in-out infinite;
@@ -385,7 +401,8 @@
 
   /* ── Input ───────────────────────────────────────────────────────── */
   .input-field {
-    @apply w-full px-4 py-3 rounded-xl text-sm transition-all duration-200 outline-none;
+    @apply w-full px-4 py-3 rounded-xl text-sm outline-none;
+    transition: background-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out), opacity var(--duration-fast) var(--ease-out);
     background: var(--input-bg);
     border: 1px solid var(--input-border);
     color: var(--text-primary);
@@ -395,7 +412,8 @@
 
   /* ── Theme toggle button ─────────────────────────────────────────── */
   .theme-toggle {
-    @apply flex items-center justify-center w-9 h-9 rounded-full transition-all duration-300;
+    @apply flex items-center justify-center w-9 h-9 rounded-full;
+    transition: background-color var(--duration-instant) var(--ease-out), color var(--duration-instant) var(--ease-out), transform var(--duration-instant) var(--ease-out), opacity var(--duration-instant) var(--ease-out);
     background: var(--bg-hover);
     color: var(--text-muted);
     border: 1px solid var(--border-subtle);
@@ -491,7 +509,7 @@
     border: 1px solid var(--glass-border);
     border-radius: 16px;
     padding: 14px 16px;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: background-color var(--duration-fast) var(--ease-in-out), border-color var(--duration-fast) var(--ease-in-out), transform var(--duration-fast) var(--ease-in-out), opacity var(--duration-fast) var(--ease-in-out);
     position: relative;
     overflow: hidden;
   }
@@ -548,12 +566,12 @@
   .pipeline-node:last-child::before { display: none; }
   .pipeline-node--active::before { background: linear-gradient(180deg, var(--agent-color, var(--brand)), transparent); box-shadow: 0 0 8px var(--agent-color, var(--brand)); animation: flowLine 1.5s ease-in-out infinite; }
 
-  .pipeline-dot { position: absolute; left: 4px; top: 18px; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--border-muted); background: var(--bg-panel); display: flex; align-items: center; justify-content: center; z-index: 2; transition: all 0.3s ease; }
+  .pipeline-dot { position: absolute; left: 4px; top: 18px; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--border-muted); background: var(--bg-panel); display: flex; align-items: center; justify-content: center; z-index: 2; transition: background-color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out), opacity var(--duration-fast) var(--ease-out); }
   .pipeline-dot--active { border-color: var(--agent-color, var(--brand)); background: color-mix(in srgb, var(--agent-color, var(--brand)) 15%, var(--bg-panel)); box-shadow: 0 0 12px color-mix(in srgb, var(--agent-color, var(--brand)) 40%, transparent); animation: agentGlow 2s ease-in-out infinite; }
   .pipeline-dot--complete { border-color: var(--green); background: color-mix(in srgb, var(--green) 15%, var(--bg-panel)); }
   .pipeline-dot--complete::after { content: '✓'; font-size: 8px; color: var(--green); font-weight: bold; }
 
-  .tool-pill { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 10px; font-size: 11px; font-family: 'JetBrains Mono', monospace; background: var(--bg-raised); border: 1px solid var(--border-subtle); color: var(--text-muted); transition: all 0.2s ease; }
+  .tool-pill { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 10px; font-size: 11px; font-family: 'JetBrains Mono', monospace; background: var(--bg-raised); border: 1px solid var(--border-subtle); color: var(--text-muted); transition: background-color var(--duration-instant) var(--ease-out), color var(--duration-instant) var(--ease-out), border-color var(--duration-instant) var(--ease-out); }
   .tool-pill--active { background: var(--brand-dim); border-color: color-mix(in srgb, var(--brand) 20%, transparent); color: var(--brand-text); box-shadow: 0 0 12px -3px var(--brand-glow); }
 
   /* ── Agent avatar ────────────────────────────────────────────────── */
@@ -568,7 +586,7 @@
   .network-canvas { position: relative; overflow: hidden; }
   .network-canvas::before { content: ''; position: absolute; inset: 0; background: var(--network-bg); pointer-events: none; z-index: 0; }
   .network-grid { background-image: linear-gradient(var(--network-grid) 1px, transparent 1px), linear-gradient(90deg, var(--network-grid) 1px, transparent 1px); background-size: 40px 40px; }
-  .network-node { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+  .network-node { transition: background-color var(--duration-fast) var(--ease-in-out), border-color var(--duration-fast) var(--ease-in-out), transform var(--duration-fast) var(--ease-in-out), opacity var(--duration-fast) var(--ease-in-out); }
   .network-node:hover { transform: scale(1.15) translateZ(0); z-index: 20; }
 }
 
@@ -625,17 +643,17 @@
 
 /* ── File Upload ───────────────────────────────────────────────────────────── */
 .file-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px 4px; }
-.file-chip { display: flex; align-items: center; gap: 6px; padding: 4px 10px 4px 8px; border-radius: 10px; background: var(--bg-raised); border: 1px solid var(--border-subtle); font-size: 11px; color: var(--text-secondary); max-width: 200px; transition: all 0.2s ease; animation: fadeSlideIn 0.25s ease-out; }
+.file-chip { display: flex; align-items: center; gap: 6px; padding: 4px 10px 4px 8px; border-radius: 10px; background: var(--bg-raised); border: 1px solid var(--border-subtle); font-size: 11px; color: var(--text-secondary); max-width: 200px; transition: background-color var(--duration-instant) var(--ease-out), border-color var(--duration-instant) var(--ease-out), opacity var(--duration-instant) var(--ease-out); animation: fadeSlideIn 0.25s ease-out; }
 .file-chip:hover { border-color: var(--border-muted); background: var(--bg-elevated); }
 .file-chip__icon { font-size: 14px; flex-shrink: 0; }
 .file-chip__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; font-weight: 500; }
 .file-chip__size { font-size: 9px; color: var(--text-faint); flex-shrink: 0; font-variant-numeric: tabular-nums; }
-.file-chip__remove { width: 16px; height: 16px; border-radius: 50%; border: none; background: transparent; color: var(--text-faint); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; transition: all 0.15s ease; font-size: 12px; line-height: 1; }
+.file-chip__remove { width: 16px; height: 16px; border-radius: 50%; border: none; background: transparent; color: var(--text-faint); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; transition: background-color var(--duration-instant) var(--ease-out), color var(--duration-instant) var(--ease-out), opacity var(--duration-instant) var(--ease-out); font-size: 12px; line-height: 1; }
 .file-chip__remove:hover { background: var(--red-dim); color: var(--red); }
 .file-chip--image { padding: 3px 10px 3px 3px; }
 .file-chip--image .file-chip__preview { width: 28px; height: 28px; border-radius: 7px; object-fit: cover; flex-shrink: 0; }
 
-.upload-btn { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 10px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.2s ease; flex-shrink: 0; padding: 0; }
+.upload-btn { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 10px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; transition: background-color var(--duration-instant) var(--ease-out), color var(--duration-instant) var(--ease-out), transform var(--duration-instant) var(--ease-out); flex-shrink: 0; padding: 0; }
 .upload-btn:hover { background: var(--bg-hover); color: var(--brand); }
 .upload-btn:active { transform: scale(0.92); }
 
@@ -647,12 +665,12 @@
 .camera-modal__inner { display: flex; flex-direction: column; align-items: center; gap: 24px; width: 100%; max-width: 640px; padding: 24px; }
 .camera-modal__video { width: 100%; max-height: 60vh; border-radius: 16px; object-fit: cover; border: 2px solid rgba(255, 255, 255, 0.1); box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5); background: #000; }
 .camera-modal__controls { display: flex; align-items: center; justify-content: center; gap: 32px; }
-.camera-modal__capture { width: 64px; height: 64px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, 0.9); background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px; transition: all 0.2s ease; }
+.camera-modal__capture { width: 64px; height: 64px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, 0.9); background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px; transition: background-color var(--duration-instant) var(--ease-out), transform var(--duration-instant) var(--ease-out), opacity var(--duration-instant) var(--ease-out); }
 .camera-modal__capture:hover { border-color: var(--brand); transform: scale(1.05); }
 .camera-modal__capture:active { transform: scale(0.95); }
 .camera-modal__capture-ring { width: 100%; height: 100%; border-radius: 50%; background: rgba(255, 255, 255, 0.9); transition: background 0.15s ease; }
 .camera-modal__capture:hover .camera-modal__capture-ring { background: var(--brand); }
-.camera-modal__close { width: 44px; height: 44px; border-radius: 50%; border: none; background: rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.8); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; }
+.camera-modal__close { width: 44px; height: 44px; border-radius: 50%; border: none; background: rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.8); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background-color var(--duration-instant) var(--ease-out), color var(--duration-instant) var(--ease-out), transform var(--duration-instant) var(--ease-out); }
 .camera-modal__close:hover { background: rgba(255, 255, 255, 0.2); color: #fff; }
 
 /* ── Scrollbar ─────────────────────────────────────────────────────────────── */
@@ -677,7 +695,7 @@ textarea:disabled { opacity: 0.5; cursor: not-allowed; }
 .mobile-sheet-handle { width: 36px; height: 4px; border-radius: 2px; background: var(--border-strong); margin: 10px auto 6px; }
 
 /* ─── Mobile-Only Trigger Buttons ─── */
-.mobile-trigger-btn { display: flex; align-items: center; justify-content: center; min-width: 36px; min-height: 36px; border-radius: 10px; border: 1px solid var(--border-subtle); background: var(--bg-raised); color: var(--text-muted); cursor: pointer; transition: all 0.2s ease; padding: 6px 10px; gap: 5px; font-size: 11px; font-weight: 600; flex-shrink: 0; }
+.mobile-trigger-btn { display: flex; align-items: center; justify-content: center; min-width: 36px; min-height: 36px; border-radius: 10px; border: 1px solid var(--border-subtle); background: var(--bg-raised); color: var(--text-muted); cursor: pointer; transition: background-color var(--duration-instant) var(--ease-out), color var(--duration-instant) var(--ease-out), border-color var(--duration-instant) var(--ease-out), transform var(--duration-instant) var(--ease-out); padding: 6px 10px; gap: 5px; font-size: 11px; font-weight: 600; flex-shrink: 0; }
 .mobile-trigger-btn:hover, .mobile-trigger-btn:active { background: var(--bg-elevated); border-color: var(--border-muted); color: var(--text-primary); }
 
 /* ─── Mobile Responsive ────────────────────────────────────────────────────── */
@@ -732,3 +750,36 @@ textarea:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ─── Line Clamp ─── */
 .line-clamp-2 { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+/* ─── Global Interactive Feedback ────────────────────────── */
+.clickable {
+  transition: background-color var(--duration-instant) var(--ease-out), color var(--duration-instant) var(--ease-out), border-color var(--duration-instant) var(--ease-out), transform var(--duration-instant) var(--ease-out), opacity var(--duration-instant) var(--ease-out);
+}
+button:active,
+[role="button"]:active,
+.nav-item:active,
+.clickable:active {
+  transform: scale(0.97);
+}
+
+/* ─── Row hover classes (CSS-only, no JS handlers) ───────── */
+.analytics-row,
+.activity-row,
+.health-row {
+  transition: background-color var(--duration-instant) var(--ease-out);
+}
+.analytics-row:hover,
+.activity-row:hover,
+.health-row:hover {
+  background-color: var(--bg-hover);
+}
+
+/* ─── Accessibility: respect reduced-motion preference ───── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

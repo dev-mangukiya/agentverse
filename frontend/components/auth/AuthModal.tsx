@@ -232,7 +232,7 @@ export function AuthModal({ open, onClose, onSuccess }: AuthModalProps) {
                     <button
                       key={t}
                       onClick={() => switchTab(t)}
-                      className="flex-1 py-2 text-sm font-medium rounded-lg transition-all duration-200"
+                      className="flex-1 py-2 text-sm font-medium rounded-lg transition-colors duration-150"
                       style={{
                         backgroundColor: tab === t ? "var(--bg-elevated)" : "transparent",
                         color: tab === t ? "var(--text-primary)" : "var(--text-muted)",
@@ -302,7 +302,7 @@ export function AuthModal({ open, onClose, onSuccess }: AuthModalProps) {
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         placeholder="Your name (optional)"
-                        className="w-full px-4 py-2.5 rounded-xl text-sm transition-all duration-200 outline-none"
+                        className="w-full px-4 py-2.5 rounded-xl text-sm transition-colors duration-150 outline-none"
                         style={{
                           backgroundColor: "var(--bg-base)",
                           border: "1px solid var(--border-muted)",
@@ -335,7 +335,7 @@ export function AuthModal({ open, onClose, onSuccess }: AuthModalProps) {
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
                     required
-                    className="w-full px-4 py-2.5 rounded-xl text-sm transition-all duration-200 outline-none"
+                    className="w-full px-4 py-2.5 rounded-xl text-sm transition-colors duration-150 outline-none"
                     style={{
                       backgroundColor: "var(--bg-base)",
                       border: "1px solid var(--border-muted)",
@@ -365,7 +365,7 @@ export function AuthModal({ open, onClose, onSuccess }: AuthModalProps) {
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder={tab === "register" ? "Min 6 characters" : "••••••••"}
                     required
-                    className="w-full px-4 py-2.5 rounded-xl text-sm transition-all duration-200 outline-none"
+                    className="w-full px-4 py-2.5 rounded-xl text-sm transition-colors duration-150 outline-none"
                     style={{
                       backgroundColor: "var(--bg-base)",
                       border: "1px solid var(--border-muted)",
@@ -406,7 +406,7 @@ export function AuthModal({ open, onClose, onSuccess }: AuthModalProps) {
                 <button
                   type="submit"
                   disabled={loading || !email || !password}
-                  className="w-full py-3 rounded-xl text-sm font-semibold transition-all duration-200 relative overflow-hidden"
+                  className="w-full py-3 rounded-xl text-sm font-semibold transition-colors duration-150 relative overflow-hidden"
                   style={{
                     background: loading
                       ? "var(--bg-hover)"

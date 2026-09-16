@@ -300,7 +300,7 @@ export function Sidebar({
               {/* Theme toggle */}
               <button
                 onClick={toggleTheme}
-                className="w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-200"
+                className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors duration-150"
                 style={{ color: "var(--text-muted)" }}
                 title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
                 onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--bg-hover)"; }}
@@ -328,7 +328,7 @@ export function Sidebar({
               <button
                 onClick={() => setUserMenuOpen(!userMenuOpen)}
                 className={clsx(
-                  "w-full flex items-center gap-2.5 rounded-xl transition-all duration-200",
+                  "w-full flex items-center gap-2.5 rounded-xl transition-colors duration-150",
                   collapsed ? "justify-center p-2 overflow-hidden" : "px-3 py-2"
                 )}
                 style={{ color: "var(--text-secondary)" }}
@@ -365,7 +365,7 @@ export function Sidebar({
               <button
                 onClick={() => setAuthModalOpen(true)}
                 className={clsx(
-                  "w-full flex items-center gap-2.5 rounded-xl transition-all duration-200",
+                  "w-full flex items-center gap-2.5 rounded-xl transition-colors duration-150",
                   collapsed ? "justify-center p-2 overflow-hidden" : "px-3 py-2"
                 )}
                 style={{ color: "var(--text-secondary)" }}

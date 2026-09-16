@@ -150,7 +150,7 @@ export function PromptTemplates({ onSelect, onInsert, onClose }: PromptTemplates
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.05 * i, duration: 0.3 }}
             onClick={() => handleSelect(template.prompt)}
-            className="flex flex-col items-start gap-2 p-4 rounded-xl text-left transition-all duration-200 group"
+            className="flex flex-col items-start gap-2 p-4 rounded-xl text-left transition-colors duration-150 group"
             style={{
               backgroundColor: "var(--bg-panel)",
               border: "1px solid var(--border-subtle)",

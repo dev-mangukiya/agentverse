@@ -121,10 +121,10 @@ export function KPICards() {
       {kpiConfig.map((kpi, i) => (
         <motion.div
           key={kpi.key}
-          initial={{ opacity: 0, y: 20, scale: 0.95 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ delay: i * 0.1, duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
-          className="rounded-2xl p-4 md:p-5 transition-colors duration-200"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: i * 0.06, duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
+          className="rounded-2xl p-4 md:p-5"
           style={{
             backgroundColor: "var(--bg-raised)",
             border: "1px solid var(--border-subtle)",
@@ -142,7 +142,11 @@ export function KPICards() {
               <div className="shimmer-loading h-3.5 w-28 rounded-md" />
             </>
           ) : (
-            <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            >
               <div className="text-2xl font-bold mb-1.5 tracking-tight" style={{ color: "var(--text-primary)" }}>
                 {kpi.isNumeric ? (
                   <AnimatedNumber value={kpi.getValue(stats)} />
@@ -151,7 +155,7 @@ export function KPICards() {
                 )}
               </div>
               <div className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>{kpi.getSubtext(stats)}</div>
-            </>
+            </motion.div>
           )}
         </motion.div>
       ))}

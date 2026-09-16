@@ -103,16 +103,10 @@ export function SystemHealth() {
         {!loading && services.map((svc, i) => (
           <motion.div
             key={svc.name}
-            initial={{ opacity: 0, x: -12 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: i * 0.08, duration: 0.3 }}
-            className="flex items-center justify-between py-2 px-3 rounded-xl transition-colors duration-150"
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = "var(--bg-hover)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = "transparent";
-            }}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: Math.min(i, 6) * 0.035, duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            className="flex items-center justify-between py-2 px-3 rounded-xl health-row"
           >
             <div className="flex items-center gap-2.5">
               <div
@@ -127,8 +121,11 @@ export function SystemHealth() {
               <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>{svc.name}</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span
+              <motion.span
                 className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.18, delay: 0.1 }}
                 style={{ backgroundColor: statusDotColor(svc.status) }}
               />
               <span className="text-[10px] font-medium" style={{ color: "var(--text-faint)" }}>

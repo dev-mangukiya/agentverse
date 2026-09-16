@@ -75,7 +75,7 @@ export function AgentPipeline({
         <div className="flex items-center gap-2.5">
           <div className="flex items-center gap-1.5">
             <div
-              className="w-2 h-2 rounded-full transition-all duration-300"
+              className="w-2 h-2 rounded-full transition-colors duration-150"
               style={{
                 backgroundColor: pipelineActive ? "var(--green)" : "var(--text-faint)",
                 boxShadow: pipelineActive ? "0 0 10px var(--green)" : "none",
@@ -162,7 +162,7 @@ export function AgentPipeline({
                     initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: i * 0.07, duration: 0.3 }}
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group/agent cursor-default"
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors duration-150 group/agent cursor-default"
                     style={{ backgroundColor: "var(--bg-raised)" }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.backgroundColor = "var(--bg-elevated)";
@@ -190,7 +190,7 @@ export function AgentPipeline({
                       </div>
                     </div>
                     <div
-                      className="w-1.5 h-1.5 rounded-full transition-all duration-300 group-hover/agent:scale-150"
+                      className="w-1.5 h-1.5 rounded-full transition-colors duration-150 group-hover/agent:scale-150"
                       style={{
                         backgroundColor: "var(--text-faint)",
                         opacity: 0.4,

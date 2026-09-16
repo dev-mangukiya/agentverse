@@ -1111,7 +1111,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
               className="w-full max-w-2xl relative z-10 mb-6"
             >
               <div
-                className="relative rounded-full transition-all duration-300"
+                className="relative rounded-full transition-colors duration-150"
                 style={{
                   background: "var(--input-bg)",
                   border: "1px solid var(--input-border)",
@@ -1250,7 +1250,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.45 + i * 0.06, duration: 0.3 }}
                     onClick={() => handleSend(s.text)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium transition-all duration-200"
+                    className="flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium transition-colors duration-150"
                     style={{
                       background: "var(--bg-elevated)",
                       border: "1px solid var(--border-subtle)",
@@ -1445,7 +1445,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                                   const el = document.getElementById(`critic-review-${msg.id}`);
                                   if (el) el.style.display = el.style.display === "none" ? "block" : "none";
                                 }}
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer"
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors duration-150 cursor-pointer"
                                 style={{
                                   backgroundColor: msg.critic_score >= 7
                                     ? "color-mix(in srgb, #22c55e 12%, transparent)"
@@ -1500,7 +1500,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                               <a
                                 href={`${API_URL}/api/v1/documents/download/${fileId}`}
                                 download={fileName}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 mr-auto"
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors duration-150 mr-auto"
                                 style={{
                                   backgroundColor: "var(--brand-dim)",
                                   color: "var(--brand)",
@@ -1536,7 +1536,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                                     ));
                                   } catch { /* silently fail */ }
                                 }}
-                                className="p-1.5 rounded-lg transition-all duration-200"
+                                className="p-1.5 rounded-lg transition-colors duration-150"
                                 style={{
                                   color: msg.feedback === fb
                                     ? fb === "up" ? "var(--green)" : "var(--red)"
@@ -1689,7 +1689,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
           </div>
 
           <div
-            className="relative rounded-2xl transition-all duration-300"
+            className="relative rounded-2xl transition-colors duration-150"
             style={{
               background: "var(--input-bg)",
               backdropFilter: "blur(24px) saturate(1.4)",

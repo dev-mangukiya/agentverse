@@ -145,7 +145,7 @@ export function AgentCard({
               {meta.label}
             </span>
             <span
-              className="text-[10px] font-semibold px-2 py-0.5 rounded-full transition-all duration-200 flex-shrink-0"
+              className="text-[10px] font-semibold px-2 py-0.5 rounded-full transition-colors duration-150 flex-shrink-0"
               style={{
                 backgroundColor: isActive
                   ? `color-mix(in srgb, ${meta.color} 12%, transparent)`

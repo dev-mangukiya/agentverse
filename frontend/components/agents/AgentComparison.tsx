@@ -158,7 +158,7 @@ export function AgentComparison() {
                   key={agent.id}
                   onClick={() => toggleAgent(agent.id)}
                   disabled={isDisabled}
-                  className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-200"
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-colors duration-150"
                   style={{
                     background: isSelected ? "color-mix(in srgb, var(--brand) 10%, transparent)" : "var(--bg-raised)",
                     border: `1.5px solid ${isSelected ? "var(--brand)" : "var(--border-subtle)"}`,
@@ -214,7 +214,7 @@ export function AgentComparison() {
           <button
             onClick={handleCompare}
             disabled={!prompt.trim() || selectedAgents.length < 2 || loading}
-            className="px-5 py-3 rounded-xl text-sm font-semibold transition-all duration-200 flex-shrink-0 self-end"
+            className="px-5 py-3 rounded-xl text-sm font-semibold transition-colors duration-150 flex-shrink-0 self-end"
             style={{
               backgroundColor: prompt.trim() && !loading ? "var(--brand)" : "var(--bg-raised)",
               color: prompt.trim() && !loading ? "white" : "var(--text-faint)",

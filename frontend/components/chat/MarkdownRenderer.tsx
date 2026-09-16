@@ -25,7 +25,7 @@ function CopyButton({ text }: { text: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-all duration-200"
+      className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors duration-150"
       style={{
         color: copied ? "var(--green)" : "var(--text-faint)",
         backgroundColor: copied ? "var(--green-dim)" : "transparent",

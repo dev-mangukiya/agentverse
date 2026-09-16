@@ -82,7 +82,7 @@ export function NotificationCenter({ onNotificationClick }: { onNotificationClic
           setOpen(!open);
           if (!open) markAllRead();
         }}
-        className="w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-200 relative"
+        className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors duration-150 relative"
         style={{
           color: "var(--text-muted)",
         }}
@@ -228,7 +228,7 @@ export function NotificationCenter({ onNotificationClick }: { onNotificationClic
                       </div>
                       <button
                         onClick={() => dismiss(notif.id)}
-                        className="flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center opacity-0 group-hover/notif:opacity-100 transition-all"
+                        className="flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center opacity-0 group-hover/notif:opacity-100 transition-colors"
                         style={{ color: "var(--text-faint)" }}
                         onMouseEnter={(e) => { e.currentTarget.style.color = "var(--red)"; }}
                         onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-faint)"; }}

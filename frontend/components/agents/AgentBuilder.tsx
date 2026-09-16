@@ -203,7 +203,7 @@ export function AgentBuilder() {
         </div>
         <button
           onClick={openCreate}
-          className="px-4 py-2 rounded-lg text-white text-sm font-medium transition-all whitespace-nowrap flex-shrink-0"
+          className="px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0"
           style={{ background: "linear-gradient(135deg, #6366f1, #8b5cf6, #06b6d4)", boxShadow: "0 4px 12px rgba(99,102,241,0.2)" }}
         >
           + Create Agent
@@ -217,7 +217,7 @@ export function AgentBuilder() {
           return (
           <div 
             key={agent.id}
-            className="rounded-2xl p-5 group relative flex flex-col transition-colors duration-200"
+            className="rounded-2xl p-5 group relative flex flex-col clickable"
             style={{ 
               backgroundColor: "var(--bg-raised)",
               border: "1px solid var(--border-subtle)",
@@ -400,7 +400,7 @@ export function AgentBuilder() {
                   <button 
                     onClick={handleSave}
                     disabled={saving || !formData.name || !formData.system_prompt}
-                    className="px-5 py-2 rounded-lg text-white text-sm font-medium transition-all disabled:opacity-50"
+                    className="px-5 py-2 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50"
                     style={{ background: "linear-gradient(135deg, #6366f1, #8b5cf6, #06b6d4)" }}
                   >
                     {saving ? "Saving..." : (editAgent ? "Save Changes" : "Create Agent")}

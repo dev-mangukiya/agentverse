@@ -641,6 +641,17 @@
 @keyframes sparkle { 0%, 100% { opacity: 0; transform: scale(0) rotate(0deg); } 50% { opacity: 1; transform: scale(1) rotate(180deg); } }
 @keyframes logoGlow { 0%, 100% { opacity: 0.6; transform: scale(0.95); } 50% { opacity: 1; transform: scale(1.05); } }
 
+/* Architecture diagram — live pipeline pulse.
+   Only applied via .arch-node-pulse when a real pipeline event fires.
+   Completely inert when no class is present. */
+@keyframes archPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+.arch-node-pulse {
+  animation: archPulse 1.2s ease-in-out infinite;
+}
+
 /* ── File Upload ───────────────────────────────────────────────────────────── */
 .file-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px 4px; }
 .file-chip { display: flex; align-items: center; gap: 6px; padding: 4px 10px 4px 8px; border-radius: 10px; background: var(--bg-raised); border: 1px solid var(--border-subtle); font-size: 11px; color: var(--text-secondary); max-width: 200px; transition: background-color var(--duration-instant) var(--ease-out), border-color var(--duration-instant) var(--ease-out), opacity var(--duration-instant) var(--ease-out); animation: fadeSlideIn 0.25s ease-out; }

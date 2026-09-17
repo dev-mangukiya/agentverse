@@ -255,7 +255,7 @@ export default function Home() {
                   <SystemHealth />
                   <ActivityFeed />
                 </div>
-                <ArchitectureOverview />
+                <ArchitectureOverview pipelineAgents={pipelineAgents} />
               </motion.div>
             )}
 

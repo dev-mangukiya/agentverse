@@ -17,6 +17,9 @@ interface AgentMetric {
   last_active: string | null;
   first_seen: string | null;
   avg_response_ms: number | null;
+  p50_response_ms: number | null;
+  p95_response_ms: number | null;
+  response_sample_count: number;
 }
 
 interface DailyData {
@@ -243,7 +246,7 @@ export function AgentAnalytics() {
           >
             <SortHeader label="Agent" field="name" />
             <SortHeader label="Messages" field="total_messages" align="right" />
-            <SortHeader label="Avg Response" field="avg_response_ms" align="right" />
+            <SortHeader label="Response Time" field="avg_response_ms" align="right" />
             <SortHeader label="Last Active" field="last_active" align="right" />
             <div
               role="columnheader"
@@ -286,9 +289,21 @@ export function AgentAnalytics() {
                     </span>
                   </div>
                   <div role="cell" className="py-2.5 px-3 text-right">
-                    <span className="text-xs tabular-nums" style={{ color: "var(--text-muted)" }}>
-                      {formatMs(agent.avg_response_ms)}
-                    </span>
+                    {agent.p50_response_ms != null && agent.p95_response_ms != null ? (
+                      <span className="text-xs tabular-nums" style={{ color: "var(--text-muted)" }}>
+                        <span style={{ color: "var(--text-secondary)" }}>{formatMs(agent.p50_response_ms)}</span>
+                        <span className="mx-0.5" style={{ color: "var(--text-faint)" }}>/</span>
+                        <span>{formatMs(agent.p95_response_ms)}</span>
+                        <span className="text-[9px] ml-1" style={{ color: "var(--text-faint)" }}>p50/p95</span>
+                      </span>
+                    ) : (
+                      <span className="text-xs tabular-nums" style={{ color: "var(--text-faint)" }}>
+                        {formatMs(agent.avg_response_ms)}
+                        {agent.avg_response_ms != null && (
+                          <span className="text-[9px] ml-1" title={`Only ${agent.response_sample_count} samples — need ≥20 for percentiles`}>avg</span>
+                        )}
+                      </span>
+                    )}
                   </div>
                   <div role="cell" className="py-2.5 px-3 text-right">
                     <span className="text-xs" style={{ color: "var(--text-muted)" }}>
@@ -375,8 +390,21 @@ export function AgentAnalytics() {
                     <div className="text-xs font-semibold tabular-nums" style={{ color: "var(--text-secondary)" }}>{agent.total_messages}</div>
                   </div>
                   <div>
-                    <div className="text-[10px] uppercase tracking-wider mb-0.5" style={{ color: "var(--text-faint)" }}>Avg Resp</div>
-                    <div className="text-xs tabular-nums" style={{ color: "var(--text-muted)" }}>{formatMs(agent.avg_response_ms)}</div>
+                    {agent.p50_response_ms != null ? (
+                      <>
+                        <div className="text-[10px] uppercase tracking-wider mb-0.5" style={{ color: "var(--text-faint)" }}>p50 / p95</div>
+                        <div className="text-xs tabular-nums" style={{ color: "var(--text-muted)" }}>
+                          <span style={{ color: "var(--text-secondary)" }}>{formatMs(agent.p50_response_ms)}</span>
+                          <span className="mx-0.5" style={{ color: "var(--text-faint)" }}>/</span>
+                          {formatMs(agent.p95_response_ms)}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-[10px] uppercase tracking-wider mb-0.5" style={{ color: "var(--text-faint)" }}>Avg Resp</div>
+                        <div className="text-xs tabular-nums" style={{ color: "var(--text-faint)" }}>{formatMs(agent.avg_response_ms)}</div>
+                      </>
+                    )}
                   </div>
                   <div>
                     <div className="text-[10px] uppercase tracking-wider mb-0.5" style={{ color: "var(--text-faint)" }}>Last Active</div>

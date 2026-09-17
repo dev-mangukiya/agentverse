@@ -218,39 +218,60 @@ async def get_agent_analytics(db: AsyncSession = Depends(get_db)) -> dict:
     )
     agent_rows = agent_stats_result.all()
 
+    # ── Minimum samples to compute meaningful percentiles ──
+    MIN_PERCENTILE_SAMPLES = 20
+
     agents = []
     for row in agent_rows:
         name = row.agent_name
         meta = _AGENT_META.get(name, {"color": "#9aa0a6", "role": "Agent"})
 
-        # Estimate avg response time from message pairs (user → agent)
-        # This is a rough estimate based on timestamps
+        # Compute response time stats from user→agent message timestamp pairs.
+        # These are wall-clock diffs (includes orchestration + network), not pure LLM latency.
         avg_response_ms = None
+        p50_response_ms = None
+        p95_response_ms = None
+        sample_count = 0
+
         try:
-            # Use dialect-appropriate timestamp diff
             dialect = db.bind.dialect.name if db.bind else "sqlite"
+
             if dialect == "postgresql":
+                # PostgreSQL: use PERCENTILE_CONT for p50/p95 in one query
                 sql = text("""
-                    SELECT AVG(
-                        EXTRACT(EPOCH FROM (a.created_at - u.created_at))
-                    ) * 1000 as avg_ms
-                    FROM messages a
-                    JOIN messages u ON a.conversation_id = u.conversation_id
-                        AND u.role = 'user'
-                        AND u.created_at < a.created_at
-                    WHERE a.role = 'agent' AND a.agent_name = :name
-                    AND u.created_at = (
-                        SELECT MAX(u2.created_at) FROM messages u2
-                        WHERE u2.conversation_id = a.conversation_id
-                        AND u2.role = 'user'
-                        AND u2.created_at < a.created_at
+                    WITH diffs AS (
+                        SELECT EXTRACT(EPOCH FROM (a.created_at - u.created_at)) * 1000 AS ms
+                        FROM messages a
+                        JOIN messages u ON a.conversation_id = u.conversation_id
+                            AND u.role = 'user'
+                            AND u.created_at < a.created_at
+                        WHERE a.role = 'agent' AND a.agent_name = :name
+                        AND u.created_at = (
+                            SELECT MAX(u2.created_at) FROM messages u2
+                            WHERE u2.conversation_id = a.conversation_id
+                            AND u2.role = 'user'
+                            AND u2.created_at < a.created_at
+                        )
                     )
+                    SELECT
+                        COUNT(*) AS n,
+                        AVG(ms) AS avg_ms,
+                        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ms) AS p50_ms,
+                        PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY ms) AS p95_ms
+                    FROM diffs
                 """)
+                result = await db.execute(sql, {"name": name})
+                r = result.first()
+                if r and r.n:
+                    sample_count = int(r.n)
+                    avg_response_ms = int(r.avg_ms) if r.avg_ms else None
+                    if sample_count >= MIN_PERCENTILE_SAMPLES:
+                        p50_response_ms = int(r.p50_ms) if r.p50_ms else None
+                        p95_response_ms = int(r.p95_ms) if r.p95_ms else None
             else:
+                # SQLite: no PERCENTILE_CONT, fetch sorted diffs and compute manually
                 sql = text("""
-                    SELECT AVG(
-                        julianday(a.created_at) - julianday(u.created_at)
-                    ) * 86400000 as avg_ms
+                    SELECT (julianday(a.created_at) - julianday(u.created_at)) * 86400000 AS ms
                     FROM messages a
                     JOIN messages u ON a.conversation_id = u.conversation_id
                         AND u.role = 'user'
@@ -262,11 +283,18 @@ async def get_agent_analytics(db: AsyncSession = Depends(get_db)) -> dict:
                         AND u2.role = 'user'
                         AND u2.created_at < a.created_at
                     )
+                    ORDER BY ms
                 """)
-            pairs_result = await db.execute(sql, {"name": name})
-            avg_row = pairs_result.first()
-            if avg_row and avg_row[0]:
-                avg_response_ms = int(avg_row[0])
+                result = await db.execute(sql, {"name": name})
+                vals = [r[0] for r in result.all() if r[0] is not None and r[0] > 0]
+                sample_count = len(vals)
+                if vals:
+                    avg_response_ms = int(sum(vals) / len(vals))
+                    if sample_count >= MIN_PERCENTILE_SAMPLES:
+                        p50_idx = int(len(vals) * 0.5)
+                        p95_idx = min(int(len(vals) * 0.95), len(vals) - 1)
+                        p50_response_ms = int(vals[p50_idx])
+                        p95_response_ms = int(vals[p95_idx])
         except Exception:
             pass
 
@@ -277,6 +305,9 @@ async def get_agent_analytics(db: AsyncSession = Depends(get_db)) -> dict:
             "last_active": row.last_active.isoformat() if row.last_active else None,
             "first_seen": row.first_seen.isoformat() if row.first_seen else None,
             "avg_response_ms": avg_response_ms,
+            "p50_response_ms": p50_response_ms,
+            "p95_response_ms": p95_response_ms,
+            "response_sample_count": sample_count,
         })
 
     # Daily message counts for the last 7 days

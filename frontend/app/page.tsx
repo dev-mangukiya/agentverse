@@ -12,6 +12,7 @@ import { KPICards } from "@/components/dashboard/KPICards";
 import { AgentBuilder } from "@/components/agents/AgentBuilder";
 import { AgentAnalytics } from "@/components/dashboard/AgentAnalytics";
 import { AgentComparison } from "@/components/agents/AgentComparison";
+import { ArchitectureOverview } from "@/components/dashboard/ArchitectureOverview";
 import { WelcomeModal } from "@/components/auth/WelcomeModal";
 import { useKeepAlive } from "@/hooks/useKeepAlive";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
@@ -254,6 +255,7 @@ export default function Home() {
                   <SystemHealth />
                   <ActivityFeed />
                 </div>
+                <ArchitectureOverview />
               </motion.div>
             )}
 

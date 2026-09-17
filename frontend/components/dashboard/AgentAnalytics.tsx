@@ -197,7 +197,7 @@ export function AgentAnalytics() {
           Messages — Last 7 Days
         </div>
         <ResponsiveContainer width="100%" height={160}>
-          <AreaChart data={data.daily_messages} margin={{ left: 0, right: 10, top: 0, bottom: 0 }}>
+          <AreaChart data={data.daily_messages} margin={{ left: -10, right: 10, top: 5, bottom: 0 }}>
             <defs>
               <linearGradient id="msgGradient" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="var(--brand)" stopOpacity={0.2} />
@@ -219,8 +219,7 @@ export function AgentAnalytics() {
           </AreaChart>
         </ResponsiveContainer>
       </div>
-
-      {/* Agent table — div-grid with ARIA roles for reliable layout animation */}
+      {/* Agent performance — CSS-only responsive layout */}
       <div
         className="rounded-2xl overflow-hidden"
         style={{ backgroundColor: "var(--bg-raised)", border: "1px solid var(--border-subtle)" }}
@@ -230,7 +229,9 @@ export function AgentAnalytics() {
             Agent Performance
           </span>
         </div>
-        <div className="overflow-x-auto">
+
+        {/* ── Desktop: grid table (hidden below md:) ──────────────── */}
+        <div className="hidden md:block overflow-x-auto">
           {/* Header row */}
           <div
             role="row"
@@ -312,6 +313,79 @@ export function AgentAnalytics() {
               );
             })}
           </div>
+        </div>
+
+        {/* ── Mobile: stacked cards (hidden at md: and above) ─────── */}
+        <div className="md:hidden px-3 pb-3 space-y-2">
+          {/* Sort controls for mobile */}
+          <div className="flex items-center gap-2 py-2 overflow-x-auto">
+            {(["name", "total_messages", "avg_response_ms", "last_active"] as SortKey[]).map((field) => {
+              const labels: Record<SortKey, string> = { name: "Name", total_messages: "Msgs", avg_response_ms: "Avg", last_active: "Recent" };
+              return (
+                <button
+                  key={field}
+                  onClick={() => handleSort(field)}
+                  className="text-[10px] font-semibold uppercase tracking-wider px-2.5 py-1.5 rounded-lg flex-shrink-0"
+                  style={{
+                    backgroundColor: sortKey === field ? "var(--brand-dim)" : "var(--bg-hover)",
+                    color: sortKey === field ? "var(--brand-text)" : "var(--text-faint)",
+                    border: `1px solid ${sortKey === field ? "color-mix(in srgb, var(--brand) 20%, transparent)" : "transparent"}`,
+                  }}
+                >
+                  {labels[field]}
+                  {sortKey === field && <span className="ml-0.5">{sortAsc ? "↑" : "↓"}</span>}
+                </button>
+              );
+            })}
+          </div>
+          {sortedAgents.map((agent, i) => {
+            const status = getStatus(agent.last_active, agent.total_messages);
+            const info = getAgent(agent.name);
+            return (
+              <motion.div
+                key={agent.name}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: Math.min(i, 6) * 0.035, duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                className="rounded-xl p-3"
+                style={{
+                  backgroundColor: "var(--bg-elevated)",
+                  border: "1px solid var(--border-subtle)",
+                }}
+              >
+                {/* Card header: agent name + status */}
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
+                    {info.displayName}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: statusColors[status] }}
+                    />
+                    <span className="text-[10px] font-medium" style={{ color: "var(--text-faint)" }}>
+                      {status}
+                    </span>
+                  </div>
+                </div>
+                {/* Card body: stat pairs */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider mb-0.5" style={{ color: "var(--text-faint)" }}>Messages</div>
+                    <div className="text-xs font-semibold tabular-nums" style={{ color: "var(--text-secondary)" }}>{agent.total_messages}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider mb-0.5" style={{ color: "var(--text-faint)" }}>Avg Resp</div>
+                    <div className="text-xs tabular-nums" style={{ color: "var(--text-muted)" }}>{formatMs(agent.avg_response_ms)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider mb-0.5" style={{ color: "var(--text-faint)" }}>Last Active</div>
+                    <div className="text-xs" style={{ color: "var(--text-muted)" }}>{timeAgo(agent.last_active)}</div>
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })}
         </div>
       </div>
     </motion.div>

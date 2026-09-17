@@ -276,7 +276,7 @@ export default function Home() {
                     <button
                       key={tab.id}
                       onClick={() => setAgentTab(tab.id)}
-                      className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium"
+                      className="flex-1 md:flex-none flex items-center justify-center md:justify-start gap-2 px-4 py-2.5 rounded-xl text-sm font-medium"
                       style={{
                         backgroundColor: agentTab === tab.id ? "var(--brand-dim)" : "transparent",
                         color: agentTab === tab.id ? "var(--brand-text)" : "var(--text-muted)",

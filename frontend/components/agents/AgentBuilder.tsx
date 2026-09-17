@@ -235,7 +235,7 @@ export function AgentBuilder() {
                 <span style={{ fontSize: "16px", display: "flex" }}>{info.icon}</span>
               </div>
               
-              <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1.5">
+              <div className="agent-card-actions opacity-0 group-hover:opacity-100 transition-opacity flex gap-1.5">
                 <button
                   onClick={() => setViewingAgent(agent)}
                   className="text-[10px] px-2 py-1 rounded-lg transition-colors"

@@ -23,7 +23,7 @@ if _db_url.startswith("sqlite"):
 else:
     # Disable prepared statement caching for compatibility with transaction
     # poolers (PgBouncer / Supavisor) which don't support prepared statements.
-    _connect_args = {"prepared_statement_cache_size": 0}
+    _connect_args = {"statement_cache_size": 0}
 
 engine = create_async_engine(
     _db_url,

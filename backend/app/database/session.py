@@ -20,6 +20,10 @@ _echo = settings.app_debug
 if _db_url.startswith("sqlite"):
     _connect_args = {"check_same_thread": False}
     _echo = False  # SQLite echo is very noisy
+else:
+    # Disable prepared statement caching for compatibility with transaction
+    # poolers (PgBouncer / Supavisor) which don't support prepared statements.
+    _connect_args = {"prepared_statement_cache_size": 0}
 
 engine = create_async_engine(
     _db_url,

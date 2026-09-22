@@ -6,6 +6,19 @@ import { AGENT_REGISTRY, getAgentIcon } from "@/config/agents";
 import { DatabaseIcon, ZapIcon, SparklesIcon, BrainIcon } from "../icons/Icons";
 import type { PipelineAgent } from "@/components/chat/ChatPanel";
 
+/** Traveling packet: animated dot along a connection line */
+interface TravelingPacket {
+  id: string;
+  agentId: string;
+  startTime: number;
+  duration: number; // ms
+}
+
+/** Ease-out cubic — matches var(--ease-out) */
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
+}
+
 /**
  * Interactive architecture diagram — "How AgentVerse Works"
  *
@@ -63,6 +76,75 @@ export function ArchitectureOverview({ pipelineAgents }: Props) {
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [popoverPos, setPopoverPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // ── Traveling Packet Animation ─────────────────────────
+  const [packets, setPackets] = useState<TravelingPacket[]>([]);
+  const prevActiveRef = useRef<Set<string>>(new Set());
+  const rafRef = useRef<number>();
+  const [, forceRender] = useState(0);
+
+  // Detect new activations and spawn packets
+  useEffect(() => {
+    const currentActive = new Set(
+      pipelineAgents
+        .filter(a => ["activated", "thinking", "tool_call"].includes(a.status))
+        .map(a => a.name.toLowerCase())
+    );
+    const prev = prevActiveRef.current;
+    const newActivations = Array.from(currentActive).filter(id => !prev.has(id) && id !== "orchestrator");
+
+    if (newActivations.length > 0) {
+      const now = performance.now();
+      const newPackets = newActivations.map(agentId => ({
+        id: `${agentId}-${now}`,
+        agentId,
+        startTime: now,
+        duration: 400,
+      }));
+      setPackets(p => [...p, ...newPackets]);
+    }
+    prevActiveRef.current = currentActive;
+  }, [pipelineAgents]);
+
+  // Animate packets via rAF — clean up completed ones
+  useEffect(() => {
+    if (packets.length === 0) {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      return;
+    }
+    const tick = () => {
+      const now = performance.now();
+      const alive = packets.filter(p => now - p.startTime < p.duration);
+      if (alive.length !== packets.length) {
+        setPackets(alive);
+      }
+      forceRender(n => n + 1); // force re-render for smooth animation
+      if (alive.length > 0) {
+        rafRef.current = requestAnimationFrame(tick);
+      }
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [packets]);
+
+  /** Compute the SVG position of a packet along orchestrator→agent line */
+  function getPacketPosition(packet: TravelingPacket): { x: number; y: number; opacity: number } | null {
+    const idx = SPECIALIST_IDS.indexOf(packet.agentId);
+    if (idx < 0) return null;
+    const angle = (idx / SPECIALIST_IDS.length) * Math.PI * 2 - Math.PI / 2;
+    const cx = 300, cy = 100;
+    const rx = 220, ry = 75;
+    const x2 = cx + Math.cos(angle) * rx;
+    const y2 = cy + Math.sin(angle) * ry;
+    const elapsed = performance.now() - packet.startTime;
+    const t = Math.min(elapsed / packet.duration, 1);
+    const eased = easeOutCubic(t);
+    return {
+      x: cx + (x2 - cx) * eased,
+      y: cy + (y2 - cy) * eased,
+      opacity: t < 0.9 ? 1 : 1 - (t - 0.9) / 0.1, // fade out in last 10%
+    };
+  }
 
   // Fetch agent stats (same endpoint as Agent Performance table)
   useEffect(() => {
@@ -206,6 +288,32 @@ export function ArchitectureOverview({ pipelineAgents }: Props) {
             })}
             {/* Connection line: system → infra row */}
             <line x1="300" y1="100" x2="300" y2="230" stroke="var(--border-subtle)" strokeWidth="1" strokeDasharray="4 3" opacity="0.4" />
+
+            {/* Traveling packets — only present during active requests */}
+            {packets.map(packet => {
+              const pos = getPacketPosition(packet);
+              if (!pos) return null;
+              return (
+                <React.Fragment key={packet.id}>
+                  {/* Glow */}
+                  <circle
+                    cx={pos.x}
+                    cy={pos.y}
+                    r={8}
+                    fill="var(--brand-glow)"
+                    opacity={pos.opacity * 0.4}
+                  />
+                  {/* Dot */}
+                  <circle
+                    cx={pos.x}
+                    cy={pos.y}
+                    r={3.5}
+                    fill="var(--brand)"
+                    opacity={pos.opacity}
+                  />
+                </React.Fragment>
+              );
+            })}
           </svg>
 
           {/* Orchestrator — center */}

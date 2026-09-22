@@ -3,25 +3,27 @@
 import { useEffect } from "react";
 
 interface KeyboardShortcutActions {
-  focusInput?: () => void;
+  openCommandPalette?: () => void;
   newChat?: () => void;
   toggleSidebar?: () => void;
   closeModal?: () => void;
+  openShortcuts?: () => void;
 }
 
 /**
  * Global keyboard shortcuts:
- * - Cmd/Ctrl+K → Focus chat input
+ * - Cmd/Ctrl+K → Open Command Palette
  * - Cmd/Ctrl+N → New conversation
  * - Cmd/Ctrl+/ → Toggle sidebar
- * - Escape → Close any open modal/panel
+ * - ?          → Open keyboard shortcuts overlay
+ * - Escape     → Close any open modal/panel
  */
 export function useKeyboardShortcuts(actions: KeyboardShortcutActions) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const isMetaOrCtrl = e.metaKey || e.ctrlKey;
 
-      // Don't interfere with input fields (except for Escape)
+      // Don't interfere with input fields (except for Escape and Cmd shortcuts)
       const target = e.target as HTMLElement;
       const isInInput =
         target.tagName === "INPUT" ||
@@ -33,19 +35,26 @@ export function useKeyboardShortcuts(actions: KeyboardShortcutActions) {
         return;
       }
 
-      if (!isMetaOrCtrl) return;
-
-      if (e.key === "k" || e.key === "K") {
-        e.preventDefault();
-        actions.focusInput?.();
-      } else if (e.key === "n" || e.key === "N") {
-        if (!isInInput) {
+      if (isMetaOrCtrl) {
+        if (e.key === "k" || e.key === "K") {
           e.preventDefault();
-          actions.newChat?.();
+          actions.openCommandPalette?.();
+        } else if (e.key === "n" || e.key === "N") {
+          if (!isInInput) {
+            e.preventDefault();
+            actions.newChat?.();
+          }
+        } else if (e.key === "/") {
+          e.preventDefault();
+          actions.toggleSidebar?.();
         }
-      } else if (e.key === "/") {
+        return;
+      }
+
+      // "?" key — open shortcuts overlay (only when not in input)
+      if ((e.key === "?" || (e.key === "/" && e.shiftKey)) && !isInInput) {
         e.preventDefault();
-        actions.toggleSidebar?.();
+        actions.openShortcuts?.();
       }
     };
 

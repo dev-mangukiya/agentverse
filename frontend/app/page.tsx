@@ -14,6 +14,10 @@ import { AgentAnalytics } from "@/components/dashboard/AgentAnalytics";
 import { AgentComparison } from "@/components/agents/AgentComparison";
 import { ArchitectureOverview } from "@/components/dashboard/ArchitectureOverview";
 import { WelcomeModal } from "@/components/auth/WelcomeModal";
+import { CommandPalette } from "@/components/layout/CommandPalette";
+import { ShortcutsOverlay } from "@/components/layout/ShortcutsOverlay";
+import { DashboardHighlights } from "@/components/dashboard/DashboardHighlights";
+import { FeedbackLeaderboard } from "@/components/dashboard/FeedbackLeaderboard";
 import { useKeepAlive } from "@/hooks/useKeepAlive";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 
@@ -116,22 +120,33 @@ export default function Home() {
   // Global chat input ref for Cmd+K focus
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Command Palette & Shortcuts Overlay state
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
   // Keyboard shortcuts
   const shortcutActions = useMemo(() => ({
-    focusInput: () => {
-      if (currentView !== "chat") setCurrentView("chat");
-      setTimeout(() => chatInputRef.current?.focus(), 50);
-    },
+    openCommandPalette: () => setCommandPaletteOpen(true),
     newChat: () => {
       setCurrentView("chat");
       setActiveConversationId(null);
     },
     toggleSidebar: () => setSidebarCollapsed(c => !c),
     closeModal: () => {
+      if (commandPaletteOpen) { setCommandPaletteOpen(false); return; }
+      if (shortcutsOpen) { setShortcutsOpen(false); return; }
       setMobileHistoryOpen(false);
     },
-  }), [currentView]);
+    openShortcuts: () => setShortcutsOpen(true),
+  }), [commandPaletteOpen, shortcutsOpen]);
   useKeyboardShortcuts(shortcutActions);
+
+  // Command Palette callbacks
+  const handlePaletteOpenCompare = useCallback((agentId?: string) => {
+    setCurrentView("agents");
+    setAgentTab("compare");
+    // Agent pre-selection is handled by the Compare component itself
+  }, []);
 
   return (
     <div className="flex w-screen max-w-full overflow-hidden" style={{ backgroundColor: "var(--bg-base)", height: "100dvh" }}>
@@ -250,7 +265,9 @@ export default function Home() {
                 style={{ backgroundColor: "var(--bg-base)" }}
               >
                 <KPICards />
+                <DashboardHighlights />
                 <AgentAnalytics />
+                <FeedbackLeaderboard />
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
                   <SystemHealth />
                   <ActivityFeed />
@@ -358,6 +375,27 @@ export default function Home() {
 
       {/* Welcome popup for first-time anonymous users */}
       <WelcomeModal />
+
+      {/* Command Palette */}
+      <CommandPalette
+        open={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        onNavigate={(view) => { setCurrentView(view); }}
+        onNewChat={() => { setCurrentView("chat"); setActiveConversationId(null); }}
+        onFocusInput={() => {
+          if (currentView !== "chat") setCurrentView("chat");
+          setTimeout(() => chatInputRef.current?.focus(), 50);
+        }}
+        onSelectConversation={setActiveConversationId}
+        onToggleSidebar={() => setSidebarCollapsed(c => !c)}
+        onOpenAgentCompare={handlePaletteOpenCompare}
+      />
+
+      {/* Keyboard Shortcuts Overlay */}
+      <ShortcutsOverlay
+        open={shortcutsOpen}
+        onClose={() => setShortcutsOpen(false)}
+      />
     </div>
   );
 }

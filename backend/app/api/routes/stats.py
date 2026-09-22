@@ -10,9 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.models.models import Conversation, Message
 from app.database.session import get_db
 from app.core.config import get_settings
+from app.core.logging import get_logger
 
 router = APIRouter(prefix="/stats", tags=["stats"])
 settings = get_settings()
+logger = get_logger(__name__)
 
 # Track server start time
 _START_TIME = time.time()
@@ -348,3 +350,255 @@ async def get_agent_analytics(db: AsyncSession = Depends(get_db)) -> dict:
         "daily_messages": daily,
         "tool_usage": tool_usage,
     }
+
+
+@router.get("/feedback-leaderboard")
+async def get_feedback_leaderboard(db: AsyncSession = Depends(get_db)) -> dict:
+    """Agent leaderboard ranked by thumbs-up ratio from messages.feedback.
+
+    Source: messages.feedback ('up'/'down'/null), messages.agent_name
+    Minimum sample threshold: agents below MIN_FEEDBACK get low_sample=true
+    and are returned but de-emphasized in the UI.
+    """
+    MIN_FEEDBACK = 5
+
+    try:
+        dialect = db.bind.dialect.name if db.bind else "sqlite"
+
+        if dialect == "postgresql":
+            sql = text("""
+                SELECT
+                    agent_name,
+                    COUNT(*) FILTER (WHERE feedback = 'up') AS thumbs_up,
+                    COUNT(*) FILTER (WHERE feedback = 'down') AS thumbs_down,
+                    COUNT(*) FILTER (WHERE feedback IS NOT NULL) AS total_feedback
+                FROM messages
+                WHERE role = 'agent' AND agent_name IS NOT NULL
+                GROUP BY agent_name
+                HAVING COUNT(*) FILTER (WHERE feedback IS NOT NULL) > 0
+                ORDER BY COUNT(*) FILTER (WHERE feedback = 'up')::float
+                    / GREATEST(COUNT(*) FILTER (WHERE feedback IS NOT NULL), 1) DESC
+            """)
+        else:
+            # SQLite: no FILTER syntax
+            sql = text("""
+                SELECT
+                    agent_name,
+                    SUM(CASE WHEN feedback = 'up' THEN 1 ELSE 0 END) AS thumbs_up,
+                    SUM(CASE WHEN feedback = 'down' THEN 1 ELSE 0 END) AS thumbs_down,
+                    SUM(CASE WHEN feedback IS NOT NULL THEN 1 ELSE 0 END) AS total_feedback
+                FROM messages
+                WHERE role = 'agent' AND agent_name IS NOT NULL
+                GROUP BY agent_name
+                HAVING SUM(CASE WHEN feedback IS NOT NULL THEN 1 ELSE 0 END) > 0
+                ORDER BY CAST(SUM(CASE WHEN feedback = 'up' THEN 1 ELSE 0 END) AS FLOAT)
+                    / MAX(SUM(CASE WHEN feedback IS NOT NULL THEN 1 ELSE 0 END), 1) DESC
+            """)
+
+        result = await db.execute(sql)
+        rows = result.all()
+
+        agents = []
+        for r in rows:
+            total = int(r.total_feedback)
+            up = int(r.thumbs_up)
+            down = int(r.thumbs_down)
+            approval = round(up / total, 3) if total > 0 else 0
+            agents.append({
+                "agent_name": r.agent_name,
+                "thumbs_up": up,
+                "thumbs_down": down,
+                "total_feedback": total,
+                "approval_rate": approval,
+                "low_sample": total < MIN_FEEDBACK,
+            })
+
+        return {
+            "agents": agents,
+            "min_threshold": MIN_FEEDBACK,
+            "has_data": len(agents) > 0,
+        }
+    except Exception as e:
+        logger.warning("feedback_leaderboard.error", error=str(e)[:200])
+        return {"agents": [], "min_threshold": MIN_FEEDBACK, "has_data": False}
+
+
+@router.get("/highlights")
+async def get_highlights(db: AsyncSession = Depends(get_db)) -> dict:
+    """Dashboard highlights — 2-3 derived facts from existing data.
+
+    Each fact includes its source table.column for verification traceability.
+    Facts with insufficient data are returned with available=false and omitted
+    in the UI — never overstated.
+    """
+    now = datetime.now(timezone.utc)
+    highlights = []
+
+    # ── 1. Fastest agent by avg response time ──
+    # Source: messages.created_at (user→agent timestamp pairs)
+    try:
+        dialect = db.bind.dialect.name if db.bind else "sqlite"
+
+        if dialect == "postgresql":
+            sql = text("""
+                WITH diffs AS (
+                    SELECT a.agent_name,
+                        EXTRACT(EPOCH FROM (a.created_at - u.created_at)) * 1000 AS ms
+                    FROM messages a
+                    JOIN messages u ON a.conversation_id = u.conversation_id
+                        AND u.role = 'user' AND u.created_at < a.created_at
+                    WHERE a.role = 'agent' AND a.agent_name IS NOT NULL
+                    AND u.created_at = (
+                        SELECT MAX(u2.created_at) FROM messages u2
+                        WHERE u2.conversation_id = a.conversation_id
+                        AND u2.role = 'user' AND u2.created_at < a.created_at
+                    )
+                )
+                SELECT agent_name, AVG(ms) AS avg_ms, COUNT(*) AS n
+                FROM diffs
+                GROUP BY agent_name
+                HAVING COUNT(*) >= 3
+                ORDER BY AVG(ms) ASC
+                LIMIT 1
+            """)
+        else:
+            sql = text("""
+                WITH diffs AS (
+                    SELECT a.agent_name,
+                        (julianday(a.created_at) - julianday(u.created_at)) * 86400000 AS ms
+                    FROM messages a
+                    JOIN messages u ON a.conversation_id = u.conversation_id
+                        AND u.role = 'user' AND u.created_at < a.created_at
+                    WHERE a.role = 'agent' AND a.agent_name IS NOT NULL
+                    AND u.created_at = (
+                        SELECT MAX(u2.created_at) FROM messages u2
+                        WHERE u2.conversation_id = a.conversation_id
+                        AND u2.role = 'user' AND u2.created_at < a.created_at
+                    )
+                )
+                SELECT agent_name, AVG(ms) AS avg_ms, COUNT(*) AS n
+                FROM diffs
+                GROUP BY agent_name
+                HAVING COUNT(*) >= 3
+                ORDER BY AVG(ms) ASC
+                LIMIT 1
+            """)
+        result = await db.execute(sql)
+        row = result.first()
+        if row and row.avg_ms:
+            avg_s = row.avg_ms / 1000
+            highlights.append({
+                "id": "fastest_agent",
+                "label": "Fastest avg response",
+                "value": row.agent_name,
+                "detail": f"{avg_s:.1f}s avg ({row.n} samples)",
+                "source": "messages.created_at (user→agent pairs)",
+                "available": True,
+            })
+        else:
+            highlights.append({
+                "id": "fastest_agent",
+                "label": "Fastest avg response",
+                "value": None,
+                "detail": "Need ≥3 response samples per agent",
+                "source": "messages.created_at (user→agent pairs)",
+                "available": False,
+            })
+    except Exception:
+        highlights.append({"id": "fastest_agent", "available": False})
+
+    # ── 2. Busiest day from last 7 days ──
+    # Source: messages.created_at grouped by date
+    try:
+        best_day = None
+        best_count = 0
+        for i in range(6, -1, -1):
+            day_start = (now - timedelta(days=i)).replace(hour=0, minute=0, second=0, microsecond=0)
+            day_end = day_start + timedelta(days=1)
+            count_result = await db.execute(
+                select(func.count(Message.id)).where(
+                    Message.created_at >= day_start,
+                    Message.created_at < day_end,
+                )
+            )
+            count = count_result.scalar_one()
+            if count > best_count:
+                best_count = count
+                best_day = day_start
+
+        if best_day and best_count > 0:
+            highlights.append({
+                "id": "busiest_day",
+                "label": "Most active day (7d)",
+                "value": best_day.strftime("%A"),
+                "detail": f"{best_count} messages",
+                "source": "messages.created_at grouped by date",
+                "available": True,
+            })
+        else:
+            highlights.append({
+                "id": "busiest_day",
+                "label": "Most active day (7d)",
+                "value": None,
+                "detail": "No messages in the last 7 days",
+                "source": "messages.created_at grouped by date",
+                "available": False,
+            })
+    except Exception:
+        highlights.append({"id": "busiest_day", "available": False})
+
+    # ── 3. Highest rated agent by feedback ──
+    # Source: messages.feedback per messages.agent_name
+    try:
+        # Reuse the same query pattern as the leaderboard
+        if dialect == "postgresql":
+            sql = text("""
+                SELECT agent_name,
+                    COUNT(*) FILTER (WHERE feedback = 'up') AS up,
+                    COUNT(*) FILTER (WHERE feedback IS NOT NULL) AS total
+                FROM messages
+                WHERE role = 'agent' AND agent_name IS NOT NULL
+                GROUP BY agent_name
+                HAVING COUNT(*) FILTER (WHERE feedback IS NOT NULL) >= 5
+                ORDER BY COUNT(*) FILTER (WHERE feedback = 'up')::float
+                    / GREATEST(COUNT(*) FILTER (WHERE feedback IS NOT NULL), 1) DESC
+                LIMIT 1
+            """)
+        else:
+            sql = text("""
+                SELECT agent_name,
+                    SUM(CASE WHEN feedback = 'up' THEN 1 ELSE 0 END) AS up,
+                    SUM(CASE WHEN feedback IS NOT NULL THEN 1 ELSE 0 END) AS total
+                FROM messages
+                WHERE role = 'agent' AND agent_name IS NOT NULL
+                GROUP BY agent_name
+                HAVING SUM(CASE WHEN feedback IS NOT NULL THEN 1 ELSE 0 END) >= 5
+                ORDER BY CAST(SUM(CASE WHEN feedback = 'up' THEN 1 ELSE 0 END) AS FLOAT)
+                    / MAX(SUM(CASE WHEN feedback IS NOT NULL THEN 1 ELSE 0 END), 1) DESC
+                LIMIT 1
+            """)
+        result = await db.execute(sql)
+        row = result.first()
+        if row:
+            pct = round(int(row.up) / int(row.total) * 100) if row.total else 0
+            highlights.append({
+                "id": "highest_rated",
+                "label": "Highest rated",
+                "value": row.agent_name,
+                "detail": f"{pct}% approval ({row.total} ratings)",
+                "source": "messages.feedback per messages.agent_name",
+                "available": True,
+            })
+        else:
+            highlights.append({
+                "id": "highest_rated",
+                "label": "Highest rated",
+                "value": None,
+                "detail": "Need ≥5 ratings per agent",
+                "source": "messages.feedback per messages.agent_name",
+                "available": False,
+            })
+    except Exception:
+        highlights.append({"id": "highest_rated", "available": False})
+
+    return {"highlights": highlights}

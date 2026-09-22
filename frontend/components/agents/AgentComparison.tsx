@@ -9,11 +9,6 @@ import { BotIcon, ScaleIcon } from "../icons/Icons";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
-const COLOR_PALETTE = [
-  "#ec4899", "#8b5cf6", "#ef4444", "#84cc16", "#f43f5e",
-  "#6366f1", "#22d3ee", "#eab308", "#d946ef", "#0ea5e9",
-];
-
 interface AgentOption {
   id: string;
   label: string;
@@ -25,6 +20,8 @@ interface ComparisonResult {
   response: string;
   duration_ms: number;
   error?: string;
+  critic_score?: number;
+  critic_review?: string;
 }
 
 export function AgentComparison() {
@@ -33,7 +30,9 @@ export function AgentComparison() {
   const [prompt, setPrompt] = useState("");
   const [results, setResults] = useState<ComparisonResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingPhase, setLoadingPhase] = useState<"agents" | "scoring">("agents");
   const [fetchingAgents, setFetchingAgents] = useState(true);
+  const [expandedReview, setExpandedReview] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Fetch agents from API on mount
@@ -75,40 +74,82 @@ export function AgentComparison() {
     });
   };
 
+  const criticIncluded = selectedAgents.includes("critic");
+
   const handleCompare = async () => {
     if (!prompt.trim() || selectedAgents.length < 2) return;
     setLoading(true);
+    setLoadingPhase("agents");
     setResults([]);
+    setExpandedReview(null);
 
     try {
-      const res = await fetch(`${API_URL}/api/v1/chat/compare`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...getAuthHeaders(),
-        },
-        body: JSON.stringify({
-          prompt: prompt.trim(),
-          agents: selectedAgents,
-        }),
-      });
+      // Show scoring phase indicator if critic is included
+      if (criticIncluded) {
+        // The backend handles both phases, but we show a phase transition
+        // after a reasonable delay to indicate scoring is happening
+        const phaseTimer = setTimeout(() => {
+          setLoadingPhase("scoring");
+        }, 3000); // After ~3s, most agents have responded; scoring begins
 
-      if (res.ok) {
-        const data = await res.json();
-        setResults(data.results || []);
+        const res = await fetch(`${API_URL}/api/v1/chat/compare`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders(),
+          },
+          body: JSON.stringify({
+            prompt: prompt.trim(),
+            agents: selectedAgents,
+          }),
+        });
+        clearTimeout(phaseTimer);
+
+        if (res.ok) {
+          const data = await res.json();
+          setResults(data.results || []);
+        } else {
+          const nonCritic = selectedAgents.filter(a => a !== "critic");
+          setResults(
+            nonCritic.map((a) => ({
+              agent: a,
+              response: "Failed to get response from this agent.",
+              duration_ms: 0,
+              error: "API error",
+            }))
+          );
+        }
       } else {
-        setResults(
-          selectedAgents.map((a) => ({
-            agent: a,
-            response: "Failed to get response from this agent.",
-            duration_ms: 0,
-            error: "API error",
-          }))
-        );
+        const res = await fetch(`${API_URL}/api/v1/chat/compare`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders(),
+          },
+          body: JSON.stringify({
+            prompt: prompt.trim(),
+            agents: selectedAgents,
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          setResults(data.results || []);
+        } else {
+          setResults(
+            selectedAgents.map((a) => ({
+              agent: a,
+              response: "Failed to get response from this agent.",
+              duration_ms: 0,
+              error: "API error",
+            }))
+          );
+        }
       }
     } catch {
+      const agents = selectedAgents.filter(a => a !== "critic");
       setResults(
-        selectedAgents.map((a) => ({
+        (agents.length > 0 ? agents : selectedAgents).map((a) => ({
           agent: a,
           response: "Network error — could not reach the backend.",
           duration_ms: 0,
@@ -120,8 +161,14 @@ export function AgentComparison() {
     }
   };
 
-  const getAgentOption = (id: string) => allAgents.find((a) => a.id === id);
   const atLimit = selectedAgents.length >= 3;
+
+  // Find highest critic score among results (for "Highest rated" badge)
+  const highestScore = results.reduce((max, r) => {
+    if (r.critic_score && r.critic_score > max) return r.critic_score;
+    return max;
+  }, 0);
+  const hasAnyScore = results.some(r => r.critic_score != null);
 
   return (
     <div className="flex flex-col h-full">
@@ -132,6 +179,9 @@ export function AgentComparison() {
         </h2>
         <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
           Run the same prompt through 2–3 agents and compare responses side-by-side
+          {criticIncluded && (
+            <span style={{ color: "var(--brand-text)" }}> — Critic will score each response</span>
+          )}
         </p>
       </div>
 
@@ -238,7 +288,7 @@ export function AgentComparison() {
           <div className="flex items-center justify-center py-16">
             <div className="flex flex-col items-center gap-4">
               <div className="flex gap-2">
-                {selectedAgents.map((id) => {
+                {selectedAgents.filter(a => a !== "critic").map((id) => {
                   const info = getAgent(id);
                   return (
                     <motion.div
@@ -269,8 +319,16 @@ export function AgentComparison() {
                 />
               </div>
               <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
-                Running agents in parallel...
+                {loadingPhase === "agents"
+                  ? "Running agents in parallel…"
+                  : "Critic is scoring responses…"
+                }
               </span>
+              {criticIncluded && loadingPhase === "agents" && (
+                <span className="text-[10px]" style={{ color: "var(--text-faint)" }}>
+                  Critic scoring will begin after agents respond
+                </span>
+              )}
             </div>
           </div>
         )}
@@ -287,6 +345,7 @@ export function AgentComparison() {
           <div className={`grid gap-4 ${results.length === 2 ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1 md:grid-cols-3"}`}>
             {results.map((result, i) => {
               const info = getAgent(result.agent);
+              const isHighest = hasAnyScore && result.critic_score === highestScore && highestScore > 0;
               return (
                 <motion.div
                   key={result.agent}
@@ -296,7 +355,7 @@ export function AgentComparison() {
                   className="rounded-2xl overflow-hidden flex flex-col"
                   style={{
                     backgroundColor: "var(--bg-raised)",
-                    border: "1px solid var(--border-subtle)",
+                    border: `1px solid ${isHighest ? "color-mix(in srgb, var(--brand) 30%, var(--border-subtle))" : "var(--border-subtle)"}`,
                   }}
                 >
                   {/* Subtle top accent */}
@@ -316,6 +375,34 @@ export function AgentComparison() {
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
+                      {/* Critic score badge */}
+                      {result.critic_score != null && (
+                        <button
+                          onClick={() => setExpandedReview(expandedReview === result.agent ? null : result.agent)}
+                          className="text-[10px] px-2 py-0.5 rounded-full font-semibold tabular-nums"
+                          style={{
+                            backgroundColor: isHighest ? "var(--brand-dim)" : "var(--bg-hover)",
+                            color: isHighest ? "var(--brand-text)" : "var(--text-muted)",
+                            border: isHighest ? "1px solid color-mix(in srgb, var(--brand) 20%, transparent)" : "1px solid transparent",
+                            cursor: result.critic_review ? "pointer" : "default",
+                          }}
+                          title={result.critic_review ? "Click to view full review" : undefined}
+                        >
+                          {result.critic_score}/10
+                        </button>
+                      )}
+                      {/* Highest rated badge */}
+                      {isHighest && (
+                        <span
+                          className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                          style={{
+                            backgroundColor: "var(--brand-dim)",
+                            color: "var(--brand-text)",
+                          }}
+                        >
+                          Highest rated
+                        </span>
+                      )}
                       {result.error ? (
                         <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ backgroundColor: "var(--red-dim)", color: "var(--red)" }}>
                           Error
@@ -327,6 +414,27 @@ export function AgentComparison() {
                       )}
                     </div>
                   </div>
+
+                  {/* Expandable critic review */}
+                  <AnimatePresence>
+                    {expandedReview === result.agent && result.critic_review && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden"
+                        style={{ borderBottom: "1px solid var(--border-subtle)" }}
+                      >
+                        <div className="px-4 py-3 text-xs leading-relaxed" style={{ color: "var(--text-muted)", backgroundColor: "var(--bg-elevated)" }}>
+                          <div className="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--text-faint)" }}>
+                            Critic Review
+                          </div>
+                          <MarkdownRenderer content={result.critic_review} />
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
 
                   {/* Response */}
                   <div className="px-4 py-3 flex-1 overflow-y-auto max-h-[400px] text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>

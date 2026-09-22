@@ -364,7 +364,15 @@ class CompareRequest(BaseModel):
 
 @router.post("/compare")
 async def compare_agents(body: CompareRequest) -> dict:
-    """Run the same prompt through multiple agents in parallel and return results."""
+    """Run the same prompt through multiple agents in parallel and return results.
+
+    NOTE — Intentional design decision: comparison results are EPHEMERAL.
+    They are not persisted to the database. Refreshing the page loses them.
+    This keeps comparisons lightweight and avoids polluting conversation
+    history with test runs. If persistence is needed later (e.g. for
+    critic-scored comparisons that users want to revisit), this is where
+    to add it — it's deferred, not an oversight.
+    """
     from app.agents.research import ResearchAgent
     from app.agents.coding import CodingAgent
     from app.agents.writer import WriterAgent
@@ -372,6 +380,7 @@ async def compare_agents(body: CompareRequest) -> dict:
     from app.agents.data_analyst import DataAnalystAgent
     from app.agents.doc_reader import DocReaderAgent
     from app.agents.doc_generator import DocGeneratorAgent
+    from app.agents.base import BaseAgent
 
     builtin_agent_classes = {
         "research": ResearchAgent,
@@ -386,13 +395,23 @@ async def compare_agents(body: CompareRequest) -> dict:
     if len(body.agents) < 2 or len(body.agents) > 3:
         raise HTTPException(status_code=400, detail="Select 2-3 agents")
 
+    # When Critic is among the selected agents, pull it out of the parallel
+    # run and use it to score each other agent's response after they finish.
+    critic_included = "critic" in body.agents
+    run_agents = [a for a in body.agents if a != "critic"]
+
+    # Need at least 2 non-critic agents to compare; if user selected critic
+    # + only 1 other agent, that's only 1 agent to run — still valid but
+    # it's more of a "score this agent" than a comparison.
+    if not run_agents:
+        raise HTTPException(status_code=400, detail="Select at least one non-critic agent to compare")
+
     async def run_agent(agent_name: str) -> dict:
         start = time.time()
         try:
             if agent_name in builtin_agent_classes:
                 agent = builtin_agent_classes[agent_name]()
             else:
-                # Try loading as a custom agent from the database
                 agent = await _load_custom_agent(agent_name)
                 if not agent:
                     raise ValueError(f"Unknown agent: {agent_name}")
@@ -413,8 +432,54 @@ async def compare_agents(body: CompareRequest) -> dict:
                 "error": str(e),
             }
 
-    results = await asyncio.gather(*[run_agent(a) for a in body.agents])
-    return {"results": list(results)}
+    results = list(await asyncio.gather(*[run_agent(a) for a in run_agents]))
+
+    # Phase 2: If Critic was selected, score each agent's response
+    if critic_included:
+        async def score_with_critic(result: dict) -> None:
+            """Run Critic against a single agent's output and attach the score."""
+            if result.get("error"):
+                return  # Don't score error responses
+            try:
+                critic_agent = CriticAgent()
+                review_prompt = (
+                    f"Review this output from the **{result['agent']}** agent.\n\n"
+                    f"**User's original request:**\n{body.prompt[:1000]}\n\n"
+                    f"**Agent's output:**\n{result['response'][:3000]}"
+                )
+                raw_review = await asyncio.wait_for(
+                    critic_agent.run(review_prompt),
+                    timeout=30.0,
+                )
+                # Parse the [CRITIC_REVIEW] JSON block
+                cleaned_review = BaseAgent._clean_markdown(raw_review)
+                json_match = re.search(
+                    r'\[CRITIC_REVIEW\]\s*(\{.*?\})\s*\[/CRITIC_REVIEW\]',
+                    raw_review,
+                    re.DOTALL,
+                )
+                if json_match:
+                    try:
+                        review_data = json.loads(json_match.group(1))
+                        score = int(review_data.get("score", 0))
+                        result["critic_score"] = max(1, min(10, score))
+                    except (json.JSONDecodeError, ValueError, TypeError):
+                        pass
+                    # Strip JSON block from display review
+                    cleaned_review = re.sub(
+                        r'\[CRITIC_REVIEW\].*?\[/CRITIC_REVIEW\]\s*',
+                        '', cleaned_review, flags=re.DOTALL,
+                    ).strip()
+                result["critic_review"] = cleaned_review
+            except asyncio.TimeoutError:
+                logger.warning("compare.critic_timeout", agent=result["agent"])
+            except Exception as exc:
+                logger.warning("compare.critic_error", agent=result["agent"], error=str(exc)[:200])
+
+        # Score all results in parallel (each is an independent Critic call)
+        await asyncio.gather(*[score_with_critic(r) for r in results])
+
+    return {"results": results, "critic_scored": critic_included}
 
 
 @router.get("/status")

@@ -209,7 +209,7 @@ export default function Home() {
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden" style={{ backgroundColor: "var(--bg-base)" }}>
         {/* ─── Fixed mobile top bar — visible on ALL views ─── */}
         <div
-          className="mobile-top-bar lg:hidden"
+          className="mobile-top-bar flex items-center gap-3 lg:hidden"
           style={{
             position: "fixed",
             top: 0,
@@ -217,9 +217,6 @@ export default function Home() {
             right: 0,
             zIndex: 60,
             height: `${MOBILE_HEADER_HEIGHT}px`,
-            display: "flex",
-            alignItems: "center",
-            gap: "12px",
             paddingLeft: "12px",
             paddingRight: "16px",
             backgroundColor: "var(--bg-sidebar)",

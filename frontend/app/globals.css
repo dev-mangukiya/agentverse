@@ -709,6 +709,38 @@ textarea:disabled { opacity: 0.5; cursor: not-allowed; }
 .mobile-trigger-btn { display: flex; align-items: center; justify-content: center; min-width: 36px; min-height: 36px; border-radius: 10px; border: 1px solid var(--border-subtle); background: var(--bg-raised); color: var(--text-muted); cursor: pointer; transition: background-color var(--duration-instant) var(--ease-out), color var(--duration-instant) var(--ease-out), border-color var(--duration-instant) var(--ease-out), transform var(--duration-instant) var(--ease-out); padding: 6px 10px; gap: 5px; font-size: 11px; font-weight: 600; flex-shrink: 0; }
 .mobile-trigger-btn:hover, .mobile-trigger-btn:active { background: var(--bg-elevated); border-color: var(--border-muted); color: var(--text-primary); }
 
+/* ─── Dashboard Section Grouping ───────────────────────────────────────────── */
+.dashboard-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.dashboard-section + .dashboard-section {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-subtle);
+}
+.dashboard-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  padding-left: 2px;
+}
+@media (min-width: 768px) {
+  .dashboard-section { gap: 24px; }
+  .dashboard-section + .dashboard-section { margin-top: 36px; padding-top: 28px; }
+}
+
+/* ─── Mobile Top Bar ───────────────────────────────────────────────────────── */
+@media (max-width: 1023px) {
+  .mobile-top-bar {
+    /* The inline styles handle most of this, but we add safe-area for notched devices */
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
+
 /* ─── Mobile Responsive ────────────────────────────────────────────────────── */
 @media (max-width: 767px) {
   #__next, main, [role="main"] { max-width: 100vw; overflow-x: hidden; }
@@ -734,6 +766,18 @@ textarea:disabled { opacity: 0.5; cursor: not-allowed; }
   .agent-form-name-row { grid-template-columns: 1fr auto !important; }
   .agent-form-name-row .agent-form-emoji-col { width: 64px; }
   h1, h2, h3, h4, h5, h6, p, span, div { overflow-wrap: break-word; word-break: break-word; }
+
+  /* ── Chat mobile polish ── */
+  /* Ensure greeting + composer have enough side padding */
+  .flex.flex-col.items-center.justify-center.h-full { padding-left: 20px !important; padding-right: 20px !important; }
+  /* Suggestion pills: tighter horizontal padding, allow wrapping with more gap */
+  .flex.flex-wrap.justify-center.gap-2 { gap: 8px !important; padding: 0 4px; }
+  /* Message list: comfortable side padding */
+  .w-full.max-w-3xl.mx-auto { padding-left: 12px !important; padding-right: 12px !important; }
+
+  /* ── Dashboard mobile density ── */
+  /* Increase sort-tab tap targets for Agent Performance */
+  .dashboard-section [role="columnheader"] { min-height: 44px; display: flex; align-items: center; }
 }
 
 /* Touch devices (tablets wider than 767px that are still touch-only) */

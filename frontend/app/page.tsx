@@ -21,6 +21,14 @@ import { FeedbackLeaderboard } from "@/components/dashboard/FeedbackLeaderboard"
 import { useKeepAlive } from "@/hooks/useKeepAlive";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 
+const MOBILE_HEADER_HEIGHT = 52; // px — keep in sync with the mobile-top-bar CSS
+
+const VIEW_TITLES: Record<string, string> = {
+  chat: "Chat",
+  dashboard: "Dashboard",
+  agents: "Agents",
+};
+
 type View = "dashboard" | "agents" | "chat";
 
 export default function Home() {
@@ -191,22 +199,60 @@ export default function Home() {
 
       {/* Main content */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden" style={{ backgroundColor: "var(--bg-base)" }}>
-        {/* Floating mobile hamburger — visible on ALL views */}
-        <button
-          className="fixed top-3 left-3 z-[60] lg:hidden w-10 h-10 rounded-xl flex items-center justify-center"
+        {/* ─── Fixed mobile top bar — visible on ALL views ─── */}
+        <div
+          className="mobile-top-bar lg:hidden"
           style={{
-            backgroundColor: "var(--bg-elevated)",
-            border: "1px solid var(--border-subtle)",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-            color: "var(--text-secondary)",
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 60,
+            height: `${MOBILE_HEADER_HEIGHT}px`,
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            paddingLeft: "12px",
+            paddingRight: "16px",
+            backgroundColor: "var(--bg-sidebar)",
+            borderBottom: "1px solid var(--border-subtle)",
+            backdropFilter: "blur(20px) saturate(1.4)",
+            WebkitBackdropFilter: "blur(20px) saturate(1.4)",
           }}
-          onClick={() => setMobileSidebarOpen(true)}
-          aria-label="Open menu"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-            <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-          </svg>
-        </button>
+          <button
+            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+            style={{ color: "var(--text-secondary)" }}
+            onClick={() => setMobileSidebarOpen(true)}
+            aria-label="Open menu"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </button>
+          <span
+            className="text-sm font-semibold truncate"
+            style={{ color: "var(--text-primary)", letterSpacing: "-0.01em" }}
+          >
+            {VIEW_TITLES[currentView] || "AgentVerse"}
+          </span>
+          {/* Right side: quick actions for chat view */}
+          {currentView === "chat" && (
+            <button
+              className="ml-auto w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+              style={{ color: "var(--text-muted)" }}
+              onClick={() => setMobileHistoryOpen(true)}
+              aria-label="Chat history"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          )}
+        </div>
+
+        {/* Spacer so content starts below the fixed mobile header */}
+        <div className="lg:hidden flex-shrink-0" style={{ height: `${MOBILE_HEADER_HEIGHT}px` }} />
 
         <div className="flex-1 overflow-hidden relative">
           {/* Chat view — ALWAYS MOUNTED to keep WebSocket alive */}
@@ -216,31 +262,6 @@ export default function Home() {
           >
             {/* Chat panel — main area (no separate history column, it's in sidebar now) */}
             <div className="flex-1 min-w-0 relative">
-              {/* Mobile-only action bar for sidebar + history + pipeline access */}
-              <div
-                className="flex lg:hidden items-center gap-2 px-3 py-2 flex-shrink-0"
-                style={{ borderBottom: "1px solid var(--border-subtle)" }}
-              >
-                {/* Hamburger to open sidebar */}
-                <button
-                  className="mobile-trigger-btn"
-                  onClick={() => setMobileSidebarOpen(true)}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                    <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                  </svg>
-                </button>
-                <button
-                  className="mobile-trigger-btn"
-                  onClick={() => setMobileHistoryOpen(true)}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                    <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                  <span className="hidden sm:inline">History</span>
-                </button>
-              </div>
-
               <ChatPanel
                 conversationId={activeConversationId}
                 onConversationCreated={handleConversationCreated}
@@ -261,18 +282,36 @@ export default function Home() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
-                className="h-full overflow-y-auto p-3 md:p-6 pb-8 md:pb-10 space-y-4 md:space-y-6"
+                className="h-full overflow-y-auto p-3 md:p-6 pb-8 md:pb-10"
                 style={{ backgroundColor: "var(--bg-base)" }}
               >
-                <KPICards />
-                <DashboardHighlights />
-                <AgentAnalytics />
-                <FeedbackLeaderboard />
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-                  <SystemHealth />
-                  <ActivityFeed />
+                {/* ── Overview Section ── */}
+                <div className="dashboard-section">
+                  <KPICards />
+                  <DashboardHighlights />
                 </div>
-                <ArchitectureOverview pipelineAgents={pipelineAgents} />
+
+                {/* ── Analytics Section ── */}
+                <div className="dashboard-section">
+                  <div className="dashboard-section-label">Analytics</div>
+                  <AgentAnalytics />
+                  <FeedbackLeaderboard />
+                </div>
+
+                {/* ── System Section ── */}
+                <div className="dashboard-section">
+                  <div className="dashboard-section-label">System</div>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+                    <SystemHealth />
+                    <ActivityFeed />
+                  </div>
+                </div>
+
+                {/* ── Architecture Section ── */}
+                <div className="dashboard-section">
+                  <div className="dashboard-section-label">Architecture</div>
+                  <ArchitectureOverview pipelineAgents={pipelineAgents} />
+                </div>
               </motion.div>
             )}
 

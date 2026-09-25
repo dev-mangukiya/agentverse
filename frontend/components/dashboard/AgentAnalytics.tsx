@@ -340,7 +340,7 @@ export function AgentAnalytics() {
                 <button
                   key={field}
                   onClick={() => handleSort(field)}
-                  className="text-[10px] font-semibold uppercase tracking-wider px-2.5 py-1.5 rounded-lg flex-shrink-0"
+                  className="text-[11px] font-semibold uppercase tracking-wider px-3.5 py-2 rounded-lg flex-shrink-0"
                   style={{
                     backgroundColor: sortKey === field ? "var(--brand-dim)" : "var(--bg-hover)",
                     color: sortKey === field ? "var(--brand-text)" : "var(--text-faint)",

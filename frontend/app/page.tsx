@@ -87,7 +87,10 @@ export default function Home() {
     };
   }, []);
 
-  const handleNewChat = useCallback(() => { setActiveConversationId(null); }, []);
+  const handleNewChat = useCallback(() => {
+    setActiveConversationId(null);
+    setMobileSidebarOpen(false);
+  }, []);
   const handleConversationCreated = useCallback((id: string) => {
     setActiveConversationId(id);
     setHistoryRefresh((n) => n + 1);
@@ -95,6 +98,11 @@ export default function Home() {
   const handleMessageSent = useCallback(() => { setHistoryRefresh((n) => n + 1); }, []);
   const handleNavigate = useCallback((view: View) => {
     setCurrentView(view);
+    setMobileSidebarOpen(false);
+  }, []);
+  const handleSidebarSelectConversation = useCallback((id: string) => {
+    setActiveConversationId(id);
+    setMobileSidebarOpen(false);
   }, []);
 
   // Close mobile drawers when selecting a conversation
@@ -182,7 +190,7 @@ export default function Home() {
           pipelineActive={pipelineActive}
           activeAgentCount={activeAgentCount}
           activeConversationId={activeConversationId}
-          onSelectConversation={setActiveConversationId}
+          onSelectConversation={handleSidebarSelectConversation}
           onNewChat={handleNewChat}
           historyRefreshTrigger={historyRefresh}
           backendStatus={backendStatus}

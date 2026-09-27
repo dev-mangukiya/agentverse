@@ -60,11 +60,22 @@ The project combines a **FastAPI + LangGraph** backend (with three-tier storage:
 
 ## Screenshots
 
-> **Placeholder** — replace with actual screenshots from a running instance.
+<div align="center">
 
-| Chat Interface | Dashboard | Agent Network Graph |
-|:-:|:-:|:-:|
-| ![Chat](docs/screenshots/chat.png) | ![Dashboard](docs/screenshots/dashboard.png) | ![Network](docs/screenshots/network.png) |
+### Chat Interface
+<img src="docs/screenshots/chat.png" alt="AgentVerse Chat Interface" width="800">
+
+<br>
+
+### Analytics Dashboard  
+<img src="docs/screenshots/dashboard.png" alt="AgentVerse Dashboard" width="800">
+
+<br>
+
+### System Health & Agent Network
+<img src="docs/screenshots/architecture.png" alt="AgentVerse Architecture & Agent Network" width="800">
+
+</div>
 
 ---
 

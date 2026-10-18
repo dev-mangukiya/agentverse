@@ -40,7 +40,7 @@ export function NotificationCenter({ onNotificationClick }: { onNotificationClic
     const rect = buttonRef.current.getBoundingClientRect();
     setPos({
       bottom: Math.max(8, window.innerHeight - rect.top + 8),
-      left: rect.left,
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - Math.min(320, window.innerWidth - 16) - 8)),
     });
   }, []);
 
@@ -134,7 +134,7 @@ export function NotificationCenter({ onNotificationClick }: { onNotificationClic
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 8, scale: 0.95 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
-              className="fixed w-80 max-h-[420px] rounded-xl shadow-2xl overflow-hidden flex flex-col"
+              className="fixed w-80 max-w-[calc(100vw-16px)] max-h-[min(420px,70dvh)] rounded-xl shadow-2xl overflow-hidden flex flex-col"
               style={{
                 bottom: pos.bottom,
                 left: pos.left,

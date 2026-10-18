@@ -24,22 +24,28 @@ interface ComparisonResult {
   critic_review?: string;
 }
 
-export function AgentComparison() {
+export function AgentComparison({ initialAgentId }: { initialAgentId?: string }) {
   const [allAgents, setAllAgents] = useState<AgentOption[]>([]);
   const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
   const [prompt, setPrompt] = useState("");
   const [results, setResults] = useState<ComparisonResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingPhase, setLoadingPhase] = useState<"agents" | "scoring">("agents");
+  const [agentsError, setAgentsError] = useState(false);
+  const [retryAgents, setRetryAgents] = useState(0);
   const [fetchingAgents, setFetchingAgents] = useState(true);
   const [expandedReview, setExpandedReview] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Fetch agents from API on mount
   useEffect(() => {
+    const controller = new AbortController();
+    setFetchingAgents(true);
+    setAgentsError(false);
     const fetchAgents = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/v1/agents`);
+        const res = await fetch(`${API_URL}/api/v1/agents`, { signal: controller.signal });
+        if (!res.ok) throw new Error("Could not load agents");
         if (res.ok) {
           const data = await res.json();
           const agents: AgentOption[] = (data.agents || [])
@@ -49,19 +55,23 @@ export function AgentComparison() {
               label: getAgent(a.name).displayName,
               is_builtin: a.is_builtin,
             }));
+          if (controller.signal.aborted) return;
           setAllAgents(agents);
           if (agents.length >= 2) {
-            setSelectedAgents([agents[0].id, agents[1].id]);
+            const first = agents.find(a => a.id === initialAgentId) ?? agents[0];
+            const second = agents.find(a => a.id !== first.id)!;
+            setSelectedAgents([first.id, second.id]);
           }
         }
       } catch (err) {
-        console.error("Failed to fetch agents for comparison", err);
+        if (!controller.signal.aborted) setAgentsError(true);
       } finally {
-        setFetchingAgents(false);
+        if (!controller.signal.aborted) setFetchingAgents(false);
       }
     };
     fetchAgents();
-  }, []);
+    return () => controller.abort();
+  }, [initialAgentId, retryAgents]);
 
   const toggleAgent = (id: string) => {
     setSelectedAgents((prev) => {
@@ -77,18 +87,19 @@ export function AgentComparison() {
   const criticIncluded = selectedAgents.includes("critic");
 
   const handleCompare = async () => {
-    if (!prompt.trim() || selectedAgents.length < 2) return;
+    if (loading || !prompt.trim() || selectedAgents.length < 2) return;
     setLoading(true);
     setLoadingPhase("agents");
     setResults([]);
     setExpandedReview(null);
 
+    let phaseTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       // Show scoring phase indicator if critic is included
       if (criticIncluded) {
         // The backend handles both phases, but we show a phase transition
         // after a reasonable delay to indicate scoring is happening
-        const phaseTimer = setTimeout(() => {
+        phaseTimer = setTimeout(() => {
           setLoadingPhase("scoring");
         }, 3000); // After ~3s, most agents have responded; scoring begins
 
@@ -157,6 +168,7 @@ export function AgentComparison() {
         }))
       );
     } finally {
+      clearTimeout(phaseTimer);
       setLoading(false);
     }
   };
@@ -194,6 +206,7 @@ export function AgentComparison() {
             {selectedAgents.length}/3
           </div>
         </div>
+        {agentsError && <p role="alert" className="text-sm mb-2" style={{ color: "var(--red)" }}>Could not load agents. <button className="underline" onClick={() => setRetryAgents(n => n + 1)}>Retry</button></p>}
         {fetchingAgents ? (
           <div className="text-xs py-2" style={{ color: "var(--text-muted)" }}>Loading agents...</div>
         ) : (

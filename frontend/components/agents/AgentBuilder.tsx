@@ -46,6 +46,7 @@ export function AgentBuilder() {
     model: "",
   });
   
+  const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewingAgent, setViewingAgent] = useState<Agent | null>(null);
@@ -71,15 +72,17 @@ export function AgentBuilder() {
   }, []);
 
   const fetchAgents = async () => {
+    setLoadError(false);
     try {
       const res = await fetch(`${API_URL}/api/v1/agents`);
+      if (!res.ok) throw new Error("Could not load agents");
       if (res.ok) {
         const data = await res.json();
         setAgents(data.agents);
         setAvailableTools(data.available_tools);
       }
     } catch (err) {
-      console.error("Failed to fetch agents", err);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -210,6 +213,7 @@ export function AgentBuilder() {
         </button>
       </div>
 
+      {loadError && <p role="alert" className="mb-4 text-sm" style={{ color: "var(--red)" }}>Could not load agents. <button className="underline" onClick={() => { setLoading(true); fetchAgents(); }}>Retry</button></p>}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4 overflow-y-auto pb-8">
         {agents.map((agent) => {
           const info = getAgent(agent.name);

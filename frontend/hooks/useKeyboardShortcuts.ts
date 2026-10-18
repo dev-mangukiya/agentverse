@@ -21,6 +21,7 @@ interface KeyboardShortcutActions {
 export function useKeyboardShortcuts(actions: KeyboardShortcutActions) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (e.isComposing) return;
       const isMetaOrCtrl = e.metaKey || e.ctrlKey;
 
       // Don't interfere with input fields (except for Escape and Cmd shortcuts)
@@ -29,6 +30,8 @@ export function useKeyboardShortcuts(actions: KeyboardShortcutActions) {
         target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
         target.isContentEditable;
+
+      if (target.closest('[role="dialog"]')) return;
 
       if (e.key === "Escape") {
         actions.closeModal?.();

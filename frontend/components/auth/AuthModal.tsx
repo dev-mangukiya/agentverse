@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import { useDialogFocus } from "@/hooks/useDialogFocus";
 import { useAuth } from "@/lib/auth";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
@@ -17,6 +18,7 @@ export function AuthModal({ open, onClose, onSuccess }: AuthModalProps) {
   /* Portal mount guard — avoid SSR mismatch */
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  const dialogRef = useDialogFocus(open && mounted, onClose);
   const { login, register, googleLogin } = useAuth();
   const [tab, setTab] = useState<"login" | "register">("login");
   const [name, setName] = useState("");
@@ -55,11 +57,14 @@ export function AuthModal({ open, onClose, onSuccess }: AuthModalProps) {
   useEffect(() => {
     if (!open || !GOOGLE_CLIENT_ID) return;
 
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
     const initGoogle = () => {
+      if (cancelled) return;
       const google = (window as any).google;
       if (!google?.accounts?.id) {
         // Script not loaded yet, retry
-        setTimeout(initGoogle, 200);
+        timer = setTimeout(initGoogle, 200);
         return;
       }
 
@@ -85,8 +90,8 @@ export function AuthModal({ open, onClose, onSuccess }: AuthModalProps) {
     };
 
     // Small delay to ensure modal is rendered
-    const timer = setTimeout(initGoogle, 100);
-    return () => clearTimeout(timer);
+    timer = setTimeout(initGoogle, 100);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [open, tab]);
 
   const handleGoogleCallback = useCallback(async (response: any) => {
@@ -179,7 +184,8 @@ export function AuthModal({ open, onClose, onSuccess }: AuthModalProps) {
             onClick={(e) => e.target === e.currentTarget && onClose()}
           >
             <div
-              className="w-full max-w-md rounded-2xl overflow-hidden shadow-2xl"
+              ref={dialogRef} role="dialog" aria-modal="true" aria-label={tab === "login" ? "Sign in" : "Create account"} tabIndex={-1}
+              className="w-full max-w-md max-h-[calc(100dvh-32px)] rounded-2xl overflow-y-auto overscroll-contain shadow-2xl"
               style={{
                 background: "var(--glass-bg)",
                 backdropFilter: "blur(40px) saturate(1.6)",

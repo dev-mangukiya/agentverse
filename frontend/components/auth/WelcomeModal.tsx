@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useDialogFocus } from "@/hooks/useDialogFocus";
 import { useAuth } from "@/lib/auth";
 import { AuthModal } from "@/components/auth/AuthModal";
 import { AgentVerseLogo } from "@/components/brand/AgentVerseLogo";
@@ -14,13 +15,13 @@ const DISMISSED_KEY = "agentverse_welcome_dismissed";
  * Dismissal is saved to localStorage so it only appears once.
  */
 export function WelcomeModal() {
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, isLoading } = useAuth();
   const [visible, setVisible] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
 
   useEffect(() => {
     // Don't show if already logged in
-    if (isLoggedIn) return;
+    if (isLoggedIn || isLoading) return;
 
     // Don't show if previously dismissed
     if (typeof window !== "undefined") {
@@ -31,7 +32,7 @@ export function WelcomeModal() {
     // Show after a short delay so the page loads first
     const timer = setTimeout(() => setVisible(true), 1200);
     return () => clearTimeout(timer);
-  }, [isLoggedIn]);
+  }, [isLoggedIn, isLoading]);
 
   const handleDismiss = () => {
     setVisible(false);
@@ -39,7 +40,7 @@ export function WelcomeModal() {
   };
 
   const handleSignIn = () => {
-    setVisible(false);
+    handleDismiss();
     setAuthOpen(true);
   };
 
@@ -47,6 +48,8 @@ export function WelcomeModal() {
     setAuthOpen(false);
     localStorage.setItem(DISMISSED_KEY, "1");
   };
+
+  const dialogRef = useDialogFocus(visible && !isLoggedIn, handleDismiss);
 
   // Don't render anything if logged in
   if (isLoggedIn) return null;
@@ -77,7 +80,8 @@ export function WelcomeModal() {
               onClick={(e) => e.target === e.currentTarget && handleDismiss()}
             >
               <div
-                className="w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl"
+                ref={dialogRef} role="dialog" aria-modal="true" aria-label="Welcome to AgentVerse" tabIndex={-1}
+                className="w-full max-w-sm max-h-[calc(100dvh-32px)] rounded-2xl overflow-y-auto overscroll-contain shadow-2xl"
                 style={{
                   background: "var(--glass-bg)",
                   backdropFilter: "blur(40px) saturate(1.6)",

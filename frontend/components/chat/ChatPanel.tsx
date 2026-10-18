@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { getSessionId } from "@/lib/session";
@@ -175,6 +175,13 @@ async function readFile(file: File): Promise<AttachedFile> {
 export function ChatPanel({ conversationId, onConversationCreated, onMessageSent, onPipelineUpdate, inputRef: externalInputRef }: ChatPanelProps) {
   const [inputExpanded, setInputExpanded] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [loadingConversation, setLoadingConversation] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const followMessagesRef = useRef(true);
+  const sendingRef = useRef(false);
+  const conversationGenerationRef = useRef(0);
+  const createRequestRef = useRef<AbortController | null>(null);
   const [input, setInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
   const streamingMessageRef = useRef<{ agent: string; content: string; id: number } | null>(null);
@@ -400,6 +407,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  useEffect(() => () => { streamRef.current?.getTracks().forEach(track => track.stop()); }, []);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const thinkingAgentRef = useRef("");
@@ -442,93 +450,67 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     emitPipeline(true);
   }, [emitPipeline]);
 
-  // Auto-scroll
+  // Follow new content only while the reader is already at the bottom.
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    if (followMessagesRef.current && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, toolActivity, isThinking]);
+  }, [messages, toolActivity, isThinking, loadingConversation]);
 
-  // Auto-resize textarea
   useEffect(() => {
     const ta = inputRef.current;
     if (!ta) return;
     ta.style.height = "auto";
-    ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
-  }, [input]);
+    ta.style.height = `${Math.min(ta.scrollHeight, 180)}px`;
+  }, [input, messages.length === 0, loadingConversation]);
 
-  // ── Mobile keyboard fix: keep input bar visible ──────────────────────
-  // When the virtual keyboard opens on mobile, the layout viewport doesn't
-  // shrink on all browsers. We listen to visualViewport resize events to
-  // detect the keyboard and push the input bar up using a CSS translate.
+  // Cancel stale reads when switching chats. Preserve the optimistic first
+  // message only for the conversation created by this composer.
   useEffect(() => {
-    const vv = typeof window !== "undefined" ? window.visualViewport : null;
-    if (!vv) return;
-
-    const onResize = () => {
-      // The difference between window.innerHeight and visualViewport.height
-      // is the space taken by the keyboard.
-      const keyboardHeight = window.innerHeight - vv.height;
-      const bar = inputBarRef.current;
-      if (bar) {
-        if (keyboardHeight > 100) {
-          // Keyboard is open — lift the input bar above it
-          bar.style.transform = `translateY(-${keyboardHeight}px)`;
-          bar.style.transition = "transform 0.15s ease-out";
-          // Scroll messages to bottom so user sees latest
-          requestAnimationFrame(() => {
-            scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    const controller = new AbortController();
+    conversationGenerationRef.current += 1;
+    followMessagesRef.current = true;
+    setShowScrollToBottom(false);
+    if (skipNextLoadRef.current && conversationId) {
+      skipNextLoadRef.current = false;
+      return () => { controller.abort(); createRequestRef.current?.abort(); };
+    }
+    pendingMessageRef.current = null;
+    pendingAttachmentsRef.current = [];
+    streamingMessageRef.current = null;
+    sendingRef.current = false;
+    setIsThinking(false);
+    setToolActivity(null);
+    setThinkingAgent("");
+    setThinkingPhase("");
+    setError(null);
+    setMessages([]);
+    setInput("");
+    setAttachedFiles([]);
+    setInputExpanded(false);
+    resetPipeline();
+    setLoadingConversation(!!conversationId);
+    if (conversationId) {
+      (async () => {
+        try {
+          const res = await fetch(`${API_URL}/api/v1/chat/conversations/${conversationId}`, {
+            headers: getAuthHeaders(), signal: controller.signal,
           });
-        } else {
-          // Keyboard is closed
-          bar.style.transform = "";
-          bar.style.transition = "transform 0.15s ease-out";
-        }
-      }
-    };
-
-    vv.addEventListener("resize", onResize);
-    vv.addEventListener("scroll", onResize);
-    return () => {
-      vv.removeEventListener("resize", onResize);
-      vv.removeEventListener("scroll", onResize);
-    };
-  }, []);
-
-  // When the textarea is focused on mobile, scroll the input into view
-  // after a short delay to let the keyboard finish animating.
-  useEffect(() => {
-    const ta = inputRef.current;
-    if (!ta) return;
-    const onFocus = () => {
-      setTimeout(() => {
-        inputBarRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-      }, 350);
-    };
-    ta.addEventListener("focus", onFocus);
-    return () => ta.removeEventListener("focus", onFocus);
-  }, []);
-
-  // Load conversation messages
-  useEffect(() => {
-    if (!conversationId) { setMessages([]); return; }
-    if (skipNextLoadRef.current) { skipNextLoadRef.current = false; return; }
-
-    const load = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/v1/chat/conversations/${conversationId}`, {
-          headers: getAuthHeaders(),
-        });
-        if (res.ok) {
+          if (!res.ok) throw new Error("Unable to load this conversation. Please retry.");
           const data = await res.json();
-          setMessages(data.messages || []);
+          if (!controller.signal.aborted) setMessages(data.messages || []);
+        } catch (err) {
+          if (!controller.signal.aborted) setError(err instanceof Error ? err.message : "Unable to load conversation.");
+        } finally {
+          if (!controller.signal.aborted) setLoadingConversation(false);
         }
-      } catch (err) {
-        console.error("Failed to load messages:", err);
-      }
+      })();
+    }
+    return () => {
+      controller.abort();
+      createRequestRef.current?.abort();
     };
-    load();
-  }, [conversationId]);
+  }, [conversationId, loadAttempt, resetPipeline]);
 
   // Keep all callbacks in a ref so WS handlers always use the latest version
   // without needing to recreate the WebSocket on every render.
@@ -546,7 +528,6 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       return;
     }
 
-    let ws: WebSocket | null = null;
     let pingInterval: ReturnType<typeof setInterval> | null = null;
     let destroyed = false;
 
@@ -555,8 +536,9 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       if (reconnectTimeoutRef.current) { clearTimeout(reconnectTimeoutRef.current); reconnectTimeoutRef.current = null; }
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
 
-      ws = new WebSocket(`${WS_BASE}/api/v1/chat/ws/${conversationId}`);
+      const ws = new WebSocket(`${WS_BASE}/api/v1/chat/ws/${conversationId}`);
       wsRef.current = ws;
+      setWsConnected(false);
 
       ws.onopen = () => {
         if (destroyed || wsRef.current !== ws) return;
@@ -574,7 +556,9 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             msg.attachments = pendingAttachmentsRef.current;
             pendingAttachmentsRef.current = [];
           }
-          ws!.send(JSON.stringify(msg));
+          sendingRef.current = true;
+          setIsThinking(true);
+          ws.send(JSON.stringify(msg));
           pendingMessageRef.current = null;
         }
       };
@@ -649,6 +633,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             break;
 
           case "pipeline_complete":
+            sendingRef.current = false;
+            setActiveAgents([]);
             setIsThinking(false);
             setToolActivity(null);
             setThinkingAgent("");
@@ -674,6 +660,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             break;
 
           case "response":
+            sendingRef.current = false;
             setIsThinking(false);
             setToolActivity(null);
             setThinkingAgent("");
@@ -704,6 +691,11 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             break;
 
           case "error":
+            sendingRef.current = false;
+            streamingMessageRef.current = null;
+            setActiveAgents([]);
+            setThinkingAgent("");
+            setThinkingPhase("");
             setIsThinking(false);
             setToolActivity(null);
             setError(data.content);
@@ -767,11 +759,18 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       };
 
       ws.onclose = () => {
-        if (pingInterval) clearInterval(pingInterval);
         if (destroyed || wsRef.current !== ws) return;
+        if (pingInterval) clearInterval(pingInterval);
         setWsConnected(false);
-        setIsThinking(false);
+        if (sendingRef.current && !pendingMessageRef.current) {
+          setError("Connection interrupted. Your response may be incomplete. Reopen this chat after reconnecting to load saved messages.");
+        }
+        sendingRef.current = !!pendingMessageRef.current;
+        setIsThinking(!!pendingMessageRef.current);
         setToolActivity(null);
+        setActiveAgents([]);
+        streamingMessageRef.current = null;
+        callbacksRef.current.emitPipeline(false);
         // Reconnect after 3s using the stable `connect` function from this effect's scope
         reconnectTimeoutRef.current = setTimeout(connect, 3000);
       };
@@ -950,7 +949,11 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     const binaryAttachments = filesToSend
       .filter(f => (f.type === "image" || f.type === "document") && f.preview)
       .map(f => ({ name: f.name, type: f.type, data: f.preview!, mimeType: f.mimeType }));
-    if ((!rawContent && filesToSend.length === 0) || isThinking) return;
+    if ((!rawContent && filesToSend.length === 0) || sendingRef.current || isThinking || loadingConversation) return;
+    sendingRef.current = true;
+    const generation = conversationGenerationRef.current;
+    followMessagesRef.current = true;
+    setShowScrollToBottom(false);
     setInput("");
     setAttachedFiles([]);
     setError(null);
@@ -963,20 +966,31 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     let activeConvId = conversationId;
 
     if (!activeConvId) {
+      const controller = new AbortController();
+      createRequestRef.current = controller;
       try {
         const res = await fetch(`${API_URL}/api/v1/chat/conversations`, {
           method: "POST",
           headers: { "Content-Type": "application/json", ...getAuthHeaders() },
           body: JSON.stringify({ title: content.slice(0, 80) }),
+          signal: controller.signal,
         });
+        if (!res.ok) throw new Error("Could not create a chat. Your draft has been restored; please retry.");
         const conv = await res.json();
+        if (typeof conv.id !== "string" || !conv.id) throw new Error("Invalid conversation response. Please retry.");
+        if (controller.signal.aborted || generation !== conversationGenerationRef.current) return;
         activeConvId = conv.id;
         pendingMessageRef.current = content;
         pendingAttachmentsRef.current = binaryAttachments;
         skipNextLoadRef.current = true;
         onConversationCreated(conv.id);
-      } catch {
-        setError("Failed to create conversation");
+      } catch (err) {
+        if (controller.signal.aborted || generation !== conversationGenerationRef.current) return;
+        setError(err instanceof Error ? err.message : "Failed to create conversation. Please retry.");
+        setMessages(prev => prev.filter(message => message.id !== userMsg.id));
+        setInput(rawContent);
+        setAttachedFiles(filesToSend);
+        sendingRef.current = false;
         setIsThinking(false);
         return;
       }
@@ -999,28 +1013,20 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     }
   };
 
-  const isEmpty = messages.length === 0 && !isThinking;
+  const isEmpty = messages.length === 0 && !isThinking && !loadingConversation;
   const { user } = useAuth();
+  useEffect(() => {
+    if (!isThinking && !loadingConversation && messages.length > 0 && document.activeElement === document.body) {
+      inputRef.current?.focus({ preventScroll: true });
+    }
+  }, [isThinking, loadingConversation]);
 
-  // Gemini-style rotating greetings
-  const greeting = useMemo(() => {
-    const firstName = user?.name?.split(" ")[0] || "";
-    const greetings = [
-      `Hello${firstName ? `, ${firstName}` : ""}`,
-      `What can I help with${firstName ? `, ${firstName}` : ""}?`,
-      `Ready when you are${firstName ? `, ${firstName}` : ""}`,
-      `Let's build something${firstName ? `, ${firstName}` : ""}`,
-    ];
-    const hour = new Date().getHours();
-    if (hour < 12) greetings.unshift(`Good morning${firstName ? `, ${firstName}` : ""}`);
-    else if (hour < 17) greetings.unshift(`Good afternoon${firstName ? `, ${firstName}` : ""}`);
-    else greetings.unshift(`Good evening${firstName ? `, ${firstName}` : ""}`);
-    return greetings[Math.floor(Math.random() * greetings.length)];
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.name]);
+  // Deterministic on the server and first client render: no hydration mismatch.
+  const firstName = user?.name?.split(" ")[0];
+  const greeting = firstName ? `How can I help, ${firstName}?` : "What would you like to work on?";
 
   return (
-    <div className="flex flex-col h-full" style={{ backgroundColor: "var(--bg-base)" }}>
+    <div className="flex flex-col h-full min-h-0 min-w-0" style={{ backgroundColor: "var(--bg-base)" }}>
       {/* Minimal status bar — no redundant logo (it's in the sidebar) */}
       <div
         className="flex items-center justify-end px-3 md:px-5 flex-shrink-0"
@@ -1085,9 +1091,17 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       </div>
 
       {/* Messages area */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
-        {isEmpty ? (
-          <div className="flex flex-col items-center justify-center h-full px-4 md:px-6 relative">
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
+        aria-busy={loadingConversation}
+        onScroll={e => {
+          const el = e.currentTarget;
+          followMessagesRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          setShowScrollToBottom(!followMessagesRef.current);
+        }}>
+        {loadingConversation ? (
+          <div className="p-8 text-center text-sm" role="status" style={{ color: "var(--text-muted)" }}>Loading conversation…</div>
+        ) : isEmpty ? (
+          <div className="chat-empty flex flex-col items-center justify-center min-h-full px-4 md:px-6 relative">
             {/* ─── Gemini-style greeting ─── */}
             <motion.h1
               initial={{ opacity: 0, y: 20 }}
@@ -1196,10 +1210,12 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                   </AnimatePresence>
 
                   <textarea
+                    ref={inputRef}
+                    aria-label="Message"
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
+                      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                         e.preventDefault();
                         handleSend();
                       }
@@ -1207,7 +1223,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                     onPaste={handlePaste}
                     placeholder="Ask AgentVerse anything..."
                     rows={1}
-                    className="flex-1 bg-transparent text-sm md:text-base outline-none resize-none leading-6 max-h-[160px] overflow-y-auto"
+                    className="flex-1 min-w-0 bg-transparent text-sm md:text-base outline-none resize-none leading-6 max-h-[160px] overflow-y-auto"
                     style={{ color: "var(--text-primary)" }}
                   />
                   <button
@@ -1223,6 +1239,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                   {(input.trim() || attachedFiles.length > 0) && (
                     <button
                       onClick={() => handleSend()}
+                      aria-label="Send message"
                       className="send-btn flex-shrink-0"
                     >
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
@@ -1641,6 +1658,13 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         )}
       </div>
 
+      {showScrollToBottom && !isEmpty && (
+        <button className="self-center px-3 py-2 mb-1 rounded-full text-xs border" onClick={() => {
+          followMessagesRef.current = true;
+          setShowScrollToBottom(false);
+          scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+        }}>↓ Latest messages</button>
+      )}
       {/* Error banner */}
       {error && (
         <div className="px-4 pb-2">
@@ -1654,8 +1678,9 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
               color: "var(--red)",
             }}
           >
-            <span>{error}</span>
-            <button onClick={() => setError(null)} className="ml-3 transition-colors hover:opacity-70">✕</button>
+            <span role="alert">{error}</span>
+            {conversationId && messages.length === 0 && <button className="ml-3 underline" onClick={() => setLoadAttempt(n => n + 1)}>Retry</button>}
+            <button aria-label="Dismiss error" onClick={() => setError(null)} className="ml-3 transition-colors hover:opacity-70">✕</button>
           </motion.div>
         </div>
       )}
@@ -1699,7 +1724,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             }}
             onFocusCapture={(e) => {
               const el = e.currentTarget as HTMLElement;
-              el.style.animation = "auroraBorder 3s ease-in-out infinite";
+              el.style.borderColor = "var(--brand)";
               el.style.background = "var(--input-bg-focus)";
             }}
             onBlurCapture={(e) => {
@@ -1745,7 +1770,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                 className="upload-btn flex-shrink-0"
                 onClick={() => setInputExpanded(!inputExpanded)}
                 title="More actions"
-                disabled={isThinking}
+                disabled={isThinking || loadingConversation}
               >
                 <svg
                   width="18" height="18" viewBox="0 0 24 24" fill="none"
@@ -1809,11 +1834,12 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
               {/* Textarea */}
               <textarea
+                aria-label="Message"
                 ref={inputRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
+                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                     e.preventDefault();
                     handleSend();
                   }
@@ -1821,9 +1847,9 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                 onPaste={handlePaste}
                 placeholder={attachedFiles.length > 0 ? "Add a message about your files…" : "Ask AgentVerse anything…"}
                 rows={1}
-                className="flex-1 bg-transparent text-sm outline-none resize-none leading-6 max-h-[180px] overflow-y-auto"
+                className="flex-1 min-w-0 bg-transparent text-sm outline-none resize-none leading-6 max-h-[180px] overflow-y-auto"
                 style={{ color: "var(--text-primary)" }}
-                disabled={isThinking}
+                disabled={isThinking || loadingConversation}
               />
 
               {/* Mic button — always visible like Gemini */}
@@ -1831,7 +1857,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                 className={`upload-btn flex-shrink-0 ${isRecording ? 'text-red-500 animate-pulse' : ''}`}
                 onClick={toggleRecording}
                 title="Voice input"
-                disabled={isThinking}
+                disabled={isThinking || loadingConversation}
                 style={isRecording ? { color: "var(--red)", backgroundColor: "color-mix(in srgb, var(--red) 15%, transparent)" } : {}}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
@@ -1844,7 +1870,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
               {(input.trim() || attachedFiles.length > 0) && (
                 <button
                   onClick={() => handleSend()}
-                  disabled={isThinking}
+                  disabled={isThinking || loadingConversation}
+                  aria-label="Send message"
                   className="send-btn flex-shrink-0"
                 >
                   {isThinking ? (

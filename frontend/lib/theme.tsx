@@ -28,17 +28,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>("dark");
 
   useEffect(() => {
-    // Clear any old stored preference so system always wins
-    localStorage.removeItem("agentverse_theme");
-
-    // Apply current system theme
-    const current = getSystemTheme();
+    let saved: string | null = null;
+    try { saved = localStorage.getItem("agentverse_theme"); } catch { /* Storage may be unavailable. */ }
+    const current = saved === "light" || saved === "dark" ? saved : getSystemTheme();
     setTheme(current);
     applyTheme(current);
 
     // Follow system theme changes in real time
     const mq = window.matchMedia("(prefers-color-scheme: light)");
     const handler = (e: MediaQueryListEvent) => {
+      try { if (localStorage.getItem("agentverse_theme")) return; } catch { /* Use system preference. */ }
       const next: Theme = e.matches ? "light" : "dark";
       setTheme(next);
       applyTheme(next);
@@ -47,11 +46,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => mq.removeEventListener("change", handler);
   }, []);
 
-  // Toggle still works for in-session override but doesn't persist
+  // Keep an explicit choice across reloads.
   const toggle = () => {
     setTheme((prev) => {
       const next = prev === "dark" ? "light" : "dark";
       applyTheme(next);
+      try { localStorage.setItem("agentverse_theme", next); } catch { /* Keep the in-session choice. */ }
       return next;
     });
   };

@@ -23,7 +23,7 @@ export default function RootLayout({
         <meta name="theme-color" content="#08080d" />
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=window.matchMedia('(prefers-color-scheme:light)').matches?'light':'dark';document.documentElement.setAttribute('data-theme',t);var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',t==='light'?'#f5f5fa':'#08080d')}catch(e){document.documentElement.setAttribute('data-theme','dark')}})()`,
+            __html: `(function(){try{var s=localStorage.getItem('agentverse_theme');var t=s==='light'||s==='dark'?s:window.matchMedia('(prefers-color-scheme:light)').matches?'light':'dark';document.documentElement.setAttribute('data-theme',t);var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',t==='light'?'#f5f5fa':'#08080d')}catch(e){document.documentElement.setAttribute('data-theme','dark')}})()`,
           }}
         />
       </head>

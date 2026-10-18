@@ -6,7 +6,7 @@ import { DatabaseIcon, ZapIcon, SparklesIcon, BrainIcon, ServerIcon, SettingsIco
 
 interface HealthService {
   name: string;
-  status: "ok" | "unreachable" | "optional" | "loading";
+  status: "ok" | "unreachable" | "optional" | "loading" | "setup";
 }
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
@@ -36,13 +36,15 @@ export function SystemHealth() {
     const checkHealth = async () => {
       try {
         const res = await fetch(`${API_URL}/health`);
+        if (!res.ok) throw new Error("Backend unavailable");
         const data = await res.json();
         if (data.services && typeof data.services === "object") {
           const mapped = Object.entries(data.services).map(([key, value]) => {
             const v = value as string;
             let status: HealthService["status"] = "unreachable";
             if (v === "ok" || v === "configured") status = "ok";
-            else if (v === "not_running" || v === "not_configured" || v === "no_api_key") status = "optional";
+            else if (key === "llm" && v === "no_api_key") status = "setup";
+            else if (v === "not_running" || v === "not_configured") status = "optional";
             return { name: serviceDisplayNames[key] || key, status };
           }) as HealthService[];
           setServices(mapped);
@@ -61,7 +63,7 @@ export function SystemHealth() {
 
   const statusDotColor = (s: string) => {
     if (s === "ok") return "var(--green)";
-    if (s === "loading") return "var(--yellow)";
+    if (s === "loading" || s === "setup") return "var(--yellow)";
     if (s === "optional") return "var(--text-faint)";
     return "var(--red)";
   };
@@ -69,6 +71,7 @@ export function SystemHealth() {
   const statusLabel = (s: string) => {
     if (s === "ok") return "ok";
     if (s === "loading") return "checking…";
+    if (s === "setup") return "API key required";
     if (s === "optional") return "not configured";
     return "unreachable";
   };

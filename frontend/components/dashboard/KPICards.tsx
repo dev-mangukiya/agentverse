@@ -98,9 +98,11 @@ const kpiConfig = [
 
 export function KPICards() {
   const [stats, setStats] = useState<Stats | null>(null);
+  const [retry, setRetry] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
     const fetchStats = async () => {
       try {
         const res = await fetch(`${API_URL}/api/v1/stats`);
@@ -114,7 +116,9 @@ export function KPICards() {
     fetchStats();
     const interval = setInterval(fetchStats, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [retry]);
+
+  if (!loading && !stats) return <div role="alert" className="p-4 rounded-xl text-sm" style={{ background: "var(--bg-raised)", color: "var(--text-secondary)" }}>Dashboard data is unavailable. <button className="underline ml-2" onClick={() => setRetry(n => n + 1)}>Retry</button></div>;
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">

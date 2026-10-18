@@ -8,6 +8,7 @@ import {
   useEffect,
   ReactNode,
 } from "react";
+import { apiErrorMessage } from "./api-error";
 import { getSessionId } from "./session";
 
 // ── Types ────────────────────────────────────────────────
@@ -104,7 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
-          return { error: data.detail || "Login failed" };
+          return { error: apiErrorMessage(data, "Login failed") };
         }
 
         const data = await res.json();
@@ -137,7 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
-          return { error: data.detail || "Registration failed" };
+          return { error: apiErrorMessage(data, "Registration failed") };
         }
 
         const data = await res.json();
@@ -166,7 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
-          return { error: data.detail || "Google sign-in failed" };
+          return { error: apiErrorMessage(data, "Google sign-in failed") };
         }
 
         const data = await res.json();

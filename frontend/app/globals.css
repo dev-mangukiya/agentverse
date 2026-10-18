@@ -25,8 +25,8 @@
   /* Text */
   --text-primary:   #eaecf5;
   --text-secondary: #b8bdd0;
-  --text-muted:     #7c82a0;
-  --text-faint:     #4e5370;
+  --text-muted:     #9ba1b7;
+  --text-faint:     #8a90a8;
 
   /* Brand — Gemini Indigo → Violet → Cyan */
   --brand:          #6366f1;
@@ -125,7 +125,7 @@
   --text-primary:   #1a1a2e;
   --text-secondary: #3d3d56;
   --text-muted:     #6b7085;
-  --text-faint:     #9ca0b8;
+  --text-faint:     #686d80;
 
   --brand:          #5b5ef0;
   --brand-hover:    #6366f1;
@@ -819,7 +819,7 @@ button:active,
 [role="button"]:active,
 .nav-item:active,
 .clickable:active {
-  transform: scale(0.97);
+  scale: 0.97;
 }
 
 /* ─── Row hover classes (CSS-only, no JS handlers) ───────── */
@@ -842,4 +842,36 @@ button:active,
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Stable viewport sizing and controls across phone, tablet and desktop. */
+.app-shell { height: var(--app-height, 100dvh); min-height: 0; padding-top: env(safe-area-inset-top, 0px); }
+.safe-area-body { padding-top: 0; }
+.mobile-top-bar { padding-top: 0; }
+.app-sidebar { padding-top: env(safe-area-inset-top, 0px); }
+.mobile-drawer { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 2px solid var(--brand); outline-offset: 3px;
+}
+button:disabled { cursor: not-allowed; }
+/* Don't replace transforms used to center buttons or animate overlays. */
+button:active, [role="button"]:active, .nav-item:active, .clickable:active { scale: 0.97; }
+.input-safe-area { will-change: auto; }
+.chat-empty { min-height: min-content; padding-block: clamp(24px, 8vh, 80px); }
+@media (max-width: 1023px) {
+  .sidebar-collapse-toggle { display: none; }
+}
+@media (max-width: 767px) {
+  input, textarea, select { font-size: 16px !important; }
+  .upload-btn, .send-btn { width: 44px; height: 44px; }
+}
+.history-row:hover { background: var(--bg-hover); }
+.history-action { display: flex; align-items: center; justify-content: center; width: 30px; height: 36px; border-radius: 8px; }
+.history-action:hover { background: var(--bg-elevated); }
+@media (hover: hover) and (pointer: fine) {
+  .history-actions { opacity: 0; }
+  .history-row:hover .history-actions, .history-row:focus-within .history-actions { opacity: 1; }
+}
+@media (pointer: coarse) {
+  .history-action { width: 40px; min-height: 44px; }
 }

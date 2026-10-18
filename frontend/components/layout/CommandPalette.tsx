@@ -11,6 +11,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { motion, AnimatePresence } from "framer-motion";
 import { getAgent, getAgentIcon, AGENT_REGISTRY } from "@/config/agents";
 import { getAuthHeaders } from "@/lib/auth";
+import { useDialogFocus } from "@/hooks/useDialogFocus";
 import { getSessionId } from "@/lib/session";
 import { transition, EASE, DURATION } from "@/config/motion";
 
@@ -73,6 +74,7 @@ export function CommandPalette({
   onToggleSidebar,
   onOpenAgentCompare,
 }: CommandPaletteProps) {
+  const dialogRef = useDialogFocus(open, onClose);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -132,7 +134,8 @@ export function CommandPalette({
   // Search chats when query changes (debounced)
   useEffect(() => {
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    if (!query.trim() || query.trim().length < 2) {
+    const controller = new AbortController();
+    if (!open || !query.trim() || query.trim().length < 2) {
       setSearchResults([]);
       setSearching(false);
       return;
@@ -143,17 +146,17 @@ export function CommandPalette({
         const sessionId = getSessionId();
         const res = await fetch(
           `${API_URL}/api/v1/chat/conversations/search?q=${encodeURIComponent(query.trim())}`,
-          { headers: { "X-Session-Id": sessionId || "", ...getAuthHeaders() } }
+          { headers: { "X-Session-Id": sessionId || "", ...getAuthHeaders() }, signal: controller.signal }
         );
         if (res.ok) {
           const data = await res.json();
-          setSearchResults((data || []).slice(0, 5));
+          if (!controller.signal.aborted) setSearchResults((data || []).slice(0, 5));
         }
       } catch { /* silent */ }
-      setSearching(false);
+      if (!controller.signal.aborted) setSearching(false);
     }, 300);
-    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
-  }, [query]);
+    return () => { controller.abort(); if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
+  }, [query, open]);
 
   // All visible items
   const allItems = useMemo(() => {
@@ -234,15 +237,16 @@ export function CommandPalette({
           />
           {/* Panel */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.96, y: -8 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: -8 }}
+            initial={{ opacity: 0, scale: 0.96, y: -8, x: "-50%" }}
+            animate={{ opacity: 1, scale: 1, y: 0, x: "-50%" }}
+            exit={{ opacity: 0, scale: 0.96, y: -8, x: "-50%" }}
             transition={transition.base}
+            ref={dialogRef} role="dialog" aria-modal="true" aria-label="Command palette" tabIndex={-1}
             className="fixed z-[101] rounded-2xl overflow-hidden shadow-2xl"
             style={{
               top: "min(20%, 160px)",
               left: "50%",
-              transform: "translateX(-50%)",
+
               width: "min(560px, calc(100vw - 32px))",
               maxHeight: "min(480px, 60vh)",
               backgroundColor: "var(--bg-elevated)",
@@ -257,6 +261,7 @@ export function CommandPalette({
               <span style={{ color: "var(--text-faint)" }}>{SEARCH_ICON}</span>
               <input
                 ref={inputRef}
+                aria-label="Search commands and chats"
                 value={query}
                 onChange={(e) => { setQuery(e.target.value); setSelectedIndex(0); }}
                 onKeyDown={handleKeyDown}

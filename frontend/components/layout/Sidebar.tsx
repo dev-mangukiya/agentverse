@@ -17,6 +17,7 @@ interface SidebarProps {
   onNavigate: (view: View) => void;
   collapsed: boolean;
   onToggle: () => void;
+  onClose?: () => void;
   pipelineActive?: boolean;
   activeAgentCount?: number;
   // Chat history
@@ -25,7 +26,7 @@ interface SidebarProps {
   onNewChat?: () => void;
   historyRefreshTrigger?: number;
   // System
-  backendStatus?: "online" | "waking" | "offline";
+  backendStatus?: "online" | "waking" | "offline" | "degraded";
   onAuthChange?: () => void;
   onNotificationClick?: (conversationId: string) => void;
 }
@@ -71,6 +72,7 @@ export function Sidebar({
   onNavigate,
   collapsed,
   onToggle,
+  onClose,
   pipelineActive,
   activeAgentCount = 0,
   activeConversationId,
@@ -130,6 +132,7 @@ export function Sidebar({
             showTagline={false}
             animated
           />
+          <button onClick={onClose} className="ml-auto lg:hidden p-2 rounded-lg" aria-label="Close menu">✕</button>
         </div>
 
         {/* Navigation items */}
@@ -148,6 +151,8 @@ export function Sidebar({
                   onClick={() => onNavigate(item.id)}
                   className={clsx("nav-item relative group/nav", isActive && "nav-item--active")}
                   title={collapsed ? item.label : undefined}
+                  aria-label={item.label}
+                  aria-current={isActive ? "page" : undefined}
                 >
                   <span className="flex-shrink-0 relative" style={{ color: isActive ? "var(--brand-text)" : "var(--text-muted)" }}>
                     {item.icon}
@@ -262,12 +267,12 @@ export function Sidebar({
           {/* System status + settings row — always visible */}
             <div className={clsx(
               "flex items-center gap-1.5 mb-2",
-              collapsed ? "justify-center" : "px-1"
+              collapsed ? "flex-col justify-center" : "px-1"
             )}>
               {/* System status dot */}
               <div
                 className={clsx("flex items-center gap-1.5", !collapsed && "flex-1")}
-                title={backendStatus === "online" ? "System Online" : backendStatus === "waking" ? "Waking up..." : "Offline"}
+                title={backendStatus === "online" ? "System Online" : backendStatus === "waking" ? "Connecting…" : backendStatus === "degraded" ? "Setup required" : "Offline"}
               >
                 {backendStatus === "waking" ? (
                   <span
@@ -281,7 +286,7 @@ export function Sidebar({
                   <span
                     className="w-1.5 h-1.5 rounded-full flex-shrink-0"
                     style={{
-                      backgroundColor: backendStatus === "online" ? "var(--green)" : "var(--red)",
+                      backgroundColor: backendStatus === "online" ? "var(--green)" : backendStatus === "degraded" ? "var(--yellow)" : "var(--red)",
                       boxShadow: backendStatus === "online" ? "0 0 4px var(--green)" : "0 0 4px var(--red)",
                     }}
                   />
@@ -289,10 +294,10 @@ export function Sidebar({
                 {!collapsed && (
                   <span className="text-[10px] font-medium" style={{
                     color: backendStatus === "online" ? "var(--green)"
-                      : backendStatus === "waking" ? "var(--yellow, #eab308)"
+                      : backendStatus === "waking" || backendStatus === "degraded" ? "var(--yellow, #eab308)"
                       : "var(--red)",
                   }}>
-                    {backendStatus === "online" ? "Online" : backendStatus === "waking" ? "Waking..." : "Offline"}
+                    {backendStatus === "online" ? "Online" : backendStatus === "waking" ? "Connecting…" : backendStatus === "degraded" ? "Setup required" : "Offline"}
                   </span>
                 )}
               </div>
@@ -438,12 +443,14 @@ export function Sidebar({
           {/* Collapse toggle */}
           <button
             onClick={onToggle}
-            className="nav-item w-full justify-center mt-1 sidebar-collapse-toggle"
+            className="nav-item w-full justify-center mt-1 sidebar-collapse-toggle hidden lg:flex"
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-expanded={!collapsed}
             title={collapsed ? "Expand" : "Collapse"}
           >
             <svg
               width="18" height="18" viewBox="0 0 24 24" fill="none"
-              className={clsx("transition-transform duration-300", !collapsed && "rotate-180")}
+              className={clsx("transition-transform duration-300", collapsed && "rotate-180")}
               style={{ color: "var(--text-muted)" }}
             >
               <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>

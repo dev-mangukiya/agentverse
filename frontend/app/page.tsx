@@ -18,7 +18,8 @@ import { CommandPalette } from "@/components/layout/CommandPalette";
 import { ShortcutsOverlay } from "@/components/layout/ShortcutsOverlay";
 import { DashboardHighlights } from "@/components/dashboard/DashboardHighlights";
 import { FeedbackLeaderboard } from "@/components/dashboard/FeedbackLeaderboard";
-import { useKeepAlive } from "@/hooks/useKeepAlive";
+import { useDialogFocus } from "@/hooks/useDialogFocus";
+import { useAppViewport } from "@/hooks/useAppViewport";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 
 const MOBILE_HEADER_HEIGHT = 52; // px — keep in sync with the mobile-top-bar CSS
@@ -32,7 +33,8 @@ const VIEW_TITLES: Record<string, string> = {
 type View = "dashboard" | "agents" | "chat";
 
 export default function Home() {
-  useKeepAlive(); // Silent backend heartbeat — prevents Render cold starts
+  useAppViewport();
+  const [chatResetKey, setChatResetKey] = useState(0);
   const [currentView, setCurrentView] = useState<View>("chat");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -42,6 +44,17 @@ export default function Home() {
   // Mobile drawer state
   const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
 
+  const sidebarDialogRef = useDialogFocus(mobileSidebarOpen, () => setMobileSidebarOpen(false));
+  const historyDialogRef = useDialogFocus(mobileHistoryOpen, () => setMobileHistoryOpen(false));
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 1024px)");
+    const closeDrawers = () => {
+      if (desktop.matches) { setMobileSidebarOpen(false); setMobileHistoryOpen(false); }
+    };
+    desktop.addEventListener("change", closeDrawers);
+    return () => desktop.removeEventListener("change", closeDrawers);
+  }, []);
+
   // Pipeline state — managed here, fed by ChatPanel, displayed by AgentPipeline
   const [pipelineAgents, setPipelineAgents] = useState<PipelineAgent[]>([]);
   const [pipelineDelegations, setPipelineDelegations] = useState<DelegationEvent[]>([]);
@@ -49,7 +62,9 @@ export default function Home() {
   const [pipelineActive, setPipelineActive] = useState(false);
   const [pipelineDurationMs, setPipelineDurationMs] = useState<number | undefined>(undefined);
   const [pipelineTotalAgents, setPipelineTotalAgents] = useState<number | undefined>(undefined);
-  const [backendStatus, setBackendStatus] = useState<"online" | "waking" | "offline">("waking");
+  const [aiSetupRequired, setAiSetupRequired] = useState(false);
+  const [backendStatus, setBackendStatus] = useState<"online" | "waking" | "offline" | "degraded">("waking");
+  const [compareAgentId, setCompareAgentId] = useState<string | undefined>();
   const [agentTab, setAgentTab] = useState<"builder" | "compare">("builder");
 
   // Keep active browser sessions warm. A GitHub Actions scheduler also pings
@@ -63,17 +78,20 @@ export default function Home() {
       try {
         const res = await fetch(`${API_URL}/health`, { signal: AbortSignal.timeout(10000) });
         if (mounted) {
-          setBackendStatus(res.ok ? "online" : "offline");
+          const health = res.ok ? await res.json() : null;
+          if (!mounted) return;
+          setAiSetupRequired(health?.services?.llm === "no_api_key");
+          setBackendStatus(!res.ok ? "offline" : health?.status === "ok" ? "online" : "degraded");
           // If not yet online, retry quickly
           if (!res.ok) {
-            retryTimer = setTimeout(ping, 3000);
+            retryTimer = setTimeout(ping, 15000);
           }
         }
       } catch {
         if (mounted) {
-          setBackendStatus("waking");
-          // Retry every 3s while waking up
-          retryTimer = setTimeout(ping, 3000);
+          setBackendStatus("offline");
+          // Retry without keeping a permanent waking indicator.
+          retryTimer = setTimeout(ping, 15000);
         }
       }
     };
@@ -89,6 +107,9 @@ export default function Home() {
 
   const handleNewChat = useCallback(() => {
     setActiveConversationId(null);
+    setChatResetKey(n => n + 1);
+    setCurrentView("chat");
+    setMobileHistoryOpen(false);
     setMobileSidebarOpen(false);
   }, []);
   const handleConversationCreated = useCallback((id: string) => {
@@ -102,6 +123,7 @@ export default function Home() {
   }, []);
   const handleSidebarSelectConversation = useCallback((id: string) => {
     setActiveConversationId(id);
+    setCurrentView("chat");
     setMobileSidebarOpen(false);
   }, []);
 
@@ -111,9 +133,9 @@ export default function Home() {
     setMobileHistoryOpen(false);
   }, []);
   const handleMobileNewChat = useCallback(() => {
-    setActiveConversationId(null);
+    handleNewChat();
     setMobileHistoryOpen(false);
-  }, []);
+  }, [handleNewChat]);
 
   const handlePipelineUpdate = useCallback((data: {
     agents: PipelineAgent[];
@@ -127,8 +149,8 @@ export default function Home() {
     setPipelineDelegations(data.delegations);
     setPipelineToolEvents(data.toolEvents);
     setPipelineActive(data.active);
-    if (data.durationMs !== undefined) setPipelineDurationMs(data.durationMs);
-    if (data.totalAgentsUsed !== undefined) setPipelineTotalAgents(data.totalAgentsUsed);
+    setPipelineDurationMs(data.durationMs);
+    setPipelineTotalAgents(data.totalAgentsUsed);
   }, []);
 
   const activeAgentCount = pipelineAgents.filter(a => ["activated", "thinking", "tool_call"].includes(a.status)).length;
@@ -143,49 +165,48 @@ export default function Home() {
   // Keyboard shortcuts
   const shortcutActions = useMemo(() => ({
     openCommandPalette: () => setCommandPaletteOpen(true),
-    newChat: () => {
-      setCurrentView("chat");
-      setActiveConversationId(null);
-    },
+    newChat: handleNewChat,
     toggleSidebar: () => setSidebarCollapsed(c => !c),
     closeModal: () => {
       if (commandPaletteOpen) { setCommandPaletteOpen(false); return; }
       if (shortcutsOpen) { setShortcutsOpen(false); return; }
       setMobileHistoryOpen(false);
+      setMobileSidebarOpen(false);
     },
     openShortcuts: () => setShortcutsOpen(true),
-  }), [commandPaletteOpen, shortcutsOpen]);
+  }), [commandPaletteOpen, shortcutsOpen, handleNewChat]);
   useKeyboardShortcuts(shortcutActions);
 
   // Command Palette callbacks
   const handlePaletteOpenCompare = useCallback((agentId?: string) => {
     setCurrentView("agents");
     setAgentTab("compare");
-    // Agent pre-selection is handled by the Compare component itself
+    setCompareAgentId(agentId);
   }, []);
 
   return (
-    <div className="flex w-screen max-w-full overflow-hidden" style={{ backgroundColor: "var(--bg-base)", height: "100dvh" }}>
+    <div className="app-shell flex w-full overflow-hidden" style={{ backgroundColor: "var(--bg-base)" }}>
       {/* Mobile overlay */}
       {mobileSidebarOpen && (
         <div
-          className="fixed inset-0 z-40 lg:hidden"
+          className="fixed inset-0 z-[70] lg:hidden"
           style={{ backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
           onClick={() => setMobileSidebarOpen(false)}
         />
       )}
 
       {/* Sidebar */}
-      <div className={`
-        fixed inset-y-0 left-0 z-50 lg:relative lg:z-10
+      <div ref={sidebarDialogRef} role={mobileSidebarOpen ? "dialog" : undefined} aria-modal={mobileSidebarOpen || undefined} aria-label={mobileSidebarOpen ? "Navigation" : undefined} className={`
+        app-sidebar fixed inset-y-0 left-0 z-[80] lg:relative lg:z-10
         transform transition-transform duration-300 ease-in-out
-        ${mobileSidebarOpen ? "translate-x-0" : "-translate-x-full"}
+        ${mobileSidebarOpen ? "translate-x-0 visible" : "-translate-x-full invisible lg:visible"}
         lg:translate-x-0
       `}>
         <Sidebar
           currentView={currentView}
           onNavigate={handleNavigate}
-          collapsed={sidebarCollapsed}
+          collapsed={sidebarCollapsed && !mobileSidebarOpen}
+          onClose={() => setMobileSidebarOpen(false)}
           onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
           pipelineActive={pipelineActive}
           activeAgentCount={activeAgentCount}
@@ -195,7 +216,7 @@ export default function Home() {
           historyRefreshTrigger={historyRefresh}
           backendStatus={backendStatus}
           onAuthChange={() => {
-            setActiveConversationId(null);
+            handleNewChat();
             setHistoryRefresh((n) => n + 1);
           }}
           onNotificationClick={(convId) => {
@@ -206,16 +227,16 @@ export default function Home() {
       </div>
 
       {/* Main content */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden" style={{ backgroundColor: "var(--bg-base)" }}>
-        {/* ─── Fixed mobile top bar — visible on ALL views ─── */}
+      <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden" style={{ backgroundColor: "var(--bg-base)" }}>
+        {/* Mobile header stays in the layout so drawers and content do not overlap. */}
         <div
-          className="mobile-top-bar flex items-center gap-3 lg:hidden"
+          className="mobile-top-bar flex-shrink-0 flex items-center gap-3 lg:hidden"
           style={{
-            position: "fixed",
+            position: "relative",
             top: 0,
             left: 0,
             right: 0,
-            zIndex: 60,
+            zIndex: 30,
             height: `${MOBILE_HEADER_HEIGHT}px`,
             paddingLeft: "12px",
             paddingRight: "16px",
@@ -228,7 +249,8 @@ export default function Home() {
           <button
             className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
             style={{ color: "var(--text-secondary)" }}
-            onClick={() => setMobileSidebarOpen(true)}
+            onClick={() => { setMobileHistoryOpen(false); setMobileSidebarOpen(true); }}
+            aria-expanded={mobileSidebarOpen}
             aria-label="Open menu"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
@@ -246,7 +268,7 @@ export default function Home() {
             <button
               className="ml-auto w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
               style={{ color: "var(--text-muted)" }}
-              onClick={() => setMobileHistoryOpen(true)}
+              onClick={() => { setMobileSidebarOpen(false); setMobileHistoryOpen(true); }}
               aria-label="Chat history"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
@@ -256,10 +278,8 @@ export default function Home() {
           )}
         </div>
 
-        {/* Spacer so content starts below the fixed mobile header */}
-        <div className="lg:hidden flex-shrink-0" style={{ height: `${MOBILE_HEADER_HEIGHT}px` }} />
-
-        <div className="flex-1 overflow-hidden relative">
+        {aiSetupRequired && <div role="status" className="px-4 py-2 text-xs border-b" style={{ background: "var(--yellow-dim)", color: "var(--text-secondary)", borderColor: "var(--border-subtle)" }}>AI setup is incomplete. Add a provider API key to enable chat responses.</div>}
+        <div className="flex-1 min-h-0 overflow-hidden relative">
           {/* Chat view — ALWAYS MOUNTED to keep WebSocket alive */}
           <div
             className="absolute inset-0 flex overflow-hidden"
@@ -268,6 +288,7 @@ export default function Home() {
             {/* Chat panel — main area (no separate history column, it's in sidebar now) */}
             <div className="flex-1 min-w-0 relative">
               <ChatPanel
+                key={chatResetKey}
                 conversationId={activeConversationId}
                 onConversationCreated={handleConversationCreated}
                 onMessageSent={handleMessageSent}
@@ -375,7 +396,7 @@ export default function Home() {
                         exit={{ opacity: 0 }}
                         transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
                       >
-                        <AgentComparison />
+                        <AgentComparison initialAgentId={compareAgentId} />
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -396,7 +417,7 @@ export default function Home() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="mobile-drawer-overlay xl:hidden"
+              className="mobile-drawer-overlay lg:hidden"
               onClick={() => setMobileHistoryOpen(false)}
             />
             <motion.div
@@ -404,14 +425,18 @@ export default function Home() {
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
               transition={{ type: "spring", stiffness: 300, damping: 30 }}
-              className="mobile-drawer xl:hidden"
+              className="mobile-drawer lg:hidden flex flex-col"
+              ref={historyDialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Chat history"
             >
+              <button className="self-end m-2 px-3 py-2 rounded-lg" onClick={() => setMobileHistoryOpen(false)} aria-label="Close chat history">Close ✕</button>
+              <div className="flex-1 min-h-0">
               <ChatHistory
                 activeId={activeConversationId}
                 onSelect={handleMobileHistorySelect}
                 onNewChat={handleMobileNewChat}
                 refreshTrigger={historyRefresh}
               />
+              </div>
             </motion.div>
           </>
         )}
@@ -425,12 +450,12 @@ export default function Home() {
         open={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
         onNavigate={(view) => { setCurrentView(view); }}
-        onNewChat={() => { setCurrentView("chat"); setActiveConversationId(null); }}
+        onNewChat={handleNewChat}
         onFocusInput={() => {
           if (currentView !== "chat") setCurrentView("chat");
           setTimeout(() => chatInputRef.current?.focus(), 50);
         }}
-        onSelectConversation={setActiveConversationId}
+        onSelectConversation={handleSidebarSelectConversation}
         onToggleSidebar={() => setSidebarCollapsed(c => !c)}
         onOpenAgentCompare={handlePaletteOpenCompare}
       />

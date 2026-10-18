@@ -1,20 +1,16 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { getAuthHeaders } from "@/lib/auth";
+import { useState, useEffect, useRef } from "react";
+import { getAuthHeaders, useAuth } from "@/lib/auth";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
 interface ConversationItem {
   id: string;
   title: string;
-  created_at: string;
   updated_at: string;
-  message_count: number;
   is_pinned?: boolean;
 }
-
 interface ChatHistoryProps {
   activeId: string | null;
   onSelect: (id: string) => void;
@@ -23,364 +19,146 @@ interface ChatHistoryProps {
 }
 
 export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: ChatHistoryProps) {
+  const { user } = useAuth();
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState(false);
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<ConversationItem[] | null>(null);
+  const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<ConversationItem[] | null>(null);
   const [searching, setSearching] = useState(false);
-  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const fetchConversations = useCallback(async () => {
-    try {
-      setFetchError(false);
-      const res = await fetch(`${API_URL}/api/v1/chat/conversations`, {
-        headers: getAuthHeaders(),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setConversations(data);
-      } else {
-        setFetchError(true);
-      }
-    } catch {
-      setFetchError(true);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const [pending, setPending] = useState<string | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const mutationController = useRef<AbortController | null>(null);
+  const listVersion = useRef(0);
 
   useEffect(() => {
-    fetchConversations();
-  }, [fetchConversations, refreshTrigger]);
+    setConversations([]);
+    setResults(null);
+    setQuery("");
+    setDeleteId(null);
+    setPending(null);
+    return () => { mutationController.current?.abort(); };
+  }, [user?.id]);
 
-  // Debounced search
   useEffect(() => {
-    if (!searchQuery.trim()) {
-      setSearchResults(null);
-      setSearching(false);
-      return;
-    }
-
-    setSearching(true);
-    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-
-    searchDebounceRef.current = setTimeout(async () => {
-      const q = searchQuery.toLowerCase();
-      // Client-side title filtering first
-      const titleMatches = conversations.filter((c) =>
-        c.title.toLowerCase().includes(q)
-      );
-
-      // Try backend search for content matches
+    const controller = new AbortController();
+    const version = ++listVersion.current;
+    setLoading(true);
+    setError("");
+    (async () => {
       try {
-        const res = await fetch(
-          `${API_URL}/api/v1/chat/conversations/search?q=${encodeURIComponent(searchQuery)}`,
-          { headers: getAuthHeaders() }
-        );
-        if (res.ok) {
-          const contentMatches: ConversationItem[] = await res.json();
-          // Merge and deduplicate
-          const ids = new Set(titleMatches.map((c) => c.id));
-          const merged = [...titleMatches];
-          for (const m of contentMatches) {
-            if (!ids.has(m.id)) merged.push(m);
-          }
-          setSearchResults(merged);
-        } else {
-          setSearchResults(titleMatches);
-        }
-      } catch {
-        setSearchResults(titleMatches);
-      }
-      setSearching(false);
-    }, 300);
-
-    return () => {
-      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    };
-  }, [searchQuery, conversations]);
-
-  const handleDelete = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    try {
-      await fetch(`${API_URL}/api/v1/chat/conversations/${id}`, {
-        method: "DELETE",
-        headers: getAuthHeaders(),
-      });
-      setConversations((prev) => prev.filter((c) => c.id !== id));
-      if (activeId === id) onNewChat();
-    } catch {
-      /* ignore */
-    }
-  };
-
-  const handlePin = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    try {
-      const res = await fetch(`${API_URL}/api/v1/chat/conversations/${id}/pin`, {
-        method: "PATCH",
-        headers: getAuthHeaders(),
-      });
-      if (res.ok) {
+        const res = await fetch(`${API_URL}/api/v1/chat/conversations`, { headers: getAuthHeaders(), signal: controller.signal });
+        if (!res.ok) throw new Error("Could not load chats.");
         const data = await res.json();
-        setConversations((prev) => {
-          const updated = prev.map((c) =>
-            c.id === id ? { ...c, is_pinned: data.is_pinned } : c
-          );
-          // Re-sort: pinned first, then by updated_at
-          return updated.sort((a, b) => {
-            if (a.is_pinned && !b.is_pinned) return -1;
-            if (!a.is_pinned && b.is_pinned) return 1;
-            return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-          });
-        });
+        if (!Array.isArray(data)) throw new Error("Could not load chats.");
+        if (!controller.signal.aborted && version === listVersion.current) setConversations(data);
+      } catch (err) {
+        if (!controller.signal.aborted) setError(err instanceof Error ? err.message : "Could not load chats.");
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
       }
-    } catch {
-      /* ignore */
+    })();
+    return () => controller.abort();
+  }, [refreshTrigger, retry, user?.id]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const term = query.trim();
+    setResults(null);
+    if (!term) { setSearching(false); return; }
+    setSearching(true);
+    const titleMatches = conversations.filter(c => c.title.toLowerCase().includes(term.toLowerCase()));
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/v1/chat/conversations/search?q=${encodeURIComponent(term)}`, {
+          headers: getAuthHeaders(), signal: controller.signal,
+        });
+        if (!res.ok) throw new Error("Search unavailable");
+        const data: ConversationItem[] = await res.json();
+        const merged = new Map(titleMatches.map(c => [c.id, c]));
+        data.forEach(c => merged.set(c.id, c));
+        if (!controller.signal.aborted) setResults(Array.from(merged.values()));
+      } catch {
+        if (!controller.signal.aborted) setResults(titleMatches);
+      } finally {
+        if (!controller.signal.aborted) setSearching(false);
+      }
+    }, 250);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [query, conversations]);
+
+  const mutate = async (id: string, action: "pin" | "delete") => {
+    if (mutationController.current) return;
+    const controller = new AbortController();
+    mutationController.current = controller;
+    setPending(id);
+    setError("");
+    try {
+      const res = await fetch(`${API_URL}/api/v1/chat/conversations/${id}${action === "pin" ? "/pin" : ""}`, {
+        method: action === "pin" ? "PATCH" : "DELETE", headers: getAuthHeaders(), signal: controller.signal,
+      });
+      if (!res.ok) throw new Error(`Could not ${action === "pin" ? "update" : "delete"} chat. Please retry.`);
+      if (controller.signal.aborted) return;
+      // A list request started before this mutation must not restore stale rows.
+      listVersion.current += 1;
+      if (action === "delete") {
+        setConversations(list => list.filter(c => c.id !== id));
+        setResults(list => list?.filter(c => c.id !== id) ?? null);
+        setDeleteId(null);
+        if (activeId === id) onNewChat();
+      } else {
+        const data = await res.json();
+        if (controller.signal.aborted) return;
+        setConversations(list => list.map(c => c.id === id ? { ...c, is_pinned: data.is_pinned } : c));
+      }
+    } catch (err) {
+      if (!controller.signal.aborted) setError(err instanceof Error ? err.message : "Could not update chat. Please retry.");
+    } finally {
+      if (mutationController.current === controller) mutationController.current = null;
+      if (!controller.signal.aborted) setPending(null);
     }
   };
 
-  const formatTime = (iso: string) => {
-    const d = new Date(iso);
-    const diff = Math.floor((Date.now() - d.getTime()) / 60000);
-    if (diff < 1) return "Just now";
-    if (diff < 60) return `${diff}m ago`;
-    const hr = Math.floor(diff / 60);
-    if (hr < 24) return `${hr}h ago`;
-    return d.toLocaleDateString();
-  };
-
-  const displayList = searchResults !== null ? searchResults : conversations;
+  const visible = (query.trim() ? results ?? conversations.filter(c => c.title.toLowerCase().includes(query.trim().toLowerCase())) : conversations)
+    .slice().sort((a, b) => Number(!!b.is_pinned) - Number(!!a.is_pinned) || Date.parse(b.updated_at) - Date.parse(a.updated_at));
 
   return (
-    <div className="flex flex-col h-full" style={{ backgroundColor: "var(--bg-sidebar)" }}>
-      {/* New Chat Button */}
-      <div className="px-3 pt-3 pb-2 flex-shrink-0">
-        <button
-          onClick={onNewChat}
-          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors duration-150 group relative overflow-hidden"
-          style={{
-            backgroundColor: "var(--bg-raised)",
-            border: "1px solid var(--border-muted)",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = "var(--bg-elevated)";
-            e.currentTarget.style.borderColor = "var(--border-strong)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = "var(--bg-raised)";
-            e.currentTarget.style.borderColor = "var(--border-muted)";
-          }}
-        >
-          <div
-            className="w-5 h-5 rounded-lg flex items-center justify-center flex-shrink-0 relative overflow-hidden"
-            style={{
-              backgroundColor: "var(--bg-elevated)",
-              border: "1px solid var(--border-muted)",
-            }}
-          >
-            <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-              <path d="M6 2v8M2 6h8" stroke="var(--text-muted)" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
-          </div>
-          <span className="text-sm font-medium transition-colors flex-1 text-left" style={{ color: "var(--text-secondary)" }}>
-            New chat
-          </span>
-          <span className="text-[10px] font-medium" style={{ color: "var(--text-faint)" }}>⌘N</span>
-        </button>
-      </div>
-
-      {/* Search Input */}
-      <div className="px-3 pb-2 flex-shrink-0">
+    <section className="flex flex-col h-full min-h-0" aria-label="Conversations">
+      <div className="p-3 space-y-3 flex-shrink-0">
+        <button onClick={onNewChat} className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium" style={{ background: "var(--brand-dim)", color: "var(--brand-text)" }}>＋ New chat</button>
         <div className="relative">
-          <svg
-            width="14" height="14" viewBox="0 0 24 24" fill="none"
-            className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
-            style={{ color: "var(--text-faint)" }}
-          >
-            <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="1.5"/>
-            <path d="M21 21l-4.35-4.35" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-          </svg>
-          <input
-            type="text"
-            placeholder="Search chats..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-14 py-2 rounded-xl text-xs transition-colors duration-150 outline-none"
-            style={{
-              backgroundColor: "var(--bg-raised)",
-              border: "1px solid var(--border-subtle)",
-              color: "var(--text-primary)",
-            }}
-            onFocus={(e) => {
-              e.currentTarget.style.borderColor = "var(--input-border-focus)";
-              e.currentTarget.style.backgroundColor = "var(--bg-elevated)";
-            }}
-            onBlur={(e) => {
-              e.currentTarget.style.borderColor = "var(--border-subtle)";
-              e.currentTarget.style.backgroundColor = "var(--bg-raised)";
-            }}
-          />
-          {!searchQuery && (
-            <span
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-medium pointer-events-none"
-              style={{ color: "var(--text-faint)" }}
-            >
-              ⌘K
-            </span>
-          )}
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery("")}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full flex items-center justify-center transition-colors"
-              style={{ color: "var(--text-faint)" }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-primary)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-faint)"; }}
-            >
-              <svg width="8" height="8" viewBox="0 0 12 12" fill="none">
-                <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-              </svg>
-            </button>
-          )}
+          <input aria-label="Search conversations" placeholder="Search chats…" value={query} onChange={e => setQuery(e.target.value)}
+            className="w-full min-w-0 pl-3 pr-10 py-2 rounded-lg text-sm" style={{ background: "var(--bg-raised)", color: "var(--text-primary)", border: "1px solid var(--border-subtle)" }} />
+          {query && <button aria-label="Clear search" onClick={() => setQuery("")} className="absolute right-0 top-0 h-full w-10">×</button>}
         </div>
       </div>
-
-      {/* Section label */}
-      {displayList.length > 0 && (
-        <div className="px-4 py-1.5 flex-shrink-0">
-          <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-faint)" }}>
-            {searchResults !== null ? `${searchResults.length} result${searchResults.length !== 1 ? "s" : ""}` : "Recent"}
-          </span>
-        </div>
-      )}
-
-      {/* List */}
-      <div className="flex-1 overflow-y-auto px-2 pb-3">
-        {loading && (
-          <div className="flex flex-col gap-1.5 px-2 pt-2">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="shimmer-loading h-10 rounded-xl" />
-            ))}
-          </div>
-        )}
-
-        {searching && (
-          <div className="flex items-center justify-center py-6">
-            <span className="w-4 h-4 border-[1.5px] rounded-full animate-spin" style={{ borderColor: "var(--border-muted)", borderTopColor: "var(--brand)" }} />
-          </div>
-        )}
-
-        {!loading && fetchError && (
-          <div className="text-center py-8 px-3">
-            <div className="text-xs mb-2" style={{ color: "var(--red)" }}>Failed to load</div>
-            <button
-              onClick={() => { setLoading(true); fetchConversations(); }}
-              className="px-3 py-1.5 rounded-xl text-xs transition-colors"
-              style={{ color: "var(--text-muted)", backgroundColor: "var(--bg-hover)" }}
-            >
-              Retry
-            </button>
-          </div>
-        )}
-
-        {!loading && !fetchError && !searching && displayList.length === 0 && (
-          <div className="text-center py-8 px-4">
-            <div className="text-sm font-medium mb-1" style={{ color: "var(--text-faint)" }}>{searchResults !== null ? "No results" : "No chats"}</div>
-            <div className="text-xs" style={{ color: "var(--text-faint)" }}>
-              {searchResults !== null ? "No matching chats found" : "Your chats will appear here"}
+      {error && <div className="mx-3 mb-2 text-xs" role="alert" style={{ color: "var(--red)" }}>{error} <button className="underline p-1" onClick={() => setRetry(n => n + 1)}>Retry</button></div>}
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-2 pb-3" aria-busy={loading || searching}>
+        {loading && !visible.length ? <p role="status" className="p-3 text-xs" style={{ color: "var(--text-muted)" }}>Loading chats…</p> : null}
+        {searching && <p role="status" className="px-3 py-1 text-xs" style={{ color: "var(--text-muted)" }}>Searching…</p>}
+        {!loading && !searching && !error && !visible.length && <p className="p-3 text-sm" style={{ color: "var(--text-muted)" }}>{query ? "No matching chats." : "Your conversations will appear here."}</p>}
+        {visible.map(conv => <div key={conv.id} className="history-row rounded-xl mb-1" style={{ background: activeId === conv.id ? "var(--bg-active)" : undefined }}>
+          <div className="flex items-center min-w-0">
+            <button onClick={() => onSelect(conv.id)} aria-current={activeId === conv.id ? "true" : undefined} title={conv.title}
+              className="min-w-0 flex-1 text-left px-3 py-3 text-sm truncate" style={{ color: activeId === conv.id ? "var(--brand-text)" : "var(--text-secondary)" }}>{conv.title || "Untitled chat"}</button>
+            <div className="history-actions flex flex-shrink-0 pr-1">
+              <button aria-label={`${conv.is_pinned ? "Unpin" : "Pin"} ${conv.title}`} aria-pressed={!!conv.is_pinned} disabled={pending !== null}
+                onClick={() => mutate(conv.id, "pin")} className="history-action" title={conv.is_pinned ? "Unpin" : "Pin"} style={{ color: conv.is_pinned ? "var(--brand-text)" : "var(--text-muted)" }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill={conv.is_pinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.5"><path d="m16 2 5 5-5.5 5.5 3 3L12 22l-1-7-7-1 6.5-6.5 3 3z"/></svg>
+              </button>
+              <button aria-label={`Delete ${conv.title}`} disabled={pending !== null} onClick={() => setDeleteId(deleteId === conv.id ? null : conv.id)} className="history-action" title="Delete chat" style={{ color: "var(--text-muted)" }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/></svg>
+              </button>
             </div>
           </div>
-        )}
-
-        <AnimatePresence>
-          {!searching && displayList.map((conv, i) => {
-            const isActive = activeId === conv.id;
-            const isHovered = hoveredId === conv.id;
-            return (
-              <motion.div
-                key={conv.id}
-                initial={{ opacity: 0, y: -6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-                transition={{ duration: 0.2, delay: i * 0.03 }}
-                className="relative mb-0.5"
-                onMouseEnter={() => setHoveredId(conv.id)}
-                onMouseLeave={() => setHoveredId(null)}
-              >
-                <button
-                  onClick={() => onSelect(conv.id)}
-                  className="w-full text-left flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm transition-colors duration-150 relative overflow-hidden"
-                  style={{
-                    backgroundColor: isActive ? "var(--bg-active)" : isHovered ? "var(--bg-hover)" : "transparent",
-                    color: isActive ? "var(--brand-text)" : "var(--text-secondary)",
-                  }}
-                >
-                  {/* Active gradient accent */}
-                  {isActive && (
-                    <div
-                      className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r-full"
-                      style={{
-                        background: "linear-gradient(180deg, var(--brand), #a855f7)",
-                        boxShadow: "0 0 8px var(--brand-glow)",
-                      }}
-                    />
-                  )}
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="flex-shrink-0 opacity-40">
-                    <path d="M12 3C6.477 3 2 6.925 2 11.75c0 2.278.98 4.35 2.59 5.88L3 21l4.5-1.45A10.3 10.3 0 0 0 12 20.5c5.523 0 10-3.925 10-8.75S17.523 3 12 3Z" stroke="currentColor" strokeWidth="1.5"/>
-                  </svg>
-                  {conv.is_pinned && (
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" className="flex-shrink-0" style={{ color: "var(--brand)" }}>
-                      <path d="M16 2l5 5-5.5 5.5 3 3L12 22l-1-7-7-1 6.5-6.5 3 3z" />
-                    </svg>
-                  )}
-                  <span className="truncate flex-1 text-sm">{conv.title}</span>
-                  {isHovered && (
-                    <>
-                      <motion.button
-                        initial={{ opacity: 0, scale: 0.5 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        onClick={(e) => handlePin(e, conv.id)}
-                        className="flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center transition-colors"
-                        style={{
-                          color: conv.is_pinned ? "var(--brand)" : "var(--text-muted)",
-                          backgroundColor: conv.is_pinned ? "var(--brand-dim)" : "var(--bg-hover)",
-                        }}
-                        title={conv.is_pinned ? "Unpin" : "Pin"}
-                      >
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill={conv.is_pinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.5">
-                          <path d="M16 2l5 5-5.5 5.5 3 3L12 22l-1-7-7-1 6.5-6.5 3 3z" />
-                        </svg>
-                      </motion.button>
-                      <motion.button
-                        initial={{ opacity: 0, scale: 0.5 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        onClick={(e) => handleDelete(e, conv.id)}
-                        className="flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center transition-colors"
-                        style={{ color: "var(--text-muted)", backgroundColor: "var(--bg-hover)" }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.color = "var(--red)";
-                          e.currentTarget.style.backgroundColor = "var(--red-dim)";
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.color = "var(--text-muted)";
-                          e.currentTarget.style.backgroundColor = "var(--bg-hover)";
-                        }}
-                        title="Delete"
-                      >
-                        <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
-                          <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                        </svg>
-                      </motion.button>
-                    </>
-                  )}
-                </button>
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
+          {deleteId === conv.id && <div className="px-3 pb-3 text-xs" role="group" aria-label={`Confirm deletion of ${conv.title}`}>
+            <p className="mb-2" style={{ color: "var(--text-secondary)" }}>Delete this chat permanently?</p>
+            <div className="flex gap-2"><button disabled={pending !== null} onClick={() => mutate(conv.id, "delete")} className="rounded-lg px-3 py-2" style={{ color: "var(--red)", background: "var(--red-dim)" }}>{pending === conv.id ? "Deleting…" : "Delete"}</button>
+            <button disabled={pending !== null} onClick={() => setDeleteId(null)} className="rounded-lg px-3 py-2">Cancel</button></div>
+          </div>}
+        </div>)}
       </div>
-    </div>
+    </section>
   );
 }

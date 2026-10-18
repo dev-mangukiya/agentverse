@@ -8,6 +8,7 @@
  */
 
 import React from "react";
+import { useDialogFocus } from "@/hooks/useDialogFocus";
 import { motion, AnimatePresence } from "framer-motion";
 import { transition, DURATION } from "@/config/motion";
 
@@ -25,6 +26,7 @@ const shortcuts = [
 ];
 
 export function ShortcutsOverlay({ open, onClose }: ShortcutsOverlayProps) {
+  const dialogRef = useDialogFocus(open, onClose);
   return (
     <AnimatePresence>
       {open && (
@@ -41,15 +43,17 @@ export function ShortcutsOverlay({ open, onClose }: ShortcutsOverlayProps) {
           />
           {/* Panel */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
+            initial={{ opacity: 0, scale: 0.95, x: "-50%", y: "-50%" }}
+            animate={{ opacity: 1, scale: 1, x: "-50%", y: "-50%" }}
+            exit={{ opacity: 0, scale: 0.95, x: "-50%", y: "-50%" }}
             transition={transition.fast}
+            ref={dialogRef} tabIndex={-1}
+            role="dialog" aria-modal="true" aria-label="Keyboard shortcuts"
             className="fixed z-[101] rounded-2xl overflow-hidden shadow-2xl"
             style={{
               top: "50%",
               left: "50%",
-              transform: "translate(-50%, -50%)",
+
               width: "min(360px, calc(100vw - 32px))",
               backgroundColor: "var(--bg-elevated)",
               border: "1px solid var(--border-muted)",

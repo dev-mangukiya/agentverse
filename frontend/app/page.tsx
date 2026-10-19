@@ -138,12 +138,11 @@ export default function Home() {
 
   return (
     <div className="app-shell studio-shell">
-      {mobileSidebarOpen && (
-        <div
-          className="studio-drawer-backdrop"
-          onClick={() => setMobileSidebarOpen(false)}
-        />
-      )}
+      <div
+        className={`studio-drawer-backdrop ${mobileSidebarOpen ? "is-open" : ""}`}
+        aria-hidden="true"
+        onClick={() => setMobileSidebarOpen(false)}
+      />
       <div
         ref={sidebarDialogRef}
         className={`studio-sidebar-container ${mobileSidebarOpen ? "is-open" : ""}`}

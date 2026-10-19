@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import "./studio.css";
+import { transition } from "@/config/motion";
 import { MotionConfig } from "framer-motion";
 import { ThemeProvider } from "@/lib/theme";
 import { NotificationProvider } from "@/components/notifications/NotificationProvider";
@@ -29,7 +30,7 @@ export default function RootLayout({
         />
       </head>
       <body className="safe-area-body">
-        <MotionConfig reducedMotion="user">
+        <MotionConfig reducedMotion="user" transition={transition.base}>
           <ThemeProvider>
             <AuthProvider>
               <NotificationProvider>{children}</NotificationProvider>

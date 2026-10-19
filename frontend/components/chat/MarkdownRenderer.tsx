@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
@@ -147,20 +147,6 @@ const components: Components = {
           className="px-3 py-1.5 flex items-center justify-between relative overflow-hidden"
           style={{ backgroundColor: "var(--bg-raised)", borderBottom: "1px solid var(--border-subtle)" }}
         >
-          {/* Gradient accent line */}
-          <div
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              height: "2px",
-              background: "linear-gradient(90deg, var(--aurora-1), var(--aurora-2), var(--aurora-3), var(--aurora-4))",
-              backgroundSize: "200% 100%",
-              animation: "shimmer 3s ease-in-out infinite",
-              opacity: 0.6,
-            }}
-          />
           <span className="text-[10px] font-mono uppercase font-medium" style={{ color: "var(--text-faint)" }}>
             {language || "code"}
           </span>
@@ -221,23 +207,14 @@ const components: Components = {
   ),
 };
 
-export function MarkdownRenderer({ content }: MarkdownRendererProps) {
+const remarkPlugins = [remarkGfm];
+
+export const MarkdownRenderer = memo(function MarkdownRenderer({ content }: MarkdownRendererProps) {
   return (
     <div className="markdown-body">
-      <style>{`
-        ol.counter-reset-\\[list-counter\\] > .markdown-li .markdown-bullet,
-        .markdown-body ol > .markdown-li .markdown-bullet { display: none !important; }
-        ol.counter-reset-\\[list-counter\\] > .markdown-li .markdown-number,
-        .markdown-body ol > .markdown-li .markdown-number { display: inline-block !important; }
-        ol.counter-reset-\\[list-counter\\] > .markdown-li .markdown-number::before,
-        .markdown-body ol > .markdown-li .markdown-number::before {
-          content: counter(list-counter) ".";
-          color: var(--brand);
-        }
-      `}</style>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
         {content}
       </ReactMarkdown>
     </div>
   );
-}
+});

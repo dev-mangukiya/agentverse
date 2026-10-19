@@ -264,3 +264,215 @@ test('failed specialist deletion keeps the card visible and shows an actionable 
   assert.equal(pending, null);
   assert.match(error, /Could not delete.*try again/);
 });
+
+function frameClock() {
+  let nextId = 1;
+  const pending = new Map();
+  return {
+    request(callback) { const id = nextId++; pending.set(id, callback); return id; },
+    cancel(id) { pending.delete(id); },
+    tick(time) { const callbacks = [...pending.values()]; pending.clear(); callbacks.forEach(callback => callback(time)); },
+    get pending() { return pending.size; },
+  };
+}
+
+test('stream bursts batch Markdown updates and flush exact Unicode and code on completion', () => {
+  const { createTextBuffer } = load('lib/chat-motion');
+  const clock = frameClock(), paints = [];
+  const buffer = createTextBuffer(clock, text => paints.push(text));
+  const chunks = ['Hello ', '👩🏽‍💻', '\n```js\n', 'const a = 1;\n', '```'];
+  chunks.forEach(chunk => buffer.append(chunk));
+  assert.equal(clock.pending, 1);
+  assert.equal(paints.length, 0);
+  clock.tick(0);
+  assert.deepEqual(paints, [chunks.join('')]);
+  buffer.append('\nDone');
+  clock.tick(16);
+  assert.equal(paints.length, 1);
+  buffer.flush(); // Finalization must work even when RAF is paused in a hidden tab.
+  assert.equal(paints.at(-1), chunks.join('') + '\nDone');
+  assert.equal(clock.pending, 0);
+  buffer.cancel();
+  buffer.append('late token');
+  clock.tick(100);
+  assert.equal(paints.length, 2);
+});
+
+function streamHarness() {
+  const tree = ast('components/chat/ChatPanel.tsx');
+  let handler;
+  walk(tree, node => {
+    if (ts.isBinaryExpression(node) && node.left.getText(tree) === 'ws.onmessage') handler = node.right.getText(tree);
+  });
+  assert.ok(handler);
+  const state = { messages: [], updates: 0, refreshed: 0, thinking: true };
+  const clock = frameClock();
+  const ws = {};
+  const context = {
+    destroyed: false, ws, wsRef: { current: ws }, streamSequence: 0,
+    requestAnimationFrame: clock.request, cancelAnimationFrame: clock.cancel,
+    createTextBuffer: load('lib/chat-motion').createTextBuffer,
+    streamingMessageRef: { current: null }, sendingRef: { current: true },
+    callbacksRef: { current: { onMessageSent() { state.refreshed++; }, emitPipeline() {} } },
+    setMessages(update) { state.messages = update(state.messages); state.updates++; },
+    setIsThinking(value) { state.thinking = value; }, setToolActivity() {}, setThinkingAgent() {},
+    thinkingAgentRef: { current: '' }, setThinkingPhase() {}, setActiveAgents() {}, setError() {},
+    pipelineAgentsRef: { current: [] }, notifyRef: { current: null }, conversationId: 'chat-1',
+  };
+  const js = ts.transpileModule(`(${handler})`, { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;
+  const receive = vm.runInNewContext(js, context);
+  return { state, context, clock, emit: data => receive({ data: JSON.stringify(data) }) };
+}
+
+test('saved response preserves the streamed bubble identity and cannot be overwritten by a pending frame', () => {
+  const h = streamHarness();
+  h.emit({ type: 'stream_start', agent: 'writer' });
+  const renderKey = h.state.messages[0].renderKey;
+  h.emit({ type: 'stream_token', token: 'First draft' });
+  h.emit({ type: 'pipeline_complete' });
+  assert.equal(h.state.thinking, true, 'composer stays locked until the saved response');
+  h.emit({ type: 'response', message: { id: 'saved-42', role: 'agent', content: 'Final reviewed answer', agent_name: 'writer' } });
+  assert.equal(h.state.messages.length, 1);
+  assert.equal(h.state.messages[0].renderKey, renderKey);
+  assert.equal(h.state.messages[0].id, 'saved-42', 'feedback uses the real server id');
+  assert.equal(h.state.messages[0].isStreaming, false);
+  assert.equal(h.state.messages[0].content, 'Final reviewed answer');
+  assert.equal(h.state.refreshed, 1);
+  h.clock.tick(100);
+  assert.equal(h.state.messages[0].content, 'Final reviewed answer');
+  assert.equal(h.clock.pending, 0);
+});
+
+test('stream end flushes the last chunk and errors retain partial replies without exposing feedback', () => {
+  const h = streamHarness();
+  h.emit({ type: 'stream_start' });
+  h.emit({ type: 'stream_token', token: 'Some ' });
+  h.emit({ type: 'stream_end' });
+  assert.equal(h.state.messages[0].content, 'Some ');
+  h.emit({ type: 'stream_token', token: 'more text' });
+  h.emit({ type: 'error', content: 'Connection interrupted' });
+  assert.equal(h.state.messages[0].content, 'Some more text');
+  assert.equal(h.state.messages[0].incomplete, true);
+  assert.equal(h.state.messages[0].isStreaming, false);
+  assert.equal(h.clock.pending, 0);
+});
+
+test('stale socket events and queued paints cannot update a different conversation', () => {
+  const h = streamHarness();
+  h.emit({ type: 'stream_start' });
+  h.emit({ type: 'stream_token', token: 'old conversation' });
+  h.context.destroyed = true;
+  h.emit({ type: 'response', message: { id: 'old', content: 'Old final answer' } });
+  h.clock.tick(100);
+  assert.equal(h.state.updates, 1);
+  assert.equal(h.state.refreshed, 0);
+});
+
+test('follow scrolling eases toward a changing target, settles exactly, and stops on interruption', () => {
+  const { createScrollFollower } = load('lib/chat-motion');
+  const clock = frameClock();
+  let top = 0, bottom = 500;
+  const follower = createScrollFollower(clock, () => ({ top, bottom }), value => { top = value; }, () => false);
+  follower.follow(); follower.follow();
+  assert.equal(clock.pending, 1);
+  clock.tick(0);
+  assert.ok(top > 0 && top < 500);
+  const previous = top;
+  bottom = 750;
+  clock.tick(16);
+  assert.ok(top > previous && top < bottom);
+  for (let time = 32; time < 1000; time += 16) clock.tick(time);
+  assert.equal(top, 750);
+  assert.equal(clock.pending, 0);
+  bottom = 1000;
+  follower.follow();
+  follower.stop();
+  clock.tick(1016);
+  assert.equal(top, 750);
+  assert.equal(follower.running, false);
+});
+
+test('reduced motion and initial history positioning avoid animated scrolling', () => {
+  const { createScrollFollower } = load('lib/chat-motion');
+  const clock = frameClock();
+  let top = 0, bottom = 2000;
+  const follower = createScrollFollower(clock, () => ({ top, bottom }), value => { top = value; }, () => true);
+  follower.follow();
+  clock.tick(0);
+  assert.equal(top, 2000);
+  assert.equal(clock.pending, 0);
+  bottom = 5000;
+  follower.jump();
+  assert.equal(top, 5000);
+  assert.equal(clock.pending, 0);
+});
+
+function scrollHarness() {
+  const tree = ast('hooks/useChatScroll.ts');
+  let effect;
+  walk(tree, node => {
+    if (ts.isCallExpression(node) && node.expression.getText(tree) === 'useEffect' && node.arguments[0].getText(tree).includes('new ResizeObserver')) effect = node.arguments[0].getText(tree);
+  });
+  const clock = frameClock(), handlers = new Map();
+  const viewport = {
+    clientHeight: 400, scrollHeight: 1000, scrollTop: 600, clientWidth: 500,
+    getBoundingClientRect: () => ({ left: 0 }),
+    addEventListener: (name, callback) => handlers.set(name, callback),
+    removeEventListener: name => handlers.delete(name),
+  };
+  let onResize, visible = false, disconnected = false;
+  const followingRef = { current: true };
+  const followerRef = { current: null };
+  const context = {
+    viewportRef: { current: viewport }, contentRef: { current: {} }, followingRef, followerRef,
+    loadingRef: { current: false }, jumpOnResize: { current: false },
+    showLatest: value => { visible = value; },
+    window: { matchMedia: () => ({ matches: false }) },
+    createScrollFollower: load('lib/chat-motion').createScrollFollower,
+    requestAnimationFrame: clock.request, cancelAnimationFrame: clock.cancel,
+    ResizeObserver: class { constructor(callback) { onResize = callback; } observe() {} disconnect() { disconnected = true; } },
+  };
+  const js = ts.transpileModule(`(${effect})`, { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;
+  const cleanup = vm.runInNewContext(js, context)();
+  return { viewport, followingRef, followerRef, clock, handlers, resize: () => onResize(), cleanup, get visible() { return visible; }, get disconnected() { return disconnected; } };
+}
+
+test('scrolling up takes control immediately, even near the bottom, until the reader returns', () => {
+  const h = scrollHarness();
+  h.resize();
+  assert.equal(h.clock.pending, 1);
+  h.handlers.get('wheel')({ deltaY: -1 });
+  assert.equal(h.clock.pending, 0);
+  h.viewport.scrollTop = 599;
+  h.handlers.get('scroll')();
+  assert.equal(h.followingRef.current, false);
+  assert.equal(h.visible, true);
+  h.viewport.scrollHeight = 1100;
+  h.resize();
+  assert.equal(h.clock.pending, 0);
+  h.viewport.scrollTop = 700;
+  h.handlers.get('scroll')();
+  assert.equal(h.followingRef.current, true);
+  assert.equal(h.visible, false);
+  h.resize();
+  h.cleanup();
+  assert.equal(h.clock.pending, 0);
+  assert.equal(h.handlers.size, 0);
+  assert.equal(h.disconnected, true);
+});
+
+test('touch and keyboard read-back pause follow scrolling', () => {
+  for (const gesture of ['touch', 'keyboard', 'scrollbar']) {
+    const h = scrollHarness();
+    if (gesture === 'touch') {
+      h.handlers.get('touchstart')({ touches: [{ clientY: 100 }] });
+      h.handlers.get('touchmove')({ touches: [{ clientY: 120 }] });
+    } else if (gesture === 'keyboard') {
+      h.handlers.get('keydown')({ key: 'PageUp', target: { closest: () => null } });
+    } else h.handlers.get('pointerdown')({ clientX: 503, button: 0 });
+    assert.equal(h.followingRef.current, false, gesture);
+    h.resize();
+    assert.equal(h.clock.pending, 0, gesture);
+    h.cleanup();
+  }
+});

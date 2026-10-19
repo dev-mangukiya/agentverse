@@ -1,5 +1,6 @@
 "use client";
 
+import { transition } from "@/config/motion";
 import { motion } from "framer-motion";
 
 interface PromptTemplate {
@@ -126,9 +127,9 @@ export function PromptTemplates({ onSelect, onInsert, onClose }: PromptTemplates
   return (
     <div className="flex flex-col items-center justify-center h-full px-4 md:px-8 py-8">
       <motion.div
-        initial={{ opacity: 0, y: 12 }}
+        initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
+        transition={transition.fast}
         className="text-center mb-8"
       >
         <h2
@@ -146,9 +147,9 @@ export function PromptTemplates({ onSelect, onInsert, onClose }: PromptTemplates
         {TEMPLATES.map((template, i) => (
           <motion.button
             key={template.id}
-            initial={{ opacity: 0, y: 16 }}
+            initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.05 * i, duration: 0.3 }}
+            transition={{ ...transition.fast, delay: Math.min(i, 5) * 0.02 }}
             onClick={() => handleSelect(template.prompt)}
             className="flex flex-col items-start gap-2 p-4 rounded-xl text-left transition-colors duration-150 group"
             style={{

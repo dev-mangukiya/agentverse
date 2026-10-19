@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useState, useRef, useEffect, useCallback, useId } from "react";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { getSessionId } from "@/lib/session";
 import { getAuthHeaders } from "@/lib/auth";
@@ -11,6 +11,9 @@ import { ExportMenu } from "./ExportMenu";
 import { PromptTemplates } from "./PromptTemplates";
 import { WorkspaceWelcome } from "@/components/workspace/WorkspaceWelcome";
 import { useDialogFocus } from "@/hooks/useDialogFocus";
+import { createTextBuffer } from "@/lib/chat-motion";
+import { useChatScroll } from "@/hooks/useChatScroll";
+import { transition } from "@/config/motion";
 import { WorkspaceIcon } from "@/components/workspace/WorkspaceIcon";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
@@ -19,6 +22,10 @@ const WS_BASE = API_URL.replace("http", "ws");
 interface Message {
   id: string | number;
   role: "user" | "agent" | "system" | "tool";
+  renderKey?: string;
+  animateIn?: boolean;
+  isStreaming?: boolean;
+  incomplete?: boolean;
   agent_name?: string;
   content: string;
   tool_name?: string;
@@ -168,6 +175,9 @@ async function readFile(file: File): Promise<AttachedFile> {
 }
 
 export function ChatPanel({ conversationId, onConversationCreated, onMessageSent, onPipelineUpdate, inputRef: externalInputRef }: ChatPanelProps) {
+  const composerId = useId();
+  const reduceMotion = useReducedMotion();
+  const [expandedReviews, setExpandedReviews] = useState<Set<string | number>>(() => new Set());
   const [inputExpanded, setInputExpanded] = useState(false);
   const taskOptionsRef = useDialogFocus(inputExpanded, () => setInputExpanded(false));
   const [messages, setMessages] = useState<Message[]>([]);
@@ -180,7 +190,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const createRequestRef = useRef<AbortController | null>(null);
   const [input, setInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
-  const streamingMessageRef = useRef<{ agent: string; content: string; id: number } | null>(null);
+  const streamingMessageRef = useRef<{ agent: string; content: string; id: string; buffer: ReturnType<typeof createTextBuffer> } | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const recognitionRef = useRef<any>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
@@ -392,6 +402,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const toolEventsRef = useRef<ToolEvent[]>([]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const scrollToLatest = useChatScroll(scrollRef, contentRef, followMessagesRef, setShowScrollToBottom, conversationId, loadingConversation);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Sync external ref (for keyboard shortcuts from parent)
@@ -446,13 +458,6 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     emitPipeline(true);
   }, [emitPipeline]);
 
-  // Follow new content only while the reader is already at the bottom.
-  useEffect(() => {
-    if (followMessagesRef.current && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages, toolActivity, isThinking, loadingConversation]);
-
   useEffect(() => {
     const ta = inputRef.current;
     if (!ta) return;
@@ -473,7 +478,9 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     }
     pendingMessageRef.current = null;
     pendingAttachmentsRef.current = [];
+    streamingMessageRef.current?.buffer.cancel();
     streamingMessageRef.current = null;
+    setExpandedReviews(new Set());
     sendingRef.current = false;
     setIsThinking(false);
     setToolActivity(null);
@@ -526,6 +533,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
     let pingInterval: ReturnType<typeof setInterval> | null = null;
     let destroyed = false;
+    let streamSequence = 0;
+    let toolClearTimeout: ReturnType<typeof setTimeout> | null = null;
 
     const connect = () => {
       if (destroyed) return;
@@ -598,6 +607,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             break;
 
           case "tool_call":
+            if (toolClearTimeout) clearTimeout(toolClearTimeout);
             setToolActivity({ tool: data.tool, status: "calling", agent: data.agent, args: data.args });
             cb.updateAgent(data.agent || thinkingAgentRef.current, {
               status: "tool_call", toolName: data.tool, toolArgs: data.args,
@@ -616,7 +626,10 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
               toolEventsRef.current[toolIdx] = { ...toolEventsRef.current[toolIdx], status: "done", durationMs: data.duration_ms, result: data.result };
             }
             cb.updateAgent(data.agent || thinkingAgentRef.current, { status: "thinking", toolName: undefined, toolArgs: undefined });
-            setTimeout(() => setToolActivity(null), 800);
+            if (toolClearTimeout) clearTimeout(toolClearTimeout);
+            toolClearTimeout = setTimeout(() => {
+              if (!destroyed && wsRef.current === ws) setToolActivity(null);
+            }, 800);
             break;
           }
 
@@ -629,9 +642,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             break;
 
           case "pipeline_complete":
-            sendingRef.current = false;
+            // Stay busy until the saved response arrives; it follows this event.
             setActiveAgents([]);
-            setIsThinking(false);
             setToolActivity(null);
             setThinkingAgent("");
             thinkingAgentRef.current = "";
@@ -664,21 +676,23 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             setThinkingPhase("");
             if (streamingMessageRef.current) {
               // A streaming message already exists — replace it with the final version
-              const streamId = streamingMessageRef.current?.id;
+              const streamId = streamingMessageRef.current.id;
+              streamingMessageRef.current.buffer.flush();
+              streamingMessageRef.current.buffer.cancel();
               streamingMessageRef.current = null;
               if (data.message) {
                 setMessages(prev => prev.map(m =>
-                  m.id === streamId ? { ...data.message, contributing_agents: data.contributing_agents, pipeline_duration_ms: data.pipeline_duration_ms } : m
+                  m.id === streamId ? { ...m, ...data.message, renderKey: m.renderKey, isStreaming: false, incomplete: false, contributing_agents: data.contributing_agents, pipeline_duration_ms: data.pipeline_duration_ms } : m
                 ));
               } else {
                 setMessages(prev => prev.map(m =>
-                  m.id === streamId ? { ...m, id: data.message?.id || m.id, content: data.content, contributing_agents: data.contributing_agents, pipeline_duration_ms: data.pipeline_duration_ms } : m
+                  m.id === streamId ? { ...m, isStreaming: false, incomplete: false, content: data.content ?? m.content, contributing_agents: data.contributing_agents, pipeline_duration_ms: data.pipeline_duration_ms } : m
                 ));
               }
             } else if (data.message) {
-              setMessages(prev => [...prev, { ...data.message, contributing_agents: data.contributing_agents, pipeline_duration_ms: data.pipeline_duration_ms }]);
+              setMessages(prev => [...prev, { ...data.message, animateIn: true, contributing_agents: data.contributing_agents, pipeline_duration_ms: data.pipeline_duration_ms }]);
             } else {
-              setMessages(prev => [...prev, { id: Date.now(), role: "agent", agent_name: data.agent, content: data.content, contributing_agents: data.contributing_agents, pipeline_duration_ms: data.pipeline_duration_ms }]);
+              setMessages(prev => [...prev, { id: Date.now(), role: "agent", animateIn: true, agent_name: data.agent, content: data.content, contributing_agents: data.contributing_agents, pipeline_duration_ms: data.pipeline_duration_ms }]);
             }
             cb.onMessageSent();
             break;
@@ -688,7 +702,10 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
           case "error":
             sendingRef.current = false;
+            streamingMessageRef.current?.buffer.flush();
+            streamingMessageRef.current?.buffer.cancel();
             streamingMessageRef.current = null;
+            setMessages(prev => prev.map(m => m.isStreaming ? { ...m, isStreaming: false, incomplete: true } : m));
             setActiveAgents([]);
             setThinkingAgent("");
             setThinkingPhase("");
@@ -710,36 +727,35 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
           case "pong":
             break;
 
-          case "stream_start":
-            // Begin accumulating a streaming response
-            streamingMessageRef.current = {
-              agent: data.agent || "orchestrator",
-              content: "",
-              id: Date.now(),
-            };
-            // Add a placeholder message
-            setMessages(prev => [...prev, {
-              id: streamingMessageRef.current!.id,
-              role: "agent" as const,
-              agent_name: data.agent || "orchestrator",
-              content: "",
+          case "stream_start": {
+            streamingMessageRef.current?.buffer.flush();
+            streamingMessageRef.current?.buffer.cancel();
+            const id = `stream-${Date.now()}-${++streamSequence}`;
+            const buffer = createTextBuffer(
+              { request: requestAnimationFrame, cancel: cancelAnimationFrame },
+              content => {
+                if (destroyed || wsRef.current !== ws) return;
+                setMessages(prev => prev.map(m => m.id === id ? { ...m, content } : m));
+              },
+            );
+            streamingMessageRef.current = { agent: data.agent || "orchestrator", content: "", id, buffer };
+            setMessages(prev => [...prev.map(m => m.isStreaming ? { ...m, isStreaming: false, incomplete: true } : m), {
+              id, renderKey: id, animateIn: true, isStreaming: true,
+              role: "agent" as const, agent_name: data.agent || "orchestrator", content: "",
             }]);
             break;
+          }
 
           case "stream_token":
-            if (streamingMessageRef.current) {
+            if (streamingMessageRef.current && typeof data.token === "string") {
               streamingMessageRef.current.content += data.token;
-              const currentContent = streamingMessageRef.current.content;
-              const currentId = streamingMessageRef.current?.id;
-              setMessages(prev => prev.map(m =>
-                m.id === currentId ? { ...m, content: currentContent } : m
-              ));
+              streamingMessageRef.current.buffer.append(data.token);
             }
             break;
 
           case "stream_end":
-            // Don't clear streamingMessageRef here — the "response" handler
-            // needs it to replace the streamed placeholder with the final message.
+            // Keep the identity until the saved response arrives.
+            streamingMessageRef.current?.buffer.flush();
             break;
 
           case "critic_review":
@@ -765,7 +781,11 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         setIsThinking(!!pendingMessageRef.current);
         setToolActivity(null);
         setActiveAgents([]);
+        streamingMessageRef.current?.buffer.flush();
+        streamingMessageRef.current?.buffer.cancel();
         streamingMessageRef.current = null;
+        setMessages(prev => prev.map(m => m.isStreaming ? { ...m, isStreaming: false, incomplete: true } : m));
+        if (toolClearTimeout) clearTimeout(toolClearTimeout);
         callbacksRef.current.emitPipeline(false);
         // Reconnect after 3s using the stable `connect` function from this effect's scope
         reconnectTimeoutRef.current = setTimeout(connect, 3000);
@@ -781,6 +801,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
     return () => {
       destroyed = true;
+      streamingMessageRef.current?.buffer.cancel();
+      if (toolClearTimeout) clearTimeout(toolClearTimeout);
       if (pingInterval) clearInterval(pingInterval);
       if (reconnectTimeoutRef.current) { clearTimeout(reconnectTimeoutRef.current); reconnectTimeoutRef.current = null; }
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
@@ -955,7 +977,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     setError(null);
     resetPipeline();
 
-    const userMsg: Message = { id: Date.now(), role: "user", content, created_at: new Date().toISOString() };
+    const userMsg: Message = { id: Date.now(), role: "user", animateIn: true, content, created_at: new Date().toISOString() };
     setMessages((prev) => [...prev, userMsg]);
     setIsThinking(true);
 
@@ -1021,7 +1043,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     setShowTemplates(false);
     requestAnimationFrame(() => { inputRef.current?.focus(); inputRef.current?.setSelectionRange(prompt.length, prompt.length); });
   };
-  const composer = <div className={`task-composer ${isEmpty ? "task-composer-welcome" : ""}`}
+  const composer = <motion.div layout="position" layoutId={composerId} transition={transition.base} className={`task-composer ${isEmpty ? "task-composer-welcome" : ""}`}
     onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver} onDrop={handleDrop}>
     <input ref={fileInputRef} type="file" multiple accept={ALL_ACCEPT} className="hidden" onChange={e => { if (e.target.files) processFiles(e.target.files); e.target.value = ""; }}/>
     {isDragging && <div className="drop-zone-overlay"><span>Drop something interesting here</span></div>}
@@ -1037,14 +1059,21 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       <button className="composer-attach" aria-label="Attach files" onClick={() => fileInputRef.current?.click()} disabled={isThinking || loadingConversation}><WorkspaceIcon name="attach" size={17}/><span>Attach files</span></button>
       {isRecording && <button className="icon-button is-recording" onClick={toggleRecording} aria-label="Stop voice input" title="Stop voice input"><WorkspaceIcon name="mic" size={17}/></button>}
       <div className="composer-more"><button className="icon-button" onClick={() => setInputExpanded(v => !v)} disabled={isThinking || loadingConversation} aria-label="More tools" aria-expanded={inputExpanded}>···</button>
-        {inputExpanded && <><div className="composer-menu-dismiss" aria-hidden="true" onClick={() => setInputExpanded(false)}/><div ref={taskOptionsRef} role="dialog" aria-label="Task options" tabIndex={-1} className="composer-menu"><button onClick={() => { toggleRecording(); setInputExpanded(false); }}>{isRecording ? "Stop voice input" : "Use voice input"}</button><button onClick={() => { openCamera(); setInputExpanded(false); }}>Take a photo</button><button onClick={() => { setShowTemplates(v => !v); setInputExpanded(false); }}>Browse prompt templates</button></div></>}
+        {inputExpanded && <div className="composer-menu-dismiss" aria-hidden="true" onClick={() => setInputExpanded(false)}/>}
+        <AnimatePresence>
+          {inputExpanded && <motion.div key="tools" ref={taskOptionsRef} role="dialog" aria-label="Task options" tabIndex={-1} className="composer-menu" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4, pointerEvents: "none" }} transition={transition.fast}>
+            <button onClick={() => { toggleRecording(); setInputExpanded(false); }}>{isRecording ? "Stop voice input" : "Use voice input"}</button>
+            <button onClick={() => { openCamera(); setInputExpanded(false); }}>Take a photo</button>
+            <button onClick={() => { setShowTemplates(v => !v); setInputExpanded(false); }}>Browse prompt templates</button>
+          </motion.div>}
+        </AnimatePresence>
       </div>
     </div>
     <button className="start-task-button" aria-label="Send message" onClick={() => handleSend()} disabled={isThinking || loadingConversation || (!input.trim() && !attachedFiles.length)}><span>{isThinking ? "Working…" : "Send"}</span><WorkspaceIcon name="arrow" size={18}/></button>
     </div>
     {showTemplates && <div className="composer-templates"><button className="text-action" onClick={() => setShowTemplates(false)}>Close templates ×</button><PromptTemplates onInsert={insertPrompt}/></div>}
     <div className="composer-helper">Enter to send <span className="key-divider">·</span> Shift + Enter for a new line</div>
-  </div>;
+  </motion.div>;
 
   return (
     <div className="studio-chat flex flex-col h-full min-h-0 min-w-0" style={{ backgroundColor: "var(--bg-base)" }}>
@@ -1052,16 +1081,15 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         <span className="conversation-status" role="status">{isThinking ? "Working on your request…" : "Conversation"}</span>
         <div className="conversation-toolbar-actions">{conversationId && <span className={`connection-label ${wsConnected ? "" : "pending"}`}><span className="status-dot"/>{wsConnected ? "Connected" : "Reconnecting"}</span>}<ExportMenu messages={messages}/></div>
       </div>}
-      {isThinking && activeAgents.length > 0 && <div className="live-team-trail" aria-label="Active specialists">{activeAgents.map(name => <span key={name} style={{ color: getAgent(name).color }}>{getAgent(name).icon} {getAgent(name).displayName}<span className="working-dot"/></span>)}</div>}
+      <AnimatePresence initial={false}>
+        {isThinking && activeAgents.length > 0 && <motion.div key="team" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={reduceMotion ? { duration: 0 } : transition.fast} className="live-team-container">
+          <div className="live-team-trail" aria-label="Active specialists">{activeAgents.map(name => <span key={name} style={{ color: getAgent(name).color }}>{getAgent(name).icon} {getAgent(name).displayName}<span className="working-dot"/></span>)}</div>
+        </motion.div>}
+      </AnimatePresence>
 
-      {/* Messages area */}
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
-        aria-busy={loadingConversation}
-        onScroll={e => {
-          const el = e.currentTarget;
-          followMessagesRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-          setShowScrollToBottom(!followMessagesRef.current);
-        }}>
+      {/* Resize observation follows content growth without token-by-token jumps. */}
+      <motion.div layoutScroll ref={scrollRef} className="chat-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain" aria-label="Conversation messages" tabIndex={0} aria-busy={loadingConversation}>
+        <div ref={contentRef} className={`chat-scroll-content ${isEmpty ? "is-welcome" : ""}`}>
         {loadingConversation ? (
           <div className="p-8 text-center text-sm" role="status" style={{ color: "var(--text-muted)" }}>Loading conversation…</div>
         ) : isEmpty ? (
@@ -1069,16 +1097,16 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         ) : (
           /* Message list */
           <div className="conversation-messages w-full max-w-3xl mx-auto px-2 md:px-6 py-4 md:py-6 space-y-4 md:space-y-6">
-            <AnimatePresence initial={false}>
-              {messages.map((msg, idx) => {
+            <AnimatePresence>
+              {messages.map((msg) => {
                 const meta = msg.agent_name ? getAgent(msg.agent_name.toLowerCase()) : null;
                 return (
                   <motion.div
-                    key={`${msg.id}-${idx}`}
-                    initial={{ opacity: 0, y: 16, scale: 0.98 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    key={msg.renderKey ?? `${msg.role}-${msg.id}`}
+                    initial={msg.animateIn ? { opacity: 0, y: reduceMotion ? 0 : 10 } : false}
+                    animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0 }}
-                    transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+                    transition={transition.base}
                     className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                   >
                     {msg.role !== "user" && (
@@ -1099,7 +1127,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
                     <div
                       className={`overflow-hidden ${
-                        msg.role === "agent" && isThinking && idx === messages.length - 1
+                        msg.isStreaming
                           ? "response-in-progress"
                           : ""
                       }`}
@@ -1110,8 +1138,6 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                           padding: "12px 16px",
                           borderRadius: "18px 18px 4px 18px",
                           background: "var(--bubble-user-bg)",
-                          backdropFilter: "blur(12px)",
-                          WebkitBackdropFilter: "blur(12px)",
                           color: "var(--bubble-user-text)",
                           fontSize: "15px",
                           lineHeight: "1.6",
@@ -1228,16 +1254,21 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                           })()
                       }
 
+                      {msg.isStreaming && !msg.content && <span className="response-dots" role="status" aria-label="Preparing response"><i/><i/><i/></span>}
+
                       {/* Feedback buttons + download links + critic score for agent messages */}
-                      {msg.role === "agent" && (
-                        <div className="mt-2 pt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+                      {msg.role === "agent" && !msg.isStreaming && !msg.incomplete && (
+                        <div className="message-actions mt-2 pt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
                           {/* Critic score badge + expandable review */}
                           {msg.critic_score != null && (
                             <div className="mb-2">
                               <button
                                 onClick={() => {
-                                  const el = document.getElementById(`critic-review-${msg.id}`);
-                                  if (el) el.style.display = el.style.display === "none" ? "block" : "none";
+                                  setExpandedReviews(previous => {
+                                    const next = new Set(previous);
+                                    if (next.has(msg.id)) next.delete(msg.id); else next.add(msg.id);
+                                    return next;
+                                  });
                                 }}
                                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors duration-150 cursor-pointer"
                                 style={{
@@ -1257,6 +1288,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                                     ? "color-mix(in srgb, #eab308 25%, transparent)"
                                     : "color-mix(in srgb, #ef4444 25%, transparent)"}`,
                                 }}
+                                aria-expanded={expandedReviews.has(msg.id)}
+                                aria-controls={`critic-review-${msg.id}`}
                                 title="Click to view critic review"
                               >
                                 {msg.critic_score >= 7 ? "✅" : msg.critic_score >= 5 ? "⚠️" : "❌"}
@@ -1265,11 +1298,11 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                                   <polyline points="6 9 12 15 18 9" />
                                 </svg>
                               </button>
-                              {msg.critic_review && (
+                              <AnimatePresence initial={false}>{msg.critic_review && expandedReviews.has(msg.id) && (
+                                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={reduceMotion ? { duration: 0 } : transition.fast} style={{ overflow: "hidden" }}>
                                 <div
                                   id={`critic-review-${msg.id}`}
                                   style={{
-                                    display: "none",
                                     marginTop: "8px",
                                     padding: "12px 16px",
                                     borderRadius: "10px",
@@ -1281,7 +1314,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                                 >
                                   <MarkdownRenderer content={msg.critic_review} />
                                 </div>
-                              )}
+                                </motion.div>
+                              )}</AnimatePresence>
                             </div>
                           )}
 
@@ -1358,90 +1392,26 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
               })}
             </AnimatePresence>
 
-            {/* Tool activity */}
-            {toolActivity && (
-              <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-3 ml-10">
-                <div className="tool-pill tool-pill--active">
-                  {toolActivity.status === "calling" ? (
-                    <div
-                      className="w-3 h-3 border-[1.5px] rounded-full"
-                      style={{ borderColor: "var(--brand-dim)", borderTopColor: "var(--brand)", animation: "spinSlow 0.8s linear infinite" }}
-                    />
-                  ) : (
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
-                      <path d="M20 6L9 17l-5-5" stroke="var(--green)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  )}
-                  <span>{toolActivity.status === "calling" ? `Using ${toolActivity.tool}…` : `${toolActivity.tool} done`}</span>
-                  {toolActivity.duration_ms && (
-                    <span className="text-[10px] font-mono" style={{ color: "var(--text-faint)" }}>
-                      {(toolActivity.duration_ms / 1000).toFixed(1)}s
-                    </span>
-                  )}
-                </div>
-              </motion.div>
-            )}
-
-            {/* Thinking indicator — Gemini-style gradient shimmer */}
-            {isThinking && !toolActivity && (
-              <motion.div
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex items-center gap-3 ml-10"
-              >
-                <div className="flex items-center gap-3">
-                  {/* Agent icon with animated gradient background */}
-                  {(() => {
-                    const meta = thinkingAgent ? getAgent(thinkingAgent.toLowerCase()) : null;
-                    return (
-                      <div
-                        className="relative overflow-hidden flex items-center justify-center"
-                        style={{
-                          width: "28px",
-                          height: "28px",
-                          borderRadius: "10px",
-                          background: meta?.color
-                            ? `linear-gradient(135deg, ${meta.color}, color-mix(in srgb, ${meta.color} 60%, var(--aurora-3)))`
-                            : "linear-gradient(135deg, var(--aurora-1), var(--aurora-2), var(--aurora-3), var(--aurora-4))",
-                          backgroundSize: "300% 300%",
-                          animation: "gradientShift 2s ease-in-out infinite",
-                          boxShadow: `0 0 14px ${meta?.color || "rgba(99,102,241,0.3)"}60`,
-                        }}
-                      >
-                        <span className="relative z-10" style={{ fontSize: "14px" }}>
-                          {meta?.icon || "?"}
-                        </span>
-                        <div
-                          className="absolute inset-0"
-                          style={{
-                            background: "linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.25) 50%, transparent 60%)",
-                            backgroundSize: "200% 100%",
-                            animation: "shine 1.5s ease-in-out infinite",
-                          }}
-                        />
-                      </div>
-                    );
-                  })()}
-                  <span className="text-xs font-medium gradient-text">
-                    {thinkingPhase === "planning" && "Orchestrator is analyzing your request..."}
-                    {thinkingPhase === "synthesizing" && "Orchestrator is combining agent results..."}
-                    {thinkingPhase === "executing" && `${thinkingAgent ? getAgent(thinkingAgent.toLowerCase()).displayName : thinkingAgent} is working...`}
-                    {!thinkingPhase && `${thinkingAgent ? getAgent(thinkingAgent.toLowerCase()).displayName : "Agent"} is thinking…`}
-                  </span>
-                </div>
-              </motion.div>
-            )}
+            <AnimatePresence initial={false}>
+              {isThinking && !messages.some(message => message.isStreaming) && (
+                <motion.div key="working" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={reduceMotion ? { duration: 0 } : transition.fast} className="response-status-container">
+                  <div className="response-status" role="status">
+                    <span className="response-dots" aria-hidden="true"><i/><i/><i/></span>
+                    <span>{toolActivity
+                      ? toolActivity.status === "calling" ? `Using ${toolActivity.tool}…` : `${toolActivity.tool} finished`
+                      : thinkingPhase === "planning" ? "Planning the next steps…"
+                      : thinkingPhase === "synthesizing" ? "Bringing it together…"
+                      : thinkingAgent ? `${getAgent(thinkingAgent.toLowerCase()).displayName} is working…`
+                      : "Thinking…"}</span>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
-      </div>
+        </div>
+      </motion.div>
 
-      {showScrollToBottom && !isEmpty && (
-        <button className="self-center px-3 py-2 mb-1 rounded-full text-xs border" onClick={() => {
-          followMessagesRef.current = true;
-          setShowScrollToBottom(false);
-          scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-        }}>↓ Latest messages</button>
-      )}
       {/* Error banner */}
       {error && (
         <div className="px-4 pb-2">
@@ -1462,7 +1432,12 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         </div>
       )}
 
-      {!isEmpty && <div className="conversation-composer"><div className="conversation-composer-inner">{composer}</div></div>}
+      {!isEmpty && <div className="conversation-composer">
+        <AnimatePresence>
+          {showScrollToBottom && <motion.button key="latest" className="latest-messages-button" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={transition.fast} onClick={scrollToLatest}>↓ Latest messages</motion.button>}
+        </AnimatePresence>
+        <div className="conversation-composer-inner">{composer}</div>
+      </div>}
       {/* Camera modal */}
       {cameraOpen && (
         <div className="camera-modal">

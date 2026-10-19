@@ -152,6 +152,7 @@ summary:focus-visible {
   border-right: 1px solid var(--border-subtle);
   overflow-x: hidden;
   overflow-y: auto;
+  transition: width var(--duration-base) var(--ease-out), padding var(--duration-base) var(--ease-out);
 }
 .studio-sidebar.is-collapsed {
   width: 68px;
@@ -686,6 +687,7 @@ summary:focus-visible {
   padding-block: 24px;
 }
 .conversation-composer {
+  position: relative;
   padding: 10px 28px calc(18px + env(safe-area-inset-bottom));
   flex-shrink: 0;
   background: var(--bg-base);
@@ -695,7 +697,7 @@ summary:focus-visible {
   margin: auto;
 }
 .response-in-progress {
-  border-left: 2px solid var(--brand);
+  box-shadow: inset 2px 0 var(--brand);
 }
 .studio-page {
   height: 100%;
@@ -1012,10 +1014,12 @@ summary:focus-visible {
     inset: 0 auto 0 0;
     visibility: hidden;
     transform: translateX(-100%);
+    transition: transform var(--duration-base) var(--ease-out), visibility 0s var(--duration-base);
   }
   .studio-sidebar-container.is-open {
     visibility: visible;
     transform: translateX(0);
+    transition-delay: 0s;
   }
   .studio-sidebar {
     width: 260px;
@@ -1030,6 +1034,10 @@ summary:focus-visible {
   }
   .studio-drawer-backdrop {
     display: block;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity var(--duration-base) var(--ease-out), visibility 0s var(--duration-base);
     position: fixed;
     inset: 0;
     z-index: 79;
@@ -1200,4 +1208,38 @@ summary:focus-visible {
   .welcome-mark:hover {
     transform: none;
   }
+}
+
+/* Keep motion local: text never scales and continuous effects use only opacity. */
+.studio-chat { position: relative; }
+.chat-scroll { scroll-behavior: auto; overflow-anchor: none; scrollbar-gutter: stable; }
+.chat-scroll-content { min-height: 100%; display: flow-root; }
+.chat-scroll-content.is-welcome { display: flex; }
+.chat-scroll-content.is-welcome > .workspace-welcome { flex: 1; min-width: 0; }
+.live-team-container, .response-status-container { overflow: hidden; flex-shrink: 0; }
+.response-status { display: flex; align-items: center; gap: 10px; min-height: 32px; margin-left: 40px; color: var(--text-muted); font-size: 12px; }
+.response-dots { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; }
+.response-dots i { display: block; width: 5px; height: 5px; border-radius: 50%; background: var(--brand); animation: response-breathe 1.2s ease-in-out infinite; }
+.response-dots i:nth-child(2) { animation-delay: .15s; }
+.response-dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes response-breathe { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
+@keyframes surface-appear { from { opacity: 0; } to { opacity: 1; } }
+@keyframes menu-appear { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+.studio-page, .chat-view, .message-actions, .setup-notice, .camera-modal { animation: surface-appear var(--duration-fast) var(--ease-out); }
+.file-chip, .composer-templates { animation: menu-appear var(--duration-fast) var(--ease-out); }
+.studio-navigation button, .sidebar-new-task, .sidebar-search { white-space: nowrap; }
+.sidebar-collapse-toggle svg, .system-details summary svg { transition: transform var(--duration-fast) var(--ease-out); }
+.start-task-button:not(:disabled):active, .icon-button:not(:disabled):active { transform: scale(.96); }
+.latest-messages-button { position: absolute; z-index: 10; top: -36px; left: 50%; translate: -50% 0; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--border-subtle); background: var(--bg-panel); box-shadow: 0 4px 16px rgb(0 0 0 / 8%); color: var(--text-secondary); font-size: 12px; }
+.markdown-body ol > .markdown-li .markdown-bullet { display: none !important; }
+.markdown-body ol > .markdown-li .markdown-number { display: inline-block !important; }
+.markdown-body ol > .markdown-li .markdown-number::before { content: counter(list-counter) "."; color: var(--brand); }
+@media (max-width: 1023px) {
+  .studio-drawer-backdrop.is-open { opacity: 1; visibility: visible; pointer-events: auto; transition-delay: 0s; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .file-chip, .composer-templates { animation: none; }
+  .response-dots i { animation: none; opacity: .65; }
+  .studio-sidebar-container, .studio-drawer-backdrop { transition: none; }
+  .start-task-button:not(:disabled):active, .icon-button:not(:disabled):active { transform: none; }
 }

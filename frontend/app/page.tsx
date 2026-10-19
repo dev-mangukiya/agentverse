@@ -1,10 +1,13 @@
 "use client";
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/layout/Sidebar";
-import { ChatPanel } from "@/components/chat/ChatPanel";
-import type { PipelineAgent, DelegationEvent, ToolEvent } from "@/components/chat/ChatPanel";
+import {
+  ChatPanel,
+  type PipelineAgent,
+  type DelegationEvent,
+  type ToolEvent,
+} from "@/components/chat/ChatPanel";
 import { ChatHistory } from "@/components/chat/ChatHistory";
 import { SystemHealth } from "@/components/dashboard/SystemHealth";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
@@ -12,455 +15,437 @@ import { KPICards } from "@/components/dashboard/KPICards";
 import { AgentBuilder } from "@/components/agents/AgentBuilder";
 import { AgentAnalytics } from "@/components/dashboard/AgentAnalytics";
 import { AgentComparison } from "@/components/agents/AgentComparison";
-import { ArchitectureOverview } from "@/components/dashboard/ArchitectureOverview";
-import { WelcomeModal } from "@/components/auth/WelcomeModal";
+import { FeedbackLeaderboard } from "@/components/dashboard/FeedbackLeaderboard";
 import { CommandPalette } from "@/components/layout/CommandPalette";
 import { ShortcutsOverlay } from "@/components/layout/ShortcutsOverlay";
-import { DashboardHighlights } from "@/components/dashboard/DashboardHighlights";
-import { FeedbackLeaderboard } from "@/components/dashboard/FeedbackLeaderboard";
-import { useDialogFocus } from "@/hooks/useDialogFocus";
+import { NotificationCenter } from "@/components/notifications/NotificationCenter";
+import { WorkspaceIcon } from "@/components/workspace/WorkspaceIcon";
 import { useAppViewport } from "@/hooks/useAppViewport";
+import { useDialogFocus } from "@/hooks/useDialogFocus";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
-
-const MOBILE_HEADER_HEIGHT = 52; // px — keep in sync with the mobile-top-bar CSS
-
-const VIEW_TITLES: Record<string, string> = {
-  chat: "Chat",
-  dashboard: "Dashboard",
-  agents: "Agents",
-};
+import { useTheme } from "@/lib/theme";
 
 type View = "dashboard" | "agents" | "chat";
-
+const TITLES: Record<View, string> = {
+  chat: "Workspace",
+  agents: "Your team",
+  dashboard: "Insights",
+};
 export default function Home() {
   useAppViewport();
-  const [chatResetKey, setChatResetKey] = useState(0);
+  const { theme, toggle } = useTheme();
   const [currentView, setCurrentView] = useState<View>("chat");
+  const [chatResetKey, setChatResetKey] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
-  const [historyRefresh, setHistoryRefresh] = useState(0);
-
-  // Mobile drawer state
   const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
-
-  const sidebarDialogRef = useDialogFocus(mobileSidebarOpen, () => setMobileSidebarOpen(false));
-  const historyDialogRef = useDialogFocus(mobileHistoryOpen, () => setMobileHistoryOpen(false));
+  const [activeConversationId, setActiveConversationId] = useState<
+    string | null
+  >(null);
+  const [historyRefresh, setHistoryRefresh] = useState(0);
+  const [pipelineAgents, setPipelineAgents] = useState<PipelineAgent[]>([]);
+  const [pipelineActive, setPipelineActive] = useState(false);
+  const [backendStatus, setBackendStatus] = useState<
+    "online" | "waking" | "offline" | "degraded"
+  >("waking");
+  const [aiSetupRequired, setAiSetupRequired] = useState(false);
+  const [showSetup, setShowSetup] = useState(false);
+  const [agentTab, setAgentTab] = useState<"builder" | "compare">("builder");
+  const [compareAgentId, setCompareAgentId] = useState<string>();
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const chatInputRef = useRef<HTMLTextAreaElement>(null);
+  const sidebarDialogRef = useDialogFocus(mobileSidebarOpen, () =>
+    setMobileSidebarOpen(false),
+  );
+  const historyDialogRef = useDialogFocus(mobileHistoryOpen, () =>
+    setMobileHistoryOpen(false),
+  );
   useEffect(() => {
     const desktop = window.matchMedia("(min-width: 1024px)");
-    const closeDrawers = () => {
-      if (desktop.matches) { setMobileSidebarOpen(false); setMobileHistoryOpen(false); }
-    };
-    desktop.addEventListener("change", closeDrawers);
-    return () => desktop.removeEventListener("change", closeDrawers);
-  }, []);
-
-  // Pipeline state — managed here, fed by ChatPanel, displayed by AgentPipeline
-  const [pipelineAgents, setPipelineAgents] = useState<PipelineAgent[]>([]);
-  const [pipelineDelegations, setPipelineDelegations] = useState<DelegationEvent[]>([]);
-  const [pipelineToolEvents, setPipelineToolEvents] = useState<ToolEvent[]>([]);
-  const [pipelineActive, setPipelineActive] = useState(false);
-  const [pipelineDurationMs, setPipelineDurationMs] = useState<number | undefined>(undefined);
-  const [pipelineTotalAgents, setPipelineTotalAgents] = useState<number | undefined>(undefined);
-  const [aiSetupRequired, setAiSetupRequired] = useState(false);
-  const [backendStatus, setBackendStatus] = useState<"online" | "waking" | "offline" | "degraded">("waking");
-  const [compareAgentId, setCompareAgentId] = useState<string | undefined>();
-  const [agentTab, setAgentTab] = useState<"builder" | "compare">("builder");
-
-  // Keep active browser sessions warm. A GitHub Actions scheduler also pings
-  // the backend while nobody has the app open.
-  useEffect(() => {
-    const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
-    let mounted = true;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const ping = async () => {
-      try {
-        const res = await fetch(`${API_URL}/health`, { signal: AbortSignal.timeout(10000) });
-        if (mounted) {
-          const health = res.ok ? await res.json() : null;
-          if (!mounted) return;
-          setAiSetupRequired(health?.services?.llm === "no_api_key");
-          setBackendStatus(!res.ok ? "offline" : health?.status === "ok" ? "online" : "degraded");
-          // If not yet online, retry quickly
-          if (!res.ok) {
-            retryTimer = setTimeout(ping, 15000);
-          }
-        }
-      } catch {
-        if (mounted) {
-          setBackendStatus("offline");
-          // Retry without keeping a permanent waking indicator.
-          retryTimer = setTimeout(ping, 15000);
-        }
+    const close = () => {
+      if (desktop.matches) {
+        setMobileSidebarOpen(false);
+        setMobileHistoryOpen(false);
       }
     };
-
-    ping(); // Immediate check on mount
-    const keepAlive = setInterval(ping, 10 * 60 * 1000); // Stay below Render's 15 min idle window
+    desktop.addEventListener("change", close);
+    return () => desktop.removeEventListener("change", close);
+  }, []);
+  useEffect(() => {
+    let mounted = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const controller = new AbortController();
+    const check = async () => {
+      try {
+        const response = await fetch(
+          `${(process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "")}/health`,
+          {
+            signal: AbortSignal.any([
+              controller.signal,
+              AbortSignal.timeout(10000),
+            ]),
+          },
+        );
+        if (!response.ok) throw new Error("Unavailable");
+        const data = await response.json();
+        if (!mounted) return;
+        setAiSetupRequired(data.services?.llm === "no_api_key");
+        setBackendStatus(data.status === "ok" ? "online" : "degraded");
+      } catch {
+        if (mounted) setBackendStatus("offline");
+      }
+      if (mounted) timer = setTimeout(check, 30000);
+    };
+    check();
     return () => {
       mounted = false;
-      clearInterval(keepAlive);
-      if (retryTimer) clearTimeout(retryTimer);
+      controller.abort();
+      clearTimeout(timer);
     };
   }, []);
-
-  const handleNewChat = useCallback(() => {
-    setActiveConversationId(null);
-    setChatResetKey(n => n + 1);
-    setCurrentView("chat");
-    setMobileHistoryOpen(false);
+  const navigate = useCallback((view: View) => {
+    setCurrentView(view);
     setMobileSidebarOpen(false);
+    setMobileHistoryOpen(false);
   }, []);
-  const handleConversationCreated = useCallback((id: string) => {
+  const newChat = useCallback(() => {
+    setActiveConversationId(null);
+    setChatResetKey((n) => n + 1);
+    navigate("chat");
+  }, [navigate]);
+  const selectConversation = useCallback(
+    (id: string) => {
+      setActiveConversationId(id);
+      navigate("chat");
+    },
+    [navigate],
+  );
+  const conversationCreated = useCallback((id: string) => {
     setActiveConversationId(id);
     setHistoryRefresh((n) => n + 1);
   }, []);
-  const handleMessageSent = useCallback(() => { setHistoryRefresh((n) => n + 1); }, []);
-  const handleNavigate = useCallback((view: View) => {
-    setCurrentView(view);
-    setMobileSidebarOpen(false);
-  }, []);
-  const handleSidebarSelectConversation = useCallback((id: string) => {
-    setActiveConversationId(id);
-    setCurrentView("chat");
-    setMobileSidebarOpen(false);
-  }, []);
-
-  // Close mobile drawers when selecting a conversation
-  const handleMobileHistorySelect = useCallback((id: string) => {
-    setActiveConversationId(id);
-    setMobileHistoryOpen(false);
-  }, []);
-  const handleMobileNewChat = useCallback(() => {
-    handleNewChat();
-    setMobileHistoryOpen(false);
-  }, [handleNewChat]);
-
-  const handlePipelineUpdate = useCallback((data: {
-    agents: PipelineAgent[];
-    delegations: DelegationEvent[];
-    toolEvents: ToolEvent[];
-    active: boolean;
-    durationMs?: number;
-    totalAgentsUsed?: number;
-  }) => {
-    setPipelineAgents(data.agents);
-    setPipelineDelegations(data.delegations);
-    setPipelineToolEvents(data.toolEvents);
-    setPipelineActive(data.active);
-    setPipelineDurationMs(data.durationMs);
-    setPipelineTotalAgents(data.totalAgentsUsed);
-  }, []);
-
-  const activeAgentCount = pipelineAgents.filter(a => ["activated", "thinking", "tool_call"].includes(a.status)).length;
-
-  // Global chat input ref for Cmd+K focus
-  const chatInputRef = useRef<HTMLTextAreaElement>(null);
-
-  // Command Palette & Shortcuts Overlay state
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [shortcutsOpen, setShortcutsOpen] = useState(false);
-
-  // Keyboard shortcuts
-  const shortcutActions = useMemo(() => ({
-    openCommandPalette: () => setCommandPaletteOpen(true),
-    newChat: handleNewChat,
-    toggleSidebar: () => setSidebarCollapsed(c => !c),
-    closeModal: () => {
-      if (commandPaletteOpen) { setCommandPaletteOpen(false); return; }
-      if (shortcutsOpen) { setShortcutsOpen(false); return; }
-      setMobileHistoryOpen(false);
-      setMobileSidebarOpen(false);
+  const messageSent = useCallback(() => setHistoryRefresh((n) => n + 1), []);
+  const pipelineUpdate = useCallback(
+    (data: {
+      agents: PipelineAgent[];
+      delegations: DelegationEvent[];
+      toolEvents: ToolEvent[];
+      active: boolean;
+    }) => {
+      setPipelineAgents(data.agents);
+      setPipelineActive(data.active);
     },
-    openShortcuts: () => setShortcutsOpen(true),
-  }), [commandPaletteOpen, shortcutsOpen, handleNewChat]);
+    [],
+  );
+  const exploreTeam = useCallback(() => {
+    setAgentTab("builder");
+    navigate("agents");
+  }, [navigate]);
+  const compare = useCallback(
+    (id?: string) => {
+      setCompareAgentId(id);
+      setAgentTab("compare");
+      navigate("agents");
+    },
+    [navigate],
+  );
+  const shortcutActions = useMemo(
+    () => ({
+      openCommandPalette: () => setCommandPaletteOpen(true),
+      newChat,
+      toggleSidebar: () => setSidebarCollapsed((c) => !c),
+      closeModal: () => {
+        setCommandPaletteOpen(false);
+        setShortcutsOpen(false);
+        setMobileSidebarOpen(false);
+        setMobileHistoryOpen(false);
+      },
+      openShortcuts: () => setShortcutsOpen(true),
+    }),
+    [newChat],
+  );
   useKeyboardShortcuts(shortcutActions);
 
-  // Command Palette callbacks
-  const handlePaletteOpenCompare = useCallback((agentId?: string) => {
-    setCurrentView("agents");
-    setAgentTab("compare");
-    setCompareAgentId(agentId);
-  }, []);
-
   return (
-    <div className="app-shell flex w-full overflow-hidden" style={{ backgroundColor: "var(--bg-base)" }}>
-      {/* Mobile overlay */}
+    <div className="app-shell studio-shell">
       {mobileSidebarOpen && (
         <div
-          className="fixed inset-0 z-[70] lg:hidden"
-          style={{ backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+          className="studio-drawer-backdrop"
           onClick={() => setMobileSidebarOpen(false)}
         />
       )}
-
-      {/* Sidebar */}
-      <div ref={sidebarDialogRef} role={mobileSidebarOpen ? "dialog" : undefined} aria-modal={mobileSidebarOpen || undefined} aria-label={mobileSidebarOpen ? "Navigation" : undefined} className={`
-        app-sidebar fixed inset-y-0 left-0 z-[80] lg:relative lg:z-10
-        transform transition-transform duration-300 ease-in-out
-        ${mobileSidebarOpen ? "translate-x-0 visible" : "-translate-x-full invisible lg:visible"}
-        lg:translate-x-0
-      `}>
+      <div
+        ref={sidebarDialogRef}
+        className={`studio-sidebar-container ${mobileSidebarOpen ? "is-open" : ""}`}
+        role={mobileSidebarOpen ? "dialog" : undefined}
+        aria-modal={mobileSidebarOpen || undefined}
+        aria-label={mobileSidebarOpen ? "Navigation" : undefined}
+      >
         <Sidebar
           currentView={currentView}
-          onNavigate={handleNavigate}
+          onNavigate={navigate}
           collapsed={sidebarCollapsed && !mobileSidebarOpen}
+          onToggle={() => setSidebarCollapsed((v) => !v)}
           onClose={() => setMobileSidebarOpen(false)}
-          onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-          pipelineActive={pipelineActive}
-          activeAgentCount={activeAgentCount}
+          onNewChat={newChat}
+          onSelectConversation={selectConversation}
           activeConversationId={activeConversationId}
-          onSelectConversation={handleSidebarSelectConversation}
-          onNewChat={handleNewChat}
           historyRefreshTrigger={historyRefresh}
           backendStatus={backendStatus}
           onAuthChange={() => {
-            handleNewChat();
-            setHistoryRefresh((n) => n + 1);
+            newChat();
+            messageSent();
           }}
-          onNotificationClick={(convId) => {
-            setCurrentView("chat");
-            setActiveConversationId(convId);
-          }}
+          onSearch={() => setCommandPaletteOpen(true)}
+          pipelineActive={pipelineActive}
+          activeAgentCount={
+            pipelineAgents.filter((a) =>
+              ["activated", "thinking", "tool_call"].includes(a.status),
+            ).length
+          }
         />
       </div>
-
-      {/* Main content */}
-      <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden" style={{ backgroundColor: "var(--bg-base)" }}>
-        {/* Mobile header stays in the layout so drawers and content do not overlap. */}
-        <div
-          className="mobile-top-bar flex-shrink-0 flex items-center gap-3 lg:hidden"
-          style={{
-            position: "relative",
-            top: 0,
-            left: 0,
-            right: 0,
-            zIndex: 30,
-            height: `${MOBILE_HEADER_HEIGHT}px`,
-            paddingLeft: "12px",
-            paddingRight: "16px",
-            backgroundColor: "var(--bg-sidebar)",
-            borderBottom: "1px solid var(--border-subtle)",
-            backdropFilter: "blur(20px) saturate(1.4)",
-            WebkitBackdropFilter: "blur(20px) saturate(1.4)",
-          }}
-        >
+      <main className="studio-main">
+        <header className="workspace-header">
           <button
-            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ color: "var(--text-secondary)" }}
-            onClick={() => { setMobileHistoryOpen(false); setMobileSidebarOpen(true); }}
-            aria-expanded={mobileSidebarOpen}
+            className="icon-button mobile-menu-button"
+            onClick={() => setMobileSidebarOpen(true)}
             aria-label="Open menu"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-              <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
+            <WorkspaceIcon name="menu" />
           </button>
-          <span
-            className="text-sm font-semibold truncate"
-            style={{ color: "var(--text-primary)", letterSpacing: "-0.01em" }}
-          >
-            {VIEW_TITLES[currentView] || "AgentVerse"}
-          </span>
-          {/* Right side: quick actions for chat view */}
-          {currentView === "chat" && (
+          <div className="workspace-breadcrumb">
+            <span>My space</span>
+            <span className="breadcrumb-divider">/</span>
+            <strong>{TITLES[currentView]}</strong>
+          </div>
+          <div className="header-actions">
+            {aiSetupRequired && (
+              <button
+                aria-label="Finish provider setup"
+                title="Finish setup"
+                className={`setup-badge ${showSetup ? "active" : ""}`}
+                onClick={() => setShowSetup((v) => !v)}
+                aria-expanded={showSetup}
+              >
+                <span className="status-dot status-pending" />{" "}
+                <span className="setup-badge-label">Finish setup</span>
+              </button>
+            )}
             <button
-              className="ml-auto w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
-              style={{ color: "var(--text-muted)" }}
-              onClick={() => { setMobileSidebarOpen(false); setMobileHistoryOpen(true); }}
+              className="icon-button"
+              onClick={toggle}
+              aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            >
+              <WorkspaceIcon
+                name={theme === "dark" ? "sun" : "moon"}
+                size={18}
+              />
+            </button>
+            <NotificationCenter onNotificationClick={selectConversation} />
+            <button
+              className="icon-button mobile-history-button"
+              onClick={() => setMobileHistoryOpen(true)}
               aria-label="Chat history"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
+              <WorkspaceIcon name="history" size={18} />
             </button>
-          )}
-        </div>
-
-        {aiSetupRequired && <div role="status" className="px-4 py-2 text-xs border-b" style={{ background: "var(--yellow-dim)", color: "var(--text-secondary)", borderColor: "var(--border-subtle)" }}>AI setup is incomplete. Add a provider API key to enable chat responses.</div>}
-        <div className="flex-1 min-h-0 overflow-hidden relative">
-          {/* Chat view — ALWAYS MOUNTED to keep WebSocket alive */}
+            <button
+              className="keyboard-help"
+              onClick={() => setShortcutsOpen(true)}
+              aria-label="Keyboard shortcuts"
+            >
+              ?
+            </button>
+          </div>
+        </header>
+        {showSetup && aiSetupRequired && (
+          <div className="setup-notice" role="status">
+            <WorkspaceIcon name="spark" size={18} />
+            <p>
+              <strong>Your crew needs an AI provider.</strong> Add a provider
+              API key to the project’s .env file, then restart the backend. You
+              can explore the workspace in the meantime.
+            </p>
+            <button
+              className="icon-button"
+              onClick={() => setShowSetup(false)}
+              aria-label="Dismiss setup notice"
+            >
+              <WorkspaceIcon name="close" size={16} />
+            </button>
+          </div>
+        )}
+        <div className="studio-content">
           <div
-            className="absolute inset-0 flex overflow-hidden"
+            className="chat-view"
             style={{ display: currentView === "chat" ? "flex" : "none" }}
           >
-            {/* Chat panel — main area (no separate history column, it's in sidebar now) */}
-            <div className="flex-1 min-w-0 relative">
-              <ChatPanel
-                key={chatResetKey}
-                conversationId={activeConversationId}
-                onConversationCreated={handleConversationCreated}
-                onMessageSent={handleMessageSent}
-                onPipelineUpdate={handlePipelineUpdate}
-                inputRef={chatInputRef}
-              />
-            </div>
+            <ChatPanel
+              key={chatResetKey}
+              conversationId={activeConversationId}
+              onConversationCreated={conversationCreated}
+              onMessageSent={messageSent}
+              onPipelineUpdate={pipelineUpdate}
+              inputRef={chatInputRef}
+              onExploreAgents={exploreTeam}
+            />
           </div>
-
-          {/* Dashboard & Agents views — can unmount freely */}
-          <AnimatePresence mode="wait">
-
-            {currentView === "dashboard" && (
-              <motion.div
-                key="dashboard"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
-                className="h-full overflow-y-auto p-3 md:p-6 pb-8 md:pb-10"
-                style={{ backgroundColor: "var(--bg-base)" }}
+          {currentView === "dashboard" && (
+            <div className="studio-page insights-page">
+              <div className="page-heading">
+                <div>
+                  <span className="eyebrow">THE BIG PICTURE</span>
+                  <h1>Good work adds up.</h1>
+                  <p>
+                    A little perspective on what you and your team have been
+                    making.
+                  </p>
+                </div>
+                <span className="page-stamp">
+                  <WorkspaceIcon name="chart" size={18} /> Workspace activity
+                </span>
+              </div>
+              <KPICards onStartTask={newChat} />
+              <section className="insights-section">
+                <div className="section-heading">
+                  <h2>Your team in action</h2>
+                  <span className="section-note">
+                    Real activity. Useful perspective.
+                  </span>
+                </div>
+                <AgentAnalytics />
+              </section>
+              <div className="insights-two-col">
+                <FeedbackLeaderboard />
+                <ActivityFeed />
+              </div>
+              <details className="system-details">
+                <summary>
+                  <WorkspaceIcon name="grid" size={17} /> Behind the scenes{" "}
+                  <span>System health</span>
+                </summary>
+                <SystemHealth />
+              </details>
+            </div>
+          )}
+          {currentView === "agents" && (
+            <div className="studio-page team-page">
+              <div className="page-heading">
+                <div>
+                  <span className="eyebrow">GOOD COMPANY FOR BIG IDEAS</span>
+                  <h1>Meet your unfair advantage.</h1>
+                  <p>
+                    Specialists with different strengths. A team that grows with
+                    your ideas.
+                  </p>
+                </div>
+                <span className="team-heading-art" aria-hidden="true">
+                  ✳
+                </span>
+              </div>
+              <div
+                className="studio-tabs"
+                role="tablist"
+                aria-label="Team tools"
               >
-                {/* ── Overview Section ── */}
-                <div className="dashboard-section">
-                  <KPICards />
-                  <DashboardHighlights />
-                </div>
-
-                {/* ── Analytics Section ── */}
-                <div className="dashboard-section">
-                  <div className="dashboard-section-label">Analytics</div>
-                  <AgentAnalytics />
-                  <FeedbackLeaderboard />
-                </div>
-
-                {/* ── System Section ── */}
-                <div className="dashboard-section">
-                  <div className="dashboard-section-label">System</div>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-                    <SystemHealth />
-                    <ActivityFeed />
-                  </div>
-                </div>
-
-                {/* ── Architecture Section ── */}
-                <div className="dashboard-section">
-                  <div className="dashboard-section-label">Architecture</div>
-                  <ArchitectureOverview pipelineAgents={pipelineAgents} />
-                </div>
-              </motion.div>
-            )}
-
-            {currentView === "agents" && (
-              <motion.div
-                key="agents"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
-                className="h-full flex flex-col overflow-hidden"
-                style={{ backgroundColor: "var(--bg-base)" }}
+                {[
+                  ["builder", "Your specialists"],
+                  ["compare", "Compare perspectives"],
+                ].map(([id, label]) => (
+                  <button
+                    key={id}
+                    id={`tab-${id}`}
+                    role="tab"
+                    aria-selected={agentTab === id}
+                    tabIndex={agentTab === id ? 0 : -1}
+                    onKeyDown={(event) => {
+                      if (
+                        !["ArrowLeft", "ArrowRight", "Home", "End"].includes(
+                          event.key,
+                        )
+                      )
+                        return;
+                      event.preventDefault();
+                      const next =
+                        event.key === "Home"
+                          ? "builder"
+                          : event.key === "End"
+                            ? "compare"
+                            : agentTab === "builder"
+                              ? "compare"
+                              : "builder";
+                      setAgentTab(next);
+                      document.getElementById(`tab-${next}`)?.focus();
+                    }}
+                    aria-controls={`panel-${id}`}
+                    onClick={() => setAgentTab(id as "builder" | "compare")}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <section
+                role="tabpanel"
+                id={`panel-${agentTab}`}
+                aria-labelledby={`tab-${agentTab}`}
               >
-                {/* Tab bar */}
-                <div className="flex items-center gap-1 px-4 md:px-6 pt-4 flex-shrink-0">
-                  {[
-                    { id: "builder" as const, label: "Agent Builder", icon: "+" },
-                    { id: "compare" as const, label: "Compare", icon: "vs" },
-                  ].map((tab) => (
-                    <button
-                      key={tab.id}
-                      onClick={() => setAgentTab(tab.id)}
-                      className="flex-1 md:flex-none flex items-center justify-center md:justify-start gap-2 px-4 py-2.5 rounded-xl text-sm font-medium"
-                      style={{
-                        backgroundColor: agentTab === tab.id ? "var(--brand-dim)" : "transparent",
-                        color: agentTab === tab.id ? "var(--brand-text)" : "var(--text-muted)",
-                        border: `1px solid ${agentTab === tab.id ? "color-mix(in srgb, var(--brand) 20%, transparent)" : "transparent"}`,
-                        transition: "background-color var(--duration-instant) var(--ease-out), color var(--duration-instant) var(--ease-out), border-color var(--duration-instant) var(--ease-out)",
-                      }}
-                    >
-                      <span>{tab.icon}</span>
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-                {/* Tab content with crossfade */}
-                <div className="flex-1 overflow-y-auto">
-                  <AnimatePresence mode="wait">
-                    {agentTab === "builder" && (
-                      <motion.div
-                        key="builder"
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
-                        className="p-3 md:p-6"
-                      >
-                        <AgentBuilder />
-                      </motion.div>
-                    )}
-                    {agentTab === "compare" && (
-                      <motion.div
-                        key="compare"
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
-                      >
-                        <AgentComparison initialAgentId={compareAgentId} />
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              </motion.div>
-            )}
-
-          </AnimatePresence>
+                {agentTab === "builder" ? (
+                  <AgentBuilder />
+                ) : (
+                  <AgentComparison initialAgentId={compareAgentId} />
+                )}
+              </section>
+            </div>
+          )}
         </div>
       </main>
-
-      {/* ─── Mobile Chat History Drawer ─────────────────────────────── */}
-      <AnimatePresence>
-        {mobileHistoryOpen && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="mobile-drawer-overlay lg:hidden"
-              onClick={() => setMobileHistoryOpen(false)}
+      {mobileHistoryOpen && (
+        <div
+          className="history-overlay"
+          onClick={() => setMobileHistoryOpen(false)}
+        >
+          <div
+            ref={historyDialogRef}
+            className="history-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Chat history"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="history-drawer-heading">
+              <strong>Your conversations</strong>
+              <button
+                className="icon-button"
+                onClick={() => setMobileHistoryOpen(false)}
+                aria-label="Close chat history"
+              >
+                <WorkspaceIcon name="close" />
+              </button>
+            </div>
+            <ChatHistory
+              activeId={activeConversationId}
+              onSelect={selectConversation}
+              onNewChat={newChat}
+              refreshTrigger={historyRefresh}
             />
-            <motion.div
-              initial={{ x: "-100%" }}
-              animate={{ x: 0 }}
-              exit={{ x: "-100%" }}
-              transition={{ type: "spring", stiffness: 300, damping: 30 }}
-              className="mobile-drawer lg:hidden flex flex-col"
-              ref={historyDialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Chat history"
-            >
-              <button className="self-end m-2 px-3 py-2 rounded-lg" onClick={() => setMobileHistoryOpen(false)} aria-label="Close chat history">Close ✕</button>
-              <div className="flex-1 min-h-0">
-              <ChatHistory
-                activeId={activeConversationId}
-                onSelect={handleMobileHistorySelect}
-                onNewChat={handleMobileNewChat}
-                refreshTrigger={historyRefresh}
-              />
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-
-      {/* Welcome popup for first-time anonymous users */}
-      <WelcomeModal />
-
-      {/* Command Palette */}
+          </div>
+        </div>
+      )}
       <CommandPalette
         open={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
-        onNavigate={(view) => { setCurrentView(view); }}
-        onNewChat={handleNewChat}
+        onNavigate={navigate}
+        onNewChat={newChat}
         onFocusInput={() => {
-          if (currentView !== "chat") setCurrentView("chat");
+          navigate("chat");
           setTimeout(() => chatInputRef.current?.focus(), 50);
         }}
-        onSelectConversation={handleSidebarSelectConversation}
-        onToggleSidebar={() => setSidebarCollapsed(c => !c)}
-        onOpenAgentCompare={handlePaletteOpenCompare}
+        onSelectConversation={selectConversation}
+        onToggleSidebar={() => setSidebarCollapsed((c) => !c)}
+        onOpenAgentCompare={compare}
       />
-
-      {/* Keyboard Shortcuts Overlay */}
       <ShortcutsOverlay
         open={shortcutsOpen}
         onClose={() => setShortcutsOpen(false)}

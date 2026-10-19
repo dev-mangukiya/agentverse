@@ -9,6 +9,9 @@ import { getAgent } from "@/config/agents";
 import { useNotifications } from "@/components/notifications/NotificationProvider";
 import { ExportMenu } from "./ExportMenu";
 import { PromptTemplates } from "./PromptTemplates";
+import { WorkspaceWelcome } from "@/components/workspace/WorkspaceWelcome";
+import { useDialogFocus } from "@/hooks/useDialogFocus";
+import { WorkspaceIcon } from "@/components/workspace/WorkspaceIcon";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 const WS_BASE = API_URL.replace("http", "ws");
@@ -67,6 +70,7 @@ export interface ToolEvent {
 
 interface ChatPanelProps {
   conversationId: string | null;
+  onExploreAgents?: () => void;
   onConversationCreated: (id: string) => void;
   onMessageSent: () => void;
   onPipelineUpdate?: (data: {
@@ -79,14 +83,6 @@ interface ChatPanelProps {
   }) => void;
   inputRef?: React.RefObject<HTMLTextAreaElement | null>;
 }
-
-const SUGGESTIONS = [
-  { text: "Research the latest AI breakthroughs", agent: "research" },
-  { text: "Write a Python web scraper", agent: "coding" },
-  { text: "Draft a professional email", agent: "writer" },
-  { text: "Analyze trends in tech industry", agent: "data" },
-];
-
 
 // ── File upload constants ─────────────────────────────────────
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
@@ -172,8 +168,9 @@ async function readFile(file: File): Promise<AttachedFile> {
   });
 }
 
-export function ChatPanel({ conversationId, onConversationCreated, onMessageSent, onPipelineUpdate, inputRef: externalInputRef }: ChatPanelProps) {
+export function ChatPanel({ conversationId, onConversationCreated, onMessageSent, onPipelineUpdate, inputRef: externalInputRef, onExploreAgents }: ChatPanelProps) {
   const [inputExpanded, setInputExpanded] = useState(false);
+  const taskOptionsRef = useDialogFocus(inputExpanded, () => setInputExpanded(false));
   const [messages, setMessages] = useState<Message[]>([]);
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
@@ -382,6 +379,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
+  const cameraDialogRef = useDialogFocus(cameraOpen, () => closeCamera());
   const [showTemplates, setShowTemplates] = useState(false);
 
   // Notifications
@@ -403,7 +401,6 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       (externalInputRef as React.MutableRefObject<HTMLTextAreaElement | null>).current = inputRef.current;
     }
   });
-  const inputBarRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -1021,74 +1018,45 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     }
   }, [isThinking, loadingConversation]);
 
-  // Deterministic on the server and first client render: no hydration mismatch.
   const firstName = user?.name?.split(" ")[0];
-  const greeting = firstName ? `How can I help, ${firstName}?` : "What would you like to work on?";
+  const insertPrompt = (prompt: string) => {
+    setInput(prompt);
+    setShowTemplates(false);
+    requestAnimationFrame(() => { inputRef.current?.focus(); inputRef.current?.setSelectionRange(prompt.length, prompt.length); });
+  };
+  const composer = <div className={`task-composer ${isEmpty ? "task-composer-welcome" : ""}`}
+    onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver} onDrop={handleDrop}>
+    <input ref={fileInputRef} type="file" multiple accept={ALL_ACCEPT} className="hidden" onChange={e => { if (e.target.files) processFiles(e.target.files); e.target.value = ""; }}/>
+    {isDragging && <div className="drop-zone-overlay"><span>Drop something interesting here</span></div>}
+    {attachedFiles.length > 0 && <div className="file-chips">{attachedFiles.map(file => <div key={file.id} className={`file-chip ${file.type === "image" ? "file-chip--image" : ""}`}>
+      {file.type === "image" && file.preview ? <img src={file.preview} alt={file.name} className="file-chip__preview"/> : <span className="file-chip__icon">{fileTypeIcon(file.type)}</span>}
+      <span className="file-chip__name">{file.name}</span><span className="file-chip__size">{formatFileSize(file.size)}</span><button className="file-chip__remove" aria-label={`Remove ${file.name}`} onClick={() => removeFile(file.id)}>×</button>
+    </div>)}</div>}
+    <textarea ref={inputRef} aria-label="Message" value={input} onChange={e => setInput(e.target.value)} onPaste={handlePaste}
+      onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); handleSend(); } }}
+      placeholder={isThinking ? "Your team is on it…" : attachedFiles.length ? "What should we do with these files?" : isEmpty ? "Describe what you want to make, explore, or solve…" : "Keep the idea going…"}
+      rows={isEmpty ? 3 : 1} disabled={isThinking || loadingConversation}/>
+    <div className="composer-toolbar"><div className="composer-tools">
+      <button className="composer-attach" aria-label="Attach files" onClick={() => fileInputRef.current?.click()} disabled={isThinking || loadingConversation}><WorkspaceIcon name="attach" size={17}/><span>Attach files</span></button>
+      <button className={`icon-button ${isRecording ? "is-recording" : ""}`} onClick={toggleRecording} disabled={isThinking || loadingConversation} aria-label={isRecording ? "Stop voice input" : "Voice input"} title="Voice input"><WorkspaceIcon name="mic" size={17}/></button>
+      <div className="composer-more"><button className="icon-button" onClick={() => setInputExpanded(v => !v)} disabled={isThinking} aria-label="More task options" aria-expanded={inputExpanded}>···</button>
+        {inputExpanded && <><div className="composer-menu-dismiss" aria-hidden="true" onClick={() => setInputExpanded(false)}/><div ref={taskOptionsRef} role="dialog" aria-label="Task options" tabIndex={-1} className="composer-menu"><button onClick={() => { openCamera(); setInputExpanded(false); }}>Take a photo</button><button onClick={() => { setShowTemplates(v => !v); setInputExpanded(false); }}>Browse prompt templates</button></div></>}
+      </div>
+      <span className="composer-divider"/><span className="auto-team"><WorkspaceIcon name="spark" size={14}/> Auto team</span>
+    </div>
+    <button className="start-task-button" aria-label="Send message" onClick={() => handleSend()} disabled={isThinking || loadingConversation || (!input.trim() && !attachedFiles.length)}><span>{isThinking ? "Working" : isEmpty ? "Let’s do this" : "Send"}</span><WorkspaceIcon name="arrow" size={18}/></button>
+    </div>
+    {showTemplates && <div className="composer-templates"><button className="text-action" onClick={() => setShowTemplates(false)}>Close templates ×</button><PromptTemplates onInsert={insertPrompt}/></div>}
+    <div className="composer-helper"><span>Your idea. The right agents. A useful result.</span><span>Enter to send <span className="key-divider">·</span> Shift + Enter for a new line</span></div>
+  </div>;
 
   return (
-    <div className="flex flex-col h-full min-h-0 min-w-0" style={{ backgroundColor: "var(--bg-base)" }}>
-      {/* Minimal status bar — no redundant logo (it's in the sidebar) */}
-      <div
-        className="flex items-center justify-end px-3 md:px-5 flex-shrink-0"
-        style={{
-          height: activeAgents.length > 0 || conversationId ? "40px" : "12px",
-          transition: "height 0.3s ease",
-        }}
-      >
-        {/* Active agents mini bar — only visible when agents are working */}
-        {activeAgents.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, x: -8 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="flex items-center gap-1 mr-auto px-2.5 py-1 rounded-xl"
-            style={{
-              backgroundColor: "var(--brand-dim)",
-              border: "1px solid color-mix(in srgb, var(--brand) 10%, transparent)",
-            }}
-          >
-            {activeAgents.map(name => {
-              const meta = getAgent(name);
-              return (
-                <motion.div
-                  key={name}
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  className="w-4 h-4 rounded-md flex items-center justify-center"
-                  style={{
-                    backgroundColor: `color-mix(in srgb, ${meta?.color || "var(--brand)"} 20%, transparent)`,
-                    fontSize: "8px",
-                  }}
-                  title={`${meta?.displayName || name} active`}
-                >
-                  {meta?.icon || "?"}
-                </motion.div>
-              );
-            })}
-            <span className="text-[10px] font-medium ml-0.5" style={{ color: "var(--brand-text)" }}>
-              {activeAgents.length} active
-            </span>
-          </motion.div>
-        )}
-
-        {/* Connection status — small pill, right-aligned */}
-        {conversationId && (
-          <div
-            className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10px] font-medium"
-            style={{
-              color: wsConnected ? "var(--green)" : "var(--red)",
-              opacity: 0.7,
-            }}
-          >
-            <span
-              className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${!wsConnected && "animate-pulse"}`}
-              style={{
-                backgroundColor: wsConnected ? "var(--green)" : "var(--red)",
-              }}
-            />
-            {wsConnected ? "Connected" : "Reconnecting…"}
-          </div>
-        )}
-      </div>
+    <div className="studio-chat flex flex-col h-full min-h-0 min-w-0" style={{ backgroundColor: "var(--bg-base)" }}>
+      {!isEmpty && <div className="conversation-toolbar">
+        <div><span className="eyebrow">{isThinking ? "IN GOOD HANDS" : "YOUR CONVERSATION"}</span><strong>{isThinking ? (activeAgents.length ? `${activeAgents.length} specialist${activeAgents.length > 1 ? "s" : ""} at work` : "Getting your team together…") : "Let’s move your idea forward."}</strong></div>
+        <div className="conversation-toolbar-actions">{conversationId && <span className={`connection-label ${wsConnected ? "" : "pending"}`}><span className="status-dot"/>{wsConnected ? "Connected" : "Reconnecting"}</span>}<ExportMenu messages={messages}/></div>
+      </div>}
+      {isThinking && activeAgents.length > 0 && <div className="live-team-trail" aria-label="Active specialists">{activeAgents.map(name => <span key={name} style={{ color: getAgent(name).color }}>{getAgent(name).icon} {getAgent(name).displayName}<span className="working-dot"/></span>)}</div>}
 
       {/* Messages area */}
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
@@ -1101,197 +1069,10 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         {loadingConversation ? (
           <div className="p-8 text-center text-sm" role="status" style={{ color: "var(--text-muted)" }}>Loading conversation…</div>
         ) : isEmpty ? (
-          <div className="chat-empty flex flex-col items-center justify-center min-h-full px-4 md:px-6 relative">
-            {/* ─── Gemini-style greeting ─── */}
-            <motion.h1
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.7, ease: [0.4, 0, 0.2, 1] }}
-              className="text-xl md:text-2xl font-medium text-center relative z-10 mb-10 md:mb-14"
-              style={{
-                color: "var(--text-secondary)",
-                letterSpacing: "-0.02em",
-                lineHeight: 1.3,
-              }}
-            >
-              {greeting}
-            </motion.h1>
-
-            {/* ─── Centered input bar (Gemini style) ─── */}
-            <motion.div
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2, duration: 0.5 }}
-              className="w-full max-w-2xl relative z-10 mb-6"
-            >
-              <div
-                className="relative rounded-full transition-colors duration-150"
-                style={{
-                  background: "var(--input-bg)",
-                  border: "1px solid var(--input-border)",
-                  boxShadow: "0 2px 12px rgba(0,0,0,0.08)",
-                }}
-                onFocusCapture={(e) => {
-                  const el = e.currentTarget as HTMLElement;
-                  el.style.borderColor = "color-mix(in srgb, var(--brand) 40%, transparent)";
-                  el.style.boxShadow = "0 4px 20px rgba(99,102,241,0.12)";
-                }}
-                onBlurCapture={(e) => {
-                  const el = e.currentTarget as HTMLElement;
-                  el.style.borderColor = "var(--input-border)";
-                  el.style.boxShadow = "0 2px 12px rgba(0,0,0,0.08)";
-                }}
-              >
-                <div className="flex items-center gap-2 px-4 md:px-5 py-3 md:py-3.5 relative">
-                  {/* Plus button with popup menu */}
-                  <button
-                    className="upload-btn flex-shrink-0"
-                    onClick={() => setInputExpanded(!inputExpanded)}
-                    title="More actions"
-                  >
-                    <svg
-                      width="18" height="18" viewBox="0 0 24 24" fill="none"
-                      style={{ transform: inputExpanded ? "rotate(45deg)" : "none", transition: "transform 0.2s" }}
-                    >
-                      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                    </svg>
-                  </button>
-
-                  {/* Plus menu popup */}
-                  <AnimatePresence>
-                    {inputExpanded && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 8, scale: 0.95 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 8, scale: 0.95 }}
-                        transition={{ duration: 0.15 }}
-                        className="absolute left-3 bottom-full mb-2 w-56 rounded-xl overflow-hidden shadow-xl z-50"
-                        style={{
-                          background: "var(--glass-bg)",
-                          backdropFilter: "blur(40px) saturate(1.6)",
-                          WebkitBackdropFilter: "blur(40px) saturate(1.6)",
-                          border: "1px solid var(--glass-border)",
-                          boxShadow: "0 -8px 32px rgba(0,0,0,0.2)",
-                        }}
-                      >
-                        <div className="p-1.5">
-                          {[
-                            {
-                              label: "Upload files",
-                              icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
-                              onClick: () => { fileInputRef.current?.click(); setInputExpanded(false); },
-                            },
-                            {
-                              label: "Take a photo",
-                              icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><circle cx="12" cy="13" r="4" stroke="currentColor" strokeWidth="1.5"/></svg>,
-                              onClick: () => { openCamera(); setInputExpanded(false); },
-                            },
-                            {
-                              label: "Prompt templates",
-                              icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 5h16M4 5v14a2 2 0 002 2h12a2 2 0 002-2V5M10 10h4M10 14h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
-                              onClick: () => { setShowTemplates(!showTemplates); setInputExpanded(false); },
-                            },
-                          ].map((item) => (
-                            <button
-                              key={item.label}
-                              onClick={item.onClick}
-                              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors text-left"
-                              style={{ color: "var(--text-secondary)" }}
-                              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--bg-hover)"; }}
-                              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
-                            >
-                              <span style={{ color: "var(--text-muted)" }}>{item.icon}</span>
-                              {item.label}
-                            </button>
-                          ))}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-
-                  <textarea
-                    ref={inputRef}
-                    aria-label="Message"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                        e.preventDefault();
-                        handleSend();
-                      }
-                    }}
-                    onPaste={handlePaste}
-                    placeholder="Ask AgentVerse anything..."
-                    rows={1}
-                    className="flex-1 min-w-0 bg-transparent text-sm md:text-base outline-none resize-none leading-6 max-h-[160px] overflow-y-auto"
-                    style={{ color: "var(--text-primary)" }}
-                  />
-                  <button
-                    className={`upload-btn flex-shrink-0 ${isRecording ? 'text-red-500 animate-pulse' : ''}`}
-                    onClick={toggleRecording}
-                    title="Voice input"
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                      <path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                      <path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  </button>
-                  {(input.trim() || attachedFiles.length > 0) && (
-                    <button
-                      onClick={() => handleSend()}
-                      aria-label="Send message"
-                      className="send-btn flex-shrink-0"
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                        <path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    </button>
-                  )}
-                </div>
-              </div>
-            </motion.div>
-
-            {/* ─── Minimal suggestion chips ─── */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.4, duration: 0.5 }}
-              className="flex flex-wrap justify-center gap-2 relative z-10 max-w-xl"
-            >
-              {SUGGESTIONS.map((s, i) => {
-                const meta = getAgent(s.agent);
-                return (
-                  <motion.button
-                    key={s.text}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.45 + i * 0.06, duration: 0.3 }}
-                    onClick={() => handleSend(s.text)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium transition-colors duration-150"
-                    style={{
-                      background: "var(--bg-elevated)",
-                      border: "1px solid var(--border-subtle)",
-                      color: "var(--text-secondary)",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = "var(--border-muted)";
-                      e.currentTarget.style.background = "var(--bg-hover)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = "var(--border-subtle)";
-                      e.currentTarget.style.background = "var(--bg-elevated)";
-                    }}
-                  >
-                    <span style={{ color: "var(--text-muted)", fontSize: "12px" }}>{meta?.icon}</span>
-                    {s.text}
-                  </motion.button>
-                );
-              })}
-            </motion.div>
-          </div>
+          <WorkspaceWelcome composer={composer} name={firstName} onPrompt={insertPrompt} onExplore={onExploreAgents}/>
         ) : (
           /* Message list */
-          <div className="w-full max-w-3xl mx-auto px-2 md:px-6 py-4 md:py-6 space-y-4 md:space-y-6">
+          <div className="conversation-messages w-full max-w-3xl mx-auto px-2 md:px-6 py-4 md:py-6 space-y-4 md:space-y-6">
             <AnimatePresence initial={false}>
               {messages.map((msg, idx) => {
                 const meta = msg.agent_name ? getAgent(msg.agent_name.toLowerCase()) : null;
@@ -1323,7 +1104,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                     <div
                       className={`overflow-hidden ${
                         msg.role === "agent" && isThinking && idx === messages.length - 1
-                          ? "gemini-gradient-border gemini-shimmer"
+                          ? "response-in-progress"
                           : ""
                       }`}
                       style={{
@@ -1331,12 +1112,12 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                         ...(msg.role === "user" ? {
                           maxWidth: "75%",
                           padding: "12px 16px",
-                          borderRadius: "20px 20px 4px 20px",
+                          borderRadius: "18px 18px 4px 18px",
                           background: "var(--bubble-user-bg)",
                           backdropFilter: "blur(12px)",
                           WebkitBackdropFilter: "blur(12px)",
                           color: "var(--bubble-user-text)",
-                          fontSize: "14px",
+                          fontSize: "15px",
                           lineHeight: "1.6",
                           border: "1px solid var(--bubble-user-border)",
                         } : msg.role === "system" ? {
@@ -1346,11 +1127,11 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                           backgroundColor: "var(--red-dim)",
                           color: "var(--red)",
                           border: "1px solid color-mix(in srgb, var(--red) 20%, transparent)",
-                          fontSize: "14px",
+                          fontSize: "15px",
                         } : {
                           flex: 1,
                           color: "var(--text-primary)",
-                          fontSize: "14px",
+                          fontSize: "15px",
                           lineHeight: "1.7",
                           paddingLeft: "12px",
                         }),
@@ -1396,8 +1177,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                                           key={i}
                                           className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium"
                                           style={{
-                                            backgroundColor: "rgba(255,255,255,0.1)",
-                                            color: "rgba(255,255,255,0.8)",
+                                            backgroundColor: "var(--bg-panel)",
+                                            color: "var(--text-secondary)",
                                           }}
                                         >
                                           {fileTypeIcon(cat.type)} {fileName}
@@ -1685,227 +1466,11 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         </div>
       )}
 
-      {/* Input bar — only rendered when there are messages (empty state has its own inline input) */}
-      {!isEmpty && (
-      <div
-        ref={inputBarRef}
-        className="px-2 md:px-4 pb-3 md:pb-5 pt-2 flex-shrink-0 input-safe-area"
-        onDragEnter={handleDragEnter}
-        onDragLeave={handleDragLeave}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
-      >
-        <div className="w-full max-w-3xl mx-auto">
-          {/* Hidden file input */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept={ALL_ACCEPT}
-            className="hidden"
-            onChange={(e) => { if (e.target.files) processFiles(e.target.files); e.target.value = ""; }}
-          />
-
-          {/* Export + Templates row */}
-          <div className="flex items-center justify-between px-2 mb-1">
-            <div className="flex items-center gap-1">
-              <ExportMenu messages={messages} />
-            </div>
-          </div>
-
-          <div
-            className="relative rounded-2xl transition-colors duration-150"
-            style={{
-              background: "var(--input-bg)",
-              backdropFilter: "blur(24px) saturate(1.4)",
-              WebkitBackdropFilter: "blur(24px) saturate(1.4)",
-              border: "1px solid var(--input-border)",
-              boxShadow: "0 4px 24px rgba(0,0,0,0.12)",
-            }}
-            onFocusCapture={(e) => {
-              const el = e.currentTarget as HTMLElement;
-              el.style.borderColor = "var(--brand)";
-              el.style.background = "var(--input-bg-focus)";
-            }}
-            onBlurCapture={(e) => {
-              const el = e.currentTarget as HTMLElement;
-              el.style.animation = "none";
-              el.style.borderColor = "var(--input-border)";
-              el.style.background = "var(--input-bg)";
-              el.style.boxShadow = "0 4px 24px rgba(0,0,0,0.12)";
-            }}
-          >
-            {/* Drag overlay */}
-            {isDragging && (
-              <div className="drop-zone-overlay">
-                <span>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 16V4m0 0L8 8m4-4l4 4M4 14v4a2 2 0 002 2h12a2 2 0 002-2v-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  Drop files here
-                </span>
-              </div>
-            )}
-
-            {/* File preview chips */}
-            {attachedFiles.length > 0 && (
-              <div className="file-chips">
-                {attachedFiles.map((file) => (
-                  <div key={file.id} className={`file-chip ${file.type === "image" ? "file-chip--image" : ""}`}>
-                    {file.type === "image" && file.preview ? (
-                      <img src={file.preview} alt={file.name} className="file-chip__preview" />
-                    ) : (
-                      <span className="file-chip__icon">{fileTypeIcon(file.type)}</span>
-                    )}
-                    <span className="file-chip__name">{file.name}</span>
-                    <span className="file-chip__size">{formatFileSize(file.size)}</span>
-                    <button className="file-chip__remove" onClick={() => removeFile(file.id)} title="Remove">✕</button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Input row — Gemini style: + menu, textarea, mic, send */}
-            <div className="flex items-center gap-2 px-3 md:px-4 py-2.5 md:py-3 relative">
-              {/* Plus button — opens action menu */}
-              <button
-                className="upload-btn flex-shrink-0"
-                onClick={() => setInputExpanded(!inputExpanded)}
-                title="More actions"
-                disabled={isThinking || loadingConversation}
-              >
-                <svg
-                  width="18" height="18" viewBox="0 0 24 24" fill="none"
-                  style={{ transform: inputExpanded ? "rotate(45deg)" : "none", transition: "transform 0.2s" }}
-                >
-                  <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                </svg>
-              </button>
-
-              {/* Plus menu popup — Gemini style */}
-              <AnimatePresence>
-                {inputExpanded && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 8, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 8, scale: 0.95 }}
-                    transition={{ duration: 0.15 }}
-                    className="absolute left-3 bottom-full mb-2 w-56 rounded-xl overflow-hidden shadow-xl z-50"
-                    style={{
-                      background: "var(--glass-bg)",
-                      backdropFilter: "blur(40px) saturate(1.6)",
-                      WebkitBackdropFilter: "blur(40px) saturate(1.6)",
-                      border: "1px solid var(--glass-border)",
-                      boxShadow: "0 -8px 32px rgba(0,0,0,0.2)",
-                    }}
-                  >
-                    <div className="p-1.5">
-                      {[
-                        {
-                          label: "Upload files",
-                          icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
-                          onClick: () => { fileInputRef.current?.click(); setInputExpanded(false); },
-                        },
-                        {
-                          label: "Take a photo",
-                          icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><circle cx="12" cy="13" r="4" stroke="currentColor" strokeWidth="1.5"/></svg>,
-                          onClick: () => { openCamera(); setInputExpanded(false); },
-                        },
-                        {
-                          label: "Prompt templates",
-                          icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 5h16M4 5v14a2 2 0 002 2h12a2 2 0 002-2V5M10 10h4M10 14h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
-                          onClick: () => { setShowTemplates(!showTemplates); setInputExpanded(false); },
-                        },
-                      ].map((item) => (
-                        <button
-                          key={item.label}
-                          onClick={item.onClick}
-                          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors text-left"
-                          style={{ color: "var(--text-secondary)" }}
-                          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--bg-hover)"; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
-                        >
-                          <span style={{ color: "var(--text-muted)" }}>{item.icon}</span>
-                          {item.label}
-                        </button>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Textarea */}
-              <textarea
-                aria-label="Message"
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                    e.preventDefault();
-                    handleSend();
-                  }
-                }}
-                onPaste={handlePaste}
-                placeholder={attachedFiles.length > 0 ? "Add a message about your files…" : "Ask AgentVerse anything…"}
-                rows={1}
-                className="flex-1 min-w-0 bg-transparent text-sm outline-none resize-none leading-6 max-h-[180px] overflow-y-auto"
-                style={{ color: "var(--text-primary)" }}
-                disabled={isThinking || loadingConversation}
-              />
-
-              {/* Mic button — always visible like Gemini */}
-              <button
-                className={`upload-btn flex-shrink-0 ${isRecording ? 'text-red-500 animate-pulse' : ''}`}
-                onClick={toggleRecording}
-                title="Voice input"
-                disabled={isThinking || loadingConversation}
-                style={isRecording ? { color: "var(--red)", backgroundColor: "color-mix(in srgb, var(--red) 15%, transparent)" } : {}}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </button>
-
-              {/* Send button — visible when there's input */}
-              {(input.trim() || attachedFiles.length > 0) && (
-                <button
-                  onClick={() => handleSend()}
-                  disabled={isThinking || loadingConversation}
-                  aria-label="Send message"
-                  className="send-btn flex-shrink-0"
-                >
-                  {isThinking ? (
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                      <path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  )}
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Prompt Templates Panel */}
-          <AnimatePresence>
-            {showTemplates && (
-              <PromptTemplates
-                onInsert={(prompt) => setInput(prompt)}
-                onClose={() => setShowTemplates(false)}
-              />
-            )}
-          </AnimatePresence>
-
-          <p className="text-center text-[10px] mt-2.5 font-medium" style={{ color: "var(--text-faint)" }}>
-            AgentVerse routes your request to specialized agents who collaborate in real-time.
-          </p>
-        </div>
-      </div>
-      )}
+      {!isEmpty && <div className="conversation-composer"><div className="conversation-composer-inner">{composer}</div></div>}
       {/* Camera modal */}
       {cameraOpen && (
         <div className="camera-modal">
-          <div className="camera-modal__inner">
+          <div ref={cameraDialogRef} role="dialog" aria-modal="true" aria-label="Take a photo" tabIndex={-1} className="camera-modal__inner">
             <video
               ref={videoRef}
               autoPlay

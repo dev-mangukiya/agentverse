@@ -1,168 +1,160 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { motion } from "framer-motion";
+import { useState, useEffect } from "react";
+import {
+  WorkspaceIcon,
+  type WorkspaceIconName,
+} from "@/components/workspace/WorkspaceIcon";
 
-const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
-
+const API_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+).replace(/\/$/, "");
 interface Stats {
   conversations: { total: number; today: number };
-  messages: { total: number; today: number; yesterday: number; agent_total: number; agent_today: number };
-  uptime: string;
+  messages: {
+    total: number;
+    today: number;
+    agent_total: number;
+    agent_today: number;
+  };
   llm: { provider: string; model: string; configured: boolean };
 }
 
-function AnimatedNumber({ value, duration = 1.2 }: { value: number; duration?: number }) {
-  const [display, setDisplay] = useState(0);
-  const ref = useRef<ReturnType<typeof requestAnimationFrame>>();
-
-  useEffect(() => {
-    const start = performance.now();
-    const from = 0;
-    const to = value;
-
-    const animate = (now: number) => {
-      const elapsed = now - start;
-      const progress = Math.min(elapsed / (duration * 1000), 1);
-      const eased = 1 - Math.pow(1 - progress, 3);
-      setDisplay(Math.round(from + (to - from) * eased));
-
-      if (progress < 1) {
-        ref.current = requestAnimationFrame(animate);
-      }
-    };
-
-    ref.current = requestAnimationFrame(animate);
-    return () => { if (ref.current) cancelAnimationFrame(ref.current); };
-  }, [value, duration]);
-
-  return <>{display}</>;
-}
-
-const kpiConfig = [
-  {
-    key: "conversations",
-    label: "Total Chats",
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-        <path d="M12 3C6.477 3 2 6.925 2 11.75c0 2.278.98 4.35 2.59 5.88L3 21l4.5-1.45A10.3 10.3 0 0 0 12 20.5c5.523 0 10-3.925 10-8.75S17.523 3 12 3Z" stroke="currentColor" strokeWidth="1.5"/>
-      </svg>
-    ),
-    getValue: (s: Stats) => s.conversations.total,
-    getDisplayValue: (s: Stats) => s.conversations.total.toString(),
-    getSubtext: (s: Stats) => `+${s.conversations.today} today`,
-    isNumeric: true,
-  },
-  {
-    key: "messages",
-    label: "Messages Sent",
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
-      </svg>
-    ),
-    getValue: (s: Stats) => s.messages.total,
-    getDisplayValue: (s: Stats) => s.messages.total.toString(),
-    getSubtext: (s: Stats) => `+${s.messages.today} today`,
-    isNumeric: true,
-  },
-  {
-    key: "agent_responses",
-    label: "Agent Responses",
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-        <circle cx="12" cy="8" r="3.5" stroke="currentColor" strokeWidth="1.5"/>
-        <path d="M5 20a7 7 0 0 1 14 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-      </svg>
-    ),
-    getValue: (s: Stats) => s.messages.agent_total,
-    getDisplayValue: (s: Stats) => s.messages.agent_total.toString(),
-    getSubtext: (s: Stats) => `+${s.messages.agent_today} today`,
-    isNumeric: true,
-  },
-  {
-    key: "uptime",
-    label: "Uptime",
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5"/>
-        <path d="M12 7v5l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-      </svg>
-    ),
-    getValue: (s: Stats) => 0,
-    getDisplayValue: (s: Stats) => s.uptime,
-    getSubtext: (s: Stats) => `${s.llm.provider} · ${s.llm.model.split('/').pop()?.slice(0, 20) || s.llm.model}`,
-    isNumeric: false,
-  },
-];
-
-export function KPICards() {
+export function KPICards({ onStartTask }: { onStartTask?: () => void }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [retry, setRetry] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    const controller = new AbortController();
     setLoading(true);
     const fetchStats = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/v1/stats`);
-        if (res.ok) setStats(await res.json());
+        const res = await fetch(`${API_URL}/api/v1/stats`, {
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error("Could not load activity");
+        const data = await res.json();
+        if (!controller.signal.aborted) {
+          setStats(data);
+          setFailed(false);
+        }
       } catch {
-        // silently fail; show skeleton
+        if (!controller.signal.aborted) setFailed(true);
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     };
     fetchStats();
     const interval = setInterval(fetchStats, 30000);
-    return () => clearInterval(interval);
+    return () => {
+      controller.abort();
+      clearInterval(interval);
+    };
   }, [retry]);
 
-  if (!loading && !stats) return <div role="alert" className="p-4 rounded-xl text-sm" style={{ background: "var(--bg-raised)", color: "var(--text-secondary)" }}>Dashboard data is unavailable. <button className="underline ml-2" onClick={() => setRetry(n => n + 1)}>Retry</button></div>;
+  const cards: {
+    label: string;
+    icon: WorkspaceIconName;
+    value?: number | string;
+    detail?: string;
+    tone: string;
+  }[] = [
+    {
+      label: "Conversations",
+      icon: "history",
+      value: stats?.conversations.total,
+      detail: `${stats?.conversations.today ?? 0} started today`,
+      tone: "mint",
+    },
+    {
+      label: "Messages",
+      icon: "pen",
+      value: stats?.messages.total,
+      detail: `${stats?.messages.today ?? 0} exchanged today`,
+      tone: "peach",
+    },
+    {
+      label: "Team responses",
+      icon: "team",
+      value: stats?.messages.agent_total,
+      detail: `${stats?.messages.agent_today ?? 0} responses today`,
+      tone: "lavender",
+    },
+    {
+      label: "AI provider",
+      icon: "spark",
+      value: stats?.llm.configured ? "Configured" : "Add a key",
+      detail: stats?.llm.configured
+        ? stats.llm.provider
+        : "Finish setup to start creating",
+      tone: "butter",
+    },
+  ];
+  if (!loading && !stats)
+    return (
+      <div role="alert" className="directory-error">
+        Your activity is unavailable.{" "}
+        <button className="underline" onClick={() => setRetry((n) => n + 1)}>
+          Try again
+        </button>
+      </div>
+    );
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-      {kpiConfig.map((kpi, i) => (
-        <motion.div
-          key={kpi.key}
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: i * 0.06, duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
-          className="rounded-2xl p-4 md:p-5"
-          style={{
-            backgroundColor: "var(--bg-raised)",
-            border: "1px solid var(--border-subtle)",
-          }}
-        >
-          <div className="flex items-center gap-1.5 mb-3">
-            <span style={{ color: "var(--text-faint)" }}>{kpi.icon}</span>
-            <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
-              {kpi.label}
-            </span>
+    <>
+      {failed && stats && (
+        <p role="status" className="insights-stale">
+          Showing the last available activity.{" "}
+          <button className="underline" onClick={() => setRetry((n) => n + 1)}>
+            Refresh
+          </button>
+        </p>
+      )}
+      <div className="studio-kpi-grid" aria-busy={loading}>
+        {cards.map((card) => (
+          <div key={card.label} className={`studio-kpi tone-${card.tone}`}>
+            <div className="kpi-heading">
+              <span>{card.label}</span>
+              <span className="starter-icon">
+                <WorkspaceIcon name={card.icon} size={18} />
+              </span>
+            </div>
+            {loading || !stats ? (
+              <div className="shimmer-loading h-10 w-24 rounded-lg my-3" />
+            ) : (
+              <>
+                <strong
+                  className={typeof card.value === "string" ? "kpi-status" : ""}
+                >
+                  {typeof card.value === "number"
+                    ? card.value.toLocaleString()
+                    : card.value}
+                </strong>
+                <p>{card.detail}</p>
+              </>
+            )}
           </div>
-          {loading || !stats ? (
-            <>
-              <div className="shimmer-loading h-8 w-20 rounded-lg mb-2" />
-              <div className="shimmer-loading h-3.5 w-28 rounded-md" />
-            </>
-          ) : (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-            >
-              <div className="text-2xl font-bold mb-1.5 tracking-tight" style={{ color: "var(--text-primary)" }}>
-                {kpi.isNumeric ? (
-                  <AnimatedNumber value={kpi.getValue(stats)} />
-                ) : (
-                  kpi.getDisplayValue(stats)
-                )}
-              </div>
-              <div className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>{kpi.getSubtext(stats)}</div>
-            </motion.div>
+        ))}
+      </div>
+      {!loading && stats?.conversations.total === 0 && (
+        <div className="insights-first-task">
+          <div>
+            <h2>Your first idea starts the story.</h2>
+            <p>
+              Try a question, a rough draft, or a problem you’ve been meaning to
+              solve.
+            </p>
+          </div>
+          {onStartTask && (
+            <button className="studio-primary" onClick={onStartTask}>
+              Start a task
+              <WorkspaceIcon name="arrow" size={17} />
+            </button>
           )}
-        </motion.div>
-      ))}
-    </div>
+        </div>
+      )}
+    </>
   );
 }

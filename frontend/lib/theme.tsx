@@ -17,7 +17,7 @@ const ThemeContext = createContext<ThemeContextValue>({
 function applyTheme(t: Theme) {
   document.documentElement.setAttribute("data-theme", t);
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute("content", t === "light" ? "#f5f5fa" : "#08080d");
+  if (meta) meta.setAttribute("content", t === "light" ? "#f8f7f4" : "#202a30");
 }
 
 function getSystemTheme(): Theme {

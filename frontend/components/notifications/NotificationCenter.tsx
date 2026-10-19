@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
+import { useDialogFocus } from "@/hooks/useDialogFocus";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNotifications } from "./NotificationProvider";
 import type { NotificationType } from "./NotificationProvider";
@@ -23,25 +24,34 @@ function timeAgo(timestamp: number): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
+export function getNotificationPlacement(rect: { top: number; bottom: number; right: number }, viewportWidth: number, viewportHeight: number) {
+  const width = Math.min(352, viewportWidth - 24);
+  const below = Math.max(0, viewportHeight - rect.bottom - 20);
+  const above = Math.max(0, rect.top - 20);
+  const opensBelow = below >= Math.min(280, viewportHeight * .7) || below >= above;
+  const maxHeight = Math.min(420, viewportHeight * .7, opensBelow ? below : above);
+  return {
+    width, maxHeight,
+    top: opensBelow ? rect.bottom + 8 : rect.top - 8 - maxHeight,
+    left: Math.max(12, Math.min(rect.right - width, viewportWidth - width - 12)),
+  };
+}
+
 export function NotificationCenter({ onNotificationClick }: { onNotificationClick?: (conversationId: string) => void }) {
   const { notifications, unreadCount, markAllRead, dismiss, clearAll } = useNotifications();
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ bottom: number; left: number }>({ bottom: 0, left: 0 });
+  const panelRef = useDialogFocus(open, () => setOpen(false));
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 352, maxHeight: 420 });
 
   // SSR-safe: only render Portal after mount to avoid hydration mismatch
   useEffect(() => { setMounted(true); }, []);
 
-  // Compute fixed position from bell button rect — opens UPWARD from sidebar bottom
+  // Anchor to the header and choose whichever side has room on short screens.
   const updatePosition = useCallback(() => {
     if (!buttonRef.current) return;
-    const rect = buttonRef.current.getBoundingClientRect();
-    setPos({
-      bottom: Math.max(8, window.innerHeight - rect.top + 8),
-      left: Math.max(8, Math.min(rect.left, window.innerWidth - Math.min(320, window.innerWidth - 16) - 8)),
-    });
+    setPos(getNotificationPlacement(buttonRef.current.getBoundingClientRect(), window.innerWidth, window.innerHeight));
   }, []);
 
   // Close on outside click
@@ -86,7 +96,7 @@ export function NotificationCenter({ onNotificationClick }: { onNotificationClic
         style={{
           color: "var(--text-muted)",
         }}
-        aria-label="Notifications"
+        aria-label="Notifications" aria-expanded={open} aria-haspopup="dialog"
         title="Notifications"
         onMouseEnter={(e) => {
           e.currentTarget.style.backgroundColor = "var(--bg-hover)";
@@ -129,21 +139,20 @@ export function NotificationCenter({ onNotificationClick }: { onNotificationClic
         <AnimatePresence>
           {open && (
             <motion.div
-              ref={panelRef}
+              ref={panelRef} role="dialog" aria-label="Notifications" tabIndex={-1}
               initial={{ opacity: 0, y: 8, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 8, scale: 0.95 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
               className="fixed w-80 max-w-[calc(100vw-16px)] max-h-[min(420px,70dvh)] rounded-xl shadow-2xl overflow-hidden flex flex-col"
               style={{
-                bottom: pos.bottom,
-                left: pos.left,
+                ...pos,
                 zIndex: 9999,
                 background: "var(--glass-bg)",
                 backdropFilter: "blur(40px) saturate(1.6)",
                 WebkitBackdropFilter: "blur(40px) saturate(1.6)",
                 border: "1px solid var(--glass-border)",
-                boxShadow: "0 -8px 32px rgba(0,0,0,0.25)",
+                boxShadow: "0 12px 40px rgba(0,0,0,0.15)",
               }}
             >
               {/* Header */}
@@ -155,6 +164,7 @@ export function NotificationCenter({ onNotificationClick }: { onNotificationClic
                   Notifications
                 </span>
                 <div className="flex items-center gap-2">
+                  <button className="icon-button" onClick={() => setOpen(false)} aria-label="Close notifications">×</button>
                   {notifications.length > 0 && (
                     <button
                       onClick={clearAll}

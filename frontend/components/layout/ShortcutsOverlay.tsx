@@ -19,7 +19,7 @@ interface ShortcutsOverlayProps {
 
 const shortcuts = [
   { keys: "⌘K", description: "Open Command Palette" },
-  { keys: "⌘N", description: "New Chat" },
+  { keys: "⌘N", description: "New task" },
   { keys: "⌘/", description: "Toggle Sidebar" },
   { keys: "?", description: "Keyboard Shortcuts" },
   { keys: "Esc", description: "Close Overlay / Modal" },

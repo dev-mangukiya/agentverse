@@ -28,6 +28,7 @@ export interface AgentInfo {
   displayName: string;
   /** Short role description */
   description: string;
+  introduction?: string;
   /** CSS custom-property reference for theming (e.g. "var(--agent-coding)") */
   color: string;
   /** Canonical icon element at size=16 */
@@ -42,6 +43,7 @@ export const AGENT_REGISTRY: Record<string, AgentInfo> = {
     id: "orchestrator",
     displayName: "Orchestrator",
     description: "Planning & Coordination",
+    introduction: "Breaks big requests into a plan and brings the right specialists together.",
     color: "var(--agent-orchestrator)",
     icon: <BrainIcon size={16} />,
   },
@@ -49,6 +51,7 @@ export const AGENT_REGISTRY: Record<string, AgentInfo> = {
     id: "research",
     displayName: "Research",
     description: "Web Search & Analysis",
+    introduction: "Explores questions, finds sources, and turns research into useful answers.",
     color: "var(--agent-research)",
     icon: <MicroscopeIcon size={16} />,
   },
@@ -56,6 +59,7 @@ export const AGENT_REGISTRY: Record<string, AgentInfo> = {
     id: "coding",
     displayName: "Coding",
     description: "Code & Execution",
+    introduction: "Builds solutions, explains code, and helps you work through tricky bugs.",
     color: "var(--agent-coding)",
     icon: <CodeIcon size={16} />,
   },
@@ -63,6 +67,7 @@ export const AGENT_REGISTRY: Record<string, AgentInfo> = {
     id: "writer",
     displayName: "Writer",
     description: "Content & Reports",
+    introduction: "Turns your rough ideas into clear drafts, stories, and polished writing.",
     color: "var(--agent-writer)",
     icon: <PenIcon size={16} />,
   },
@@ -70,6 +75,7 @@ export const AGENT_REGISTRY: Record<string, AgentInfo> = {
     id: "critic",
     displayName: "Critic",
     description: "Quality & Review",
+    introduction: "Offers a second opinion and spots ways to make the result stronger.",
     color: "var(--agent-critic)",
     icon: <SearchIcon size={16} />,
   },
@@ -77,6 +83,7 @@ export const AGENT_REGISTRY: Record<string, AgentInfo> = {
     id: "data",
     displayName: "Data Analyst",
     description: "Data & Insights",
+    introduction: "Finds patterns in your data and explains what the numbers are saying.",
     color: "var(--agent-data)",
     icon: <BarChartIcon size={16} />,
   },
@@ -84,6 +91,7 @@ export const AGENT_REGISTRY: Record<string, AgentInfo> = {
     id: "doc_reader",
     displayName: "Doc Reader",
     description: "Document Analysis & Q&A",
+    introduction: "Reads your documents and helps you find the answers inside.",
     color: "var(--agent-doc-reader)",
     icon: <FileTextIcon size={16} />,
   },
@@ -91,6 +99,7 @@ export const AGENT_REGISTRY: Record<string, AgentInfo> = {
     id: "doc_generator",
     displayName: "Doc Generator",
     description: "Document Generation",
+    introduction: "Shapes your ideas into documents you can use and share.",
     color: "var(--agent-doc-generator)",
     icon: <FilePlusIcon size={16} />,
   },

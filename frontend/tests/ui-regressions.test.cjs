@@ -41,7 +41,11 @@ test('empty chat has stable markup across server renders and a labelled composer
   const props = { conversationId: null, onConversationCreated() {}, onMessageSent() {} };
   const first = renderToStaticMarkup(React.createElement(ChatPanel, props));
   for (let i = 0; i < 8; i++) assert.equal(renderToStaticMarkup(React.createElement(ChatPanel, props)), first);
-  assert.match(first, /What would you like to work on\?/);
+  assert.match(first, /Big ideas\./);
+  assert.match(first, /Meet your team\./);
+  assert.equal((first.match(/<textarea/g) || []).length, 1);
+  assert.equal((first.match(/type="file"/g) || []).length, 1);
+  assert.match(first, /aria-label="Attach files"/);
   assert.match(first, /textarea[^>]*aria-label="Message"/);
 });
 
@@ -57,13 +61,13 @@ test('command palette and shortcut dialog retain centering with motion transform
   }
 });
 
-test('both composers preserve IME composition and Shift+Enter', () => {
+test('the shared composer preserves IME composition and Shift+Enter', () => {
   const tree = ast('components/chat/ChatPanel.tsx');
   const handlers = [];
   walk(tree, node => {
     if (ts.isJsxAttribute(node) && node.name.getText(tree) === 'onKeyDown') handlers.push(node.initializer.expression.getText(tree));
   });
-  assert.equal(handlers.length, 2);
+  assert.equal(handlers.length, 1);
   for (const expression of handlers) {
     let sent = 0, prevented = 0;
     const handle = vm.runInNewContext(`(${expression})`, { handleSend: () => sent++ });
@@ -193,4 +197,70 @@ test('failed deletion leaves the conversation visible and reports an error', asy
   assert.equal(changedChat, false);
   assert.match(error, /Could not delete/);
   assert.equal(context.mutationController.current, null);
+});
+
+test('task starters prepare editable drafts and focus the caret without sending a request', () => {
+  const { STARTERS } = load('components/workspace/WorkspaceWelcome');
+  for (const starter of STARTERS) {
+    let draft, focused = false, selection, templates;
+    const insert = functionFromSource('components/chat/ChatPanel.tsx', 'insertPrompt', {
+      setInput: value => draft = value,
+      setShowTemplates: value => templates = value,
+      requestAnimationFrame: callback => callback(),
+      inputRef: { current: { focus: () => focused = true, setSelectionRange: (start, end) => selection = [start, end] } },
+      handleSend: () => assert.fail('A starter must not send a message before it is customized'),
+      fetch: () => assert.fail('A starter must not make a network request'),
+    });
+    insert(starter.prompt);
+    assert.equal(draft, starter.prompt);
+    assert.ok(focused);
+    assert.deepEqual(selection, [draft.length, draft.length]);
+    assert.equal(templates, false);
+  }
+});
+
+test('sidebar identifies the current view and retains meaningful collapsed controls', () => {
+  const { Sidebar } = load('components/layout/Sidebar');
+  for (const [currentView, label] of [['chat', 'Workspace'], ['agents', 'Your team'], ['dashboard', 'Insights']]) {
+    for (const collapsed of [true, false]) {
+      const html = renderToStaticMarkup(React.createElement(Sidebar, { currentView, collapsed, onNavigate() {}, onToggle() {} }));
+      assert.equal((html.match(/aria-current="page"/g) || []).length, 1);
+      assert.match(html, new RegExp(`aria-current="page" aria-label="${label}"`));
+      assert.match(html, /aria-label="Search tasks and commands"/);
+      assert.match(html, /title="New task"/);
+      assert.doesNotMatch(html, /role="dialog"/, 'Sign in must not interrupt the initial workspace');
+    }
+  }
+});
+
+test('notifications stay within the viewport when opened from the header or near a screen edge', () => {
+  const { getNotificationPlacement } = load('components/notifications/NotificationCenter');
+  for (const [width, height, rect] of [
+    [1440, 900, { top: 22, bottom: 56, right: 1380 }],
+    [375, 667, { top: 14, bottom: 48, right: 359 }],
+    [320, 568, { top: 14, bottom: 48, right: 304 }],
+    [768, 320, { top: 14, bottom: 48, right: 752 }],
+    [375, 667, { top: 610, bottom: 644, right: 44 }],
+  ]) {
+    const result = getNotificationPlacement(rect, width, height);
+    assert.ok(result.left >= 12);
+    assert.ok(result.left + result.width <= width - 12);
+    assert.ok(result.top >= 0);
+    assert.ok(result.top + result.maxHeight <= height - 12);
+    assert.ok(result.maxHeight > 100);
+    if (rect.top < 60) assert.ok(result.top >= rect.bottom, 'Header notifications should open below the bell');
+  }
+});
+
+test('failed specialist deletion keeps the card visible and shows an actionable error', async () => {
+  let removed = false, error, pending;
+  const remove = functionFromSource('components/agents/AgentBuilder.tsx', 'handleDelete', {
+    deletingId: null, confirm: () => true, setDeletingId: value => pending = value,
+    setError: value => error = value, API_URL: 'http://example.invalid',
+    fetch: async () => ({ ok: false }), setAgents: () => removed = true,
+  });
+  await remove('my-specialist');
+  assert.equal(removed, false);
+  assert.equal(pending, null);
+  assert.match(error, /Could not delete.*try again/);
 });

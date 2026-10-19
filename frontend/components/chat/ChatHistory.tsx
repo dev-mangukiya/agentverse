@@ -16,9 +16,10 @@ interface ChatHistoryProps {
   onSelect: (id: string) => void;
   onNewChat: () => void;
   refreshTrigger: number;
+  compact?: boolean;
 }
 
-export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: ChatHistoryProps) {
+export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger, compact = false }: ChatHistoryProps) {
   const { user } = useAuth();
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -125,7 +126,7 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
 
   return (
     <section className="flex flex-col h-full min-h-0" aria-label="Conversations">
-      <div className="p-3 space-y-3 flex-shrink-0">
+      {!compact && <div className="p-3 space-y-3 flex-shrink-0">
         <button onClick={onNewChat} className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium" style={{ background: "var(--brand-dim)", color: "var(--brand-text)" }}>＋ New chat</button>
         <div className="relative">
           <input aria-label="Search conversations" placeholder="Search chats…" value={query} onChange={e => setQuery(e.target.value)}
@@ -133,6 +134,7 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger }: C
           {query && <button aria-label="Clear search" onClick={() => setQuery("")} className="absolute right-0 top-0 h-full w-10">×</button>}
         </div>
       </div>
+      }
       {error && <div className="mx-3 mb-2 text-xs" role="alert" style={{ color: "var(--red)" }}>{error} <button className="underline p-1" onClick={() => setRetry(n => n + 1)}>Retry</button></div>}
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-2 pb-3" aria-busy={loading || searching}>
         {loading && !visible.length ? <p role="status" className="p-3 text-xs" style={{ color: "var(--text-muted)" }}>Loading chats…</p> : null}

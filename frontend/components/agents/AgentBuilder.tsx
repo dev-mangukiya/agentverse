@@ -2,8 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useDialogFocus } from "@/hooks/useDialogFocus";
+import { WorkspaceIcon } from "@/components/workspace/WorkspaceIcon";
 
-const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
+const API_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+).replace(/\/$/, "");
 
 import { getAgent, getAgentIcon } from "@/config/agents";
 
@@ -30,13 +34,18 @@ export interface Agent {
 
 export function AgentBuilder() {
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [availableTools, setAvailableTools] = useState<Record<string, string>>({});
+  const [availableTools, setAvailableTools] = useState<Record<string, string>>(
+    {},
+  );
   const [loading, setLoading] = useState(true);
-  
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<"all" | "custom">("all");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
   // Form state
   const [isCreating, setIsCreating] = useState(false);
   const [editAgent, setEditAgent] = useState<Agent | null>(null);
-  
+
   const [formData, setFormData] = useState({
     name: "",
     emoji: "",
@@ -45,12 +54,36 @@ export function AgentBuilder() {
     tools: [] as string[],
     model: "",
   });
-  
+
   const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewingAgent, setViewingAgent] = useState<Agent | null>(null);
-  const [agentStats, setAgentStats] = useState<Record<string, { total_messages: number; avg_response_ms: number | null; last_active: string | null }>>({});
+  const [agentStats, setAgentStats] = useState<
+    Record<
+      string,
+      {
+        total_messages: number;
+        avg_response_ms: number | null;
+        last_active: string | null;
+      }
+    >
+  >({});
+
+  const editorRef = useDialogFocus(isCreating, () => {
+    if (!saving) setIsCreating(false);
+  });
+  const detailsRef = useDialogFocus(!!viewingAgent, () =>
+    setViewingAgent(null),
+  );
+  const visibleAgents = agents.filter((agent) => {
+    const info = getAgent(agent.name);
+    const matchesQuery =
+      `${info.displayName} ${agent.description} ${info.description}`
+        .toLowerCase()
+        .includes(query.toLowerCase().trim());
+    return matchesQuery && (filter === "all" || !agent.is_builtin);
+  });
 
   useEffect(() => {
     fetchAgents();
@@ -62,11 +95,17 @@ export function AgentBuilder() {
           const data = await res.json();
           const map: Record<string, any> = {};
           (data.agents || []).forEach((a: any) => {
-            map[a.name] = { total_messages: a.total_messages, avg_response_ms: a.avg_response_ms, last_active: a.last_active };
+            map[a.name] = {
+              total_messages: a.total_messages,
+              avg_response_ms: a.avg_response_ms,
+              last_active: a.last_active,
+            };
           });
           setAgentStats(map);
         }
-      } catch { /* silently fail */ }
+      } catch {
+        /* silently fail */
+      }
     };
     fetchStats();
   }, []);
@@ -118,11 +157,11 @@ export function AgentBuilder() {
   };
 
   const toggleTool = (tool: string) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      tools: prev.tools.includes(tool) 
-        ? prev.tools.filter(t => t !== tool)
-        : [...prev.tools, tool]
+      tools: prev.tools.includes(tool)
+        ? prev.tools.filter((t) => t !== tool)
+        : [...prev.tools, tool],
     }));
   };
 
@@ -131,9 +170,16 @@ export function AgentBuilder() {
     setError(null);
 
     // Client-side validation
-    const cleanName = formData.name.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_").replace(/^[^a-z]+/, "").replace(/_+/g, "_");
+    const cleanName = formData.name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, "_")
+      .replace(/^[^a-z]+/, "")
+      .replace(/_+/g, "_");
     if (!cleanName || cleanName.length < 2) {
-      setError("Name must be at least 2 characters and start with a letter (only lowercase letters, numbers, underscores).");
+      setError(
+        "Name must be at least 2 characters and start with a letter (only lowercase letters, numbers, underscores).",
+      );
       setSaving(false);
       return;
     }
@@ -146,16 +192,16 @@ export function AgentBuilder() {
     const payload = { ...formData, name: cleanName };
 
     try {
-      const url = editAgent 
+      const url = editAgent
         ? `${API_URL}/api/v1/agents/${editAgent.id}`
         : `${API_URL}/api/v1/agents`;
-        
+
       const res = await fetch(url, {
         method: editAgent ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      
+
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         // FastAPI returns { detail: string | array | object }
@@ -164,14 +210,16 @@ export function AgentBuilder() {
           if (typeof errData.detail === "string") {
             msg = errData.detail;
           } else if (Array.isArray(errData.detail)) {
-            msg = errData.detail.map((d: any) => d.msg || JSON.stringify(d)).join("; ");
+            msg = errData.detail
+              .map((d: any) => d.msg || JSON.stringify(d))
+              .join("; ");
           } else if (typeof errData.detail === "object") {
             msg = errData.detail.msg || JSON.stringify(errData.detail);
           }
         }
         throw new Error(msg);
       }
-      
+
       await fetchAgents();
       setIsCreating(false);
     } catch (err: any) {
@@ -180,234 +228,427 @@ export function AgentBuilder() {
       setSaving(false);
     }
   };
-  
+
   const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this agent?")) return;
+    if (
+      deletingId ||
+      !confirm("Delete this custom specialist? This cannot be undone.")
+    )
+      return;
+    setDeletingId(id);
+    setError(null);
     try {
-      const res = await fetch(`${API_URL}/api/v1/agents/${id}`, { method: "DELETE" });
-      if (res.ok) {
-        setAgents(agents.filter(a => a.id !== id));
-      }
+      const res = await fetch(`${API_URL}/api/v1/agents/${id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok)
+        throw new Error("Could not delete this specialist. Please try again.");
+      setAgents((current) => current.filter((a) => a.id !== id));
     } catch (err) {
-      console.error(err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Could not delete this specialist. Please try again.",
+      );
+    } finally {
+      setDeletingId(null);
     }
   };
 
   if (loading) {
-    return <div className="p-8 text-center" style={{ color: "var(--text-muted)" }}>Loading agents...</div>;
+    return (
+      <div className="specialist-loading" role="status">
+        <WorkspaceIcon name="team" size={26} />
+        <p>Getting the team together…</p>
+      </div>
+    );
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex justify-between items-start mb-6 gap-3 agent-builder-header">
-        <div className="min-w-0">
-          <h2 className="text-xl font-bold truncate" style={{ color: "var(--text-primary)" }}>Agent Network</h2>
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>Manage your autonomous AI workforce</p>
+    <div className="specialist-directory">
+      <div className="specialist-toolbar">
+        <label className="specialist-search">
+          <WorkspaceIcon name="search" size={17} />
+          <input
+            aria-label="Find a specialist"
+            placeholder="Find a specialist…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </label>
+        <div className="specialist-filters" aria-label="Specialist type">
+          <button
+            aria-pressed={filter === "all"}
+            onClick={() => setFilter("all")}
+          >
+            Everyone <span>{agents.length}</span>
+          </button>
+          <button
+            aria-pressed={filter === "custom"}
+            onClick={() => setFilter("custom")}
+          >
+            Custom <span>{agents.filter((a) => !a.is_builtin).length}</span>
+          </button>
         </div>
-        <button
-          onClick={openCreate}
-          className="px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0"
-          style={{ background: "linear-gradient(135deg, #6366f1, #8b5cf6, #06b6d4)", boxShadow: "0 4px 12px rgba(99,102,241,0.2)" }}
-        >
-          + Create Agent
+        <button className="studio-primary" onClick={openCreate}>
+          <WorkspaceIcon name="plus" size={17} /> Create specialist
         </button>
       </div>
-
-      {loadError && <p role="alert" className="mb-4 text-sm" style={{ color: "var(--red)" }}>Could not load agents. <button className="underline" onClick={() => { setLoading(true); fetchAgents(); }}>Retry</button></p>}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4 overflow-y-auto pb-8">
-        {agents.map((agent) => {
+      <p className="directory-note">
+        Tell us what you need in your workspace. The right specialists will join
+        automatically.
+      </p>
+      {loadError && (
+        <p role="alert" className="directory-error">
+          Could not load the team.{" "}
+          <button
+            className="underline"
+            onClick={() => {
+              setLoading(true);
+              fetchAgents();
+            }}
+          >
+            Try again
+          </button>
+        </p>
+      )}
+      {error && !isCreating && (
+        <p role="alert" className="directory-error">
+          {error}
+        </p>
+      )}
+      {!loadError && visibleAgents.length === 0 && (
+        <div className="specialist-empty">
+          <WorkspaceIcon name="team" size={30} />
+          <h3>
+            {query ? "No specialists found" : "Make room for your own expert."}
+          </h3>
+          <p>
+            {query
+              ? "Try a different name or specialty."
+              : "Give a specialist a role, instructions, and the tools to help you."}
+          </p>
+          <button
+            className="text-action"
+            onClick={() => (query ? setQuery("") : openCreate())}
+          >
+            {query ? "Clear search" : "Create your first specialist"}
+            <WorkspaceIcon name="arrow" size={16} />
+          </button>
+        </div>
+      )}
+      <div className="specialist-grid">
+        {visibleAgents.map((agent) => {
           const info = getAgent(agent.name);
           const stats = agentStats[agent.name];
           return (
-          <div 
-            key={agent.id}
-            className="rounded-2xl p-5 group relative flex flex-col clickable"
-            style={{ 
-              backgroundColor: "var(--bg-raised)",
-              border: "1px solid var(--border-subtle)",
-            }}
-          >
-            <div className="flex flex-col h-full">
-            <div className="flex justify-between items-start mb-3">
-              <div 
-                className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                style={{ 
-                  backgroundColor: `color-mix(in srgb, ${info.color} 12%, var(--bg-elevated))`,
-                  color: info.color,
-                }}
-              >
-                <span style={{ fontSize: "16px", display: "flex" }}>{info.icon}</span>
+            <article
+              key={agent.id}
+              className="specialist-card"
+              style={
+                { "--specialist-color": info.color } as React.CSSProperties
+              }
+            >
+              <div className="specialist-card-top">
+                <span className="specialist-icon">
+                  {!agent.is_builtin && agent.emoji
+                    ? agent.emoji
+                    : getAgentIcon(agent.name, 23)}
+                </span>
+                <span className="specialist-kind">
+                  {agent.is_builtin ? "On your team" : "Custom"}
+                </span>
               </div>
-              
-              <div className="agent-card-actions opacity-0 group-hover:opacity-100 transition-opacity flex gap-1.5">
+              <h3>{info.displayName}</h3>
+              <p className="specialist-description">
+                {agent.is_builtin
+                  ? info.introduction || agent.description
+                  : agent.description ||
+                    "Your specialist, built around the way you work."}
+              </p>
+              {agent.tools && agent.tools.length > 0 && (
+                <div className="specialist-tools">
+                  {agent.tools.slice(0, 2).map((tool) => (
+                    <span key={tool}>{tool.replace(/_/g, " ")}</span>
+                  ))}
+                  {agent.tools.length > 2 && (
+                    <span>+{agent.tools.length - 2} tools</span>
+                  )}
+                </div>
+              )}
+              <div className="specialist-activity">
+                <span
+                  className={`status-dot ${agent.is_active ? "" : "status-pending"}`}
+                />
+                {!agent.is_active
+                  ? "Paused"
+                  : stats?.total_messages
+                    ? `${stats.total_messages} responses${stats.last_active ? ` · ${timeAgo(stats.last_active)}` : ""}`
+                    : "Ready for a first task"}
+              </div>
+              <div className="specialist-card-actions">
                 <button
+                  className="text-action"
                   onClick={() => setViewingAgent(agent)}
-                  className="text-[10px] px-2 py-1 rounded-lg transition-colors"
-                  style={{ backgroundColor: "var(--bg-hover)", color: "var(--text-muted)" }}
+                  aria-label={`About ${info.displayName}`}
                 >
-                  View Config
+                  Meet {info.displayName}
+                  <WorkspaceIcon name="arrow" size={15} />
                 </button>
                 {!agent.is_builtin && (
-                  <>
-                    <button onClick={() => openEdit(agent)} className="text-[10px] px-2 py-1 rounded-lg transition-colors" style={{ backgroundColor: "var(--bg-hover)", color: "var(--text-muted)" }}>Edit</button>
-                    <button onClick={() => handleDelete(agent.id)} className="text-[10px] px-2 py-1 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20">Del</button>
-                  </>
+                  <div>
+                    <button
+                      onClick={() => openEdit(agent)}
+                      aria-label={`Edit ${info.displayName}`}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      disabled={!!deletingId}
+                      onClick={() => handleDelete(agent.id)}
+                      aria-label={`Delete ${info.displayName}`}
+                      className="delete-specialist"
+                    >
+                      {deletingId === agent.id ? "Deleting…" : "Delete"}
+                    </button>
+                  </div>
                 )}
               </div>
-            </div>
-            
-            <h3 className="font-semibold text-sm mb-0.5" style={{ color: "var(--text-primary)" }}>
-              {info.displayName}
-            </h3>
-            
-            <p className="text-xs line-clamp-2 mb-3" style={{ color: "var(--text-muted)" }}>
-              {agent.description}
-            </p>
-
-            {/* Per-agent stats */}
-            {stats && (
-              <div className="flex items-center gap-3 mb-3 text-[10px]" style={{ color: "var(--text-faint)" }}>
-                <span>{stats.total_messages} msgs</span>
-                <span>·</span>
-                <span>{stats.avg_response_ms ? `${(stats.avg_response_ms / 1000).toFixed(1)}s avg` : "—"}</span>
-                <span>·</span>
-                <span>{stats.last_active ? timeAgo(stats.last_active) : "never"}</span>
-              </div>
-            )}
-            
-            {agent.tools && agent.tools.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-auto">
-                {agent.tools.slice(0, 3).map(t => (
-                  <span key={t} className="text-[9px] px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--bg-hover)", color: "var(--text-secondary)" }}>
-                    {t}
-                  </span>
-                ))}
-                {agent.tools.length > 3 && (
-                  <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--bg-hover)", color: "var(--text-faint)" }}>
-                    +{agent.tools.length - 3}
-                  </span>
-                )}
-              </div>
-            )}
-            </div>
-          </div>
+            </article>
           );
         })}
       </div>
 
       <AnimatePresence>
         {isCreating && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-              onClick={() => setIsCreating(false)}
+              onClick={() => {
+                if (!saving) setIsCreating(false);
+              }}
             />
-            
-            <motion.div 
+
+            <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="glass-panel p-4 md:p-6 rounded-2xl w-full max-w-2xl relative z-10 max-h-[85vh] overflow-y-auto overscroll-contain"
-              style={{ border: "1px solid var(--border-light)", boxShadow: "0 20px 40px rgba(0,0,0,0.4)", WebkitOverflowScrolling: "touch" }}
+              ref={editorRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="specialist-editor-title"
+              tabIndex={-1}
+              className="glass-panel specialist-editor p-4 md:p-6 rounded-2xl w-full max-w-2xl relative z-10 max-h-[85vh] overflow-y-auto overscroll-contain"
+              style={{
+                border: "1px solid var(--border-light)",
+                boxShadow: "0 20px 40px rgba(0,0,0,0.4)",
+                WebkitOverflowScrolling: "touch",
+              }}
             >
-              <h2 className="text-xl font-bold mb-4 gradient-text">{editAgent ? "Edit Agent" : "Create Custom Agent"}</h2>
-              
+              <h2
+                id="specialist-editor-title"
+                className="text-xl font-bold mb-2"
+              >
+                {editAgent
+                  ? "Refine your specialist"
+                  : "A new talent for your team"}
+              </h2>
+              <p
+                className="text-sm mb-5"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Give them a clear role and tell them what great work looks like.
+              </p>
+
               {error && (
-                <div className="mb-4 p-3 rounded-lg text-sm bg-red-500/10 text-red-400 border border-red-500/20">
+                <div
+                  role="alert"
+                  className="mb-4 p-3 rounded-lg text-sm bg-red-500/10 text-red-400 border border-red-500/20"
+                >
                   {error}
                 </div>
               )}
-              
+
               <div className="space-y-4">
                 <div className="grid grid-cols-[1fr_64px] sm:grid-cols-4 gap-4 agent-form-name-row">
                   <div className="sm:col-span-3">
-                    <label className="block text-xs font-semibold mb-1" style={{ color: "var(--text-secondary)" }}>Agent Name (ID)</label>
-                    <input 
-                      type="text" 
+                    <label
+                      htmlFor="specialist-name"
+                      className="block text-xs font-semibold mb-1"
+                      style={{ color: "var(--text-secondary)" }}
+                    >
+                      Agent Name (ID)
+                    </label>
+                    <input
+                      type="text"
+                      id="specialist-name"
                       value={formData.name}
-                      onChange={e => {
-                        const raw = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "_").replace(/_+/g, "_");
-                        setFormData({...formData, name: raw});
+                      onChange={(e) => {
+                        const raw = e.target.value
+                          .toLowerCase()
+                          .replace(/[^a-z0-9_]/g, "_")
+                          .replace(/_+/g, "_");
+                        setFormData({ ...formData, name: raw });
                       }}
                       disabled={!!editAgent}
                       placeholder="e.g. data_viz_expert"
                       className="w-full bg-black/20 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500"
-                      style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+                      style={{
+                        borderColor: "var(--border-subtle)",
+                        color: "var(--text-primary)",
+                      }}
                     />
-                    <span className="text-[10px] mt-0.5 block" style={{ color: "var(--text-faint)" }}>Lowercase letters, numbers, underscores only</span>
+                    <span
+                      className="text-[10px] mt-0.5 block"
+                      style={{ color: "var(--text-faint)" }}
+                    >
+                      Lowercase letters, numbers, underscores only
+                    </span>
                   </div>
                   <div className="agent-form-emoji-col">
-                    <label className="block text-xs font-semibold mb-1" style={{ color: "var(--text-secondary)" }}>Emoji</label>
-                    <input 
-                      type="text" 
+                    <label
+                      htmlFor="specialist-emoji"
+                      className="block text-xs font-semibold mb-1"
+                      style={{ color: "var(--text-secondary)" }}
+                    >
+                      Emoji
+                    </label>
+                    <input
+                      type="text"
+                      id="specialist-emoji"
                       value={formData.emoji}
-                      onChange={e => setFormData({...formData, emoji: e.target.value})}
+                      onChange={(e) =>
+                        setFormData({ ...formData, emoji: e.target.value })
+                      }
                       className="w-full bg-black/20 border rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:border-red-500"
-                      style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+                      style={{
+                        borderColor: "var(--border-subtle)",
+                        color: "var(--text-primary)",
+                      }}
                     />
                   </div>
                 </div>
-                
+
                 <div>
-                  <label className="block text-xs font-semibold mb-1" style={{ color: "var(--text-secondary)" }}>Description (Short)</label>
-                  <input 
-                    type="text" 
+                  <label
+                    htmlFor="specialist-description"
+                    className="block text-xs font-semibold mb-1"
+                    style={{ color: "var(--text-secondary)" }}
+                  >
+                    Description (Short)
+                  </label>
+                  <input
+                    type="text"
+                    id="specialist-description"
                     value={formData.description}
-                    onChange={e => setFormData({...formData, description: e.target.value})}
+                    onChange={(e) =>
+                      setFormData({ ...formData, description: e.target.value })
+                    }
                     placeholder="e.g. Creates beautiful charts from datasets"
                     className="w-full bg-black/20 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500"
-                    style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+                    style={{
+                      borderColor: "var(--border-subtle)",
+                      color: "var(--text-primary)",
+                    }}
                   />
                 </div>
-                
+
                 <div>
-                  <label className="block text-xs font-semibold mb-1" style={{ color: "var(--text-secondary)" }}>System Prompt (Instructions)</label>
-                  <textarea 
+                  <label
+                    htmlFor="specialist-system_prompt"
+                    className="block text-xs font-semibold mb-1"
+                    style={{ color: "var(--text-secondary)" }}
+                  >
+                    System Prompt (Instructions)
+                  </label>
+                  <textarea
+                    id="specialist-system_prompt"
                     value={formData.system_prompt}
-                    onChange={e => setFormData({...formData, system_prompt: e.target.value})}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        system_prompt: e.target.value,
+                      })
+                    }
                     placeholder="You are an expert at..."
                     rows={6}
                     className="w-full bg-black/20 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500 font-mono"
-                    style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+                    style={{
+                      borderColor: "var(--border-subtle)",
+                      color: "var(--text-primary)",
+                    }}
                   />
                 </div>
-                
+
                 <div>
-                  <label className="block text-xs font-semibold mb-2" style={{ color: "var(--text-secondary)" }}>Agent Tools</label>
+                  <label
+                    className="block text-xs font-semibold mb-2"
+                    style={{ color: "var(--text-secondary)" }}
+                  >
+                    Agent Tools
+                  </label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {Object.entries(availableTools).map(([toolId, desc]) => (
-                      <label key={toolId} className="flex items-start gap-2 p-2 rounded-lg cursor-pointer transition-colors hover:bg-black/20" style={{ border: "1px solid var(--border-subtle)" }}>
-                        <input 
-                          type="checkbox" 
+                      <label
+                        key={toolId}
+                        className="flex items-start gap-2 p-2 rounded-lg cursor-pointer transition-colors hover:bg-black/20"
+                        style={{ border: "1px solid var(--border-subtle)" }}
+                      >
+                        <input
+                          type="checkbox"
                           checked={formData.tools.includes(toolId)}
                           onChange={() => toggleTool(toolId)}
                           className="mt-1 rounded border-gray-600 text-red-500 focus:ring-red-500 bg-black/40"
                         />
                         <div>
-                          <div className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{toolId}</div>
-                          <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>{desc}</div>
+                          <div
+                            className="text-sm font-medium"
+                            style={{ color: "var(--text-primary)" }}
+                          >
+                            {toolId}
+                          </div>
+                          <div
+                            className="text-[10px]"
+                            style={{ color: "var(--text-muted)" }}
+                          >
+                            {desc}
+                          </div>
                         </div>
                       </label>
                     ))}
                   </div>
                 </div>
-                
-                <div className="flex justify-end gap-3 mt-6 pt-4" style={{ borderTop: "1px solid var(--border-subtle)" }}>
-                  <button 
-                    onClick={() => setIsCreating(false)}
+
+                <div
+                  className="flex justify-end gap-3 mt-6 pt-4"
+                  style={{ borderTop: "1px solid var(--border-subtle)" }}
+                >
+                  <button
+                    onClick={() => {
+                      if (!saving) setIsCreating(false);
+                    }}
+                    disabled={saving}
                     className="px-4 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-white/5"
                     style={{ color: "var(--text-secondary)" }}
                   >
                     Cancel
                   </button>
-                  <button 
+                  <button
                     onClick={handleSave}
-                    disabled={saving || !formData.name || !formData.system_prompt}
+                    disabled={
+                      saving || !formData.name || !formData.system_prompt
+                    }
                     className="px-5 py-2 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50"
-                    style={{ background: "linear-gradient(135deg, #6366f1, #8b5cf6, #06b6d4)" }}
+                    style={{ background: "#f0a086", color: "#27343b" }}
                   >
-                    {saving ? "Saving..." : (editAgent ? "Save Changes" : "Create Agent")}
+                    {saving
+                      ? "Saving..."
+                      : editAgent
+                        ? "Save Changes"
+                        : "Create specialist"}
                   </button>
                 </div>
               </div>
@@ -419,18 +660,29 @@ export function AgentBuilder() {
       {/* View Config Modal */}
       <AnimatePresence>
         {viewingAgent && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               className="absolute inset-0 bg-black/60 backdrop-blur-sm"
               onClick={() => setViewingAgent(null)}
             />
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              ref={detailsRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="specialist-details-title"
+              tabIndex={-1}
               className="rounded-2xl p-5 w-full max-w-lg relative z-10 max-h-[80vh] overflow-y-auto"
-              style={{ backgroundColor: "var(--bg-panel)", border: "1px solid var(--border-light)", boxShadow: "0 20px 40px rgba(0,0,0,0.4)" }}
+              style={{
+                backgroundColor: "var(--bg-panel)",
+                border: "1px solid var(--border-light)",
+                boxShadow: "0 20px 40px rgba(0,0,0,0.4)",
+              }}
             >
               <div className="flex items-center gap-3 mb-4">
                 <div
@@ -443,24 +695,62 @@ export function AgentBuilder() {
                   {getAgentIcon(viewingAgent.name, 16)}
                 </div>
                 <div>
-                  <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{getAgent(viewingAgent.name).displayName}</h3>
-                  <p className="text-[10px]" style={{ color: "var(--text-faint)" }}>{viewingAgent.description}</p>
+                  <h3
+                    id="specialist-details-title"
+                    className="text-lg font-semibold"
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    {getAgent(viewingAgent.name).displayName}
+                  </h3>
+                  <p
+                    className="text-sm mt-1"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    {getAgent(viewingAgent.name).introduction ||
+                      viewingAgent.description}
+                  </p>
                 </div>
               </div>
-              
+
               <div className="mb-3">
-                <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--text-faint)" }}>System Prompt</div>
-                <pre className="text-xs p-3 rounded-xl overflow-x-auto whitespace-pre-wrap" style={{ backgroundColor: "var(--bg-raised)", color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" }}>
+                <div
+                  className="text-[10px] font-semibold uppercase tracking-wider mb-1"
+                  style={{ color: "var(--text-faint)" }}
+                >
+                  System Prompt
+                </div>
+                <pre
+                  className="text-xs p-3 rounded-xl overflow-x-auto whitespace-pre-wrap"
+                  style={{
+                    backgroundColor: "var(--bg-raised)",
+                    color: "var(--text-secondary)",
+                    border: "1px solid var(--border-subtle)",
+                  }}
+                >
                   {viewingAgent.system_prompt || "(no system prompt)"}
                 </pre>
               </div>
 
               {viewingAgent.tools && viewingAgent.tools.length > 0 && (
                 <div className="mb-3">
-                  <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--text-faint)" }}>Tools</div>
+                  <div
+                    className="text-[10px] font-semibold uppercase tracking-wider mb-1"
+                    style={{ color: "var(--text-faint)" }}
+                  >
+                    Tools
+                  </div>
                   <div className="flex flex-wrap gap-1">
-                    {viewingAgent.tools.map(t => (
-                      <span key={t} className="text-[10px] px-2 py-0.5 rounded" style={{ backgroundColor: "var(--bg-hover)", color: "var(--text-secondary)" }}>{t}</span>
+                    {viewingAgent.tools.map((t) => (
+                      <span
+                        key={t}
+                        className="text-[10px] px-2 py-0.5 rounded"
+                        style={{
+                          backgroundColor: "var(--bg-hover)",
+                          color: "var(--text-secondary)",
+                        }}
+                      >
+                        {t}
+                      </span>
                     ))}
                   </div>
                 </div>
@@ -470,7 +760,10 @@ export function AgentBuilder() {
                 <button
                   onClick={() => setViewingAgent(null)}
                   className="px-4 py-2 rounded-lg text-xs font-medium transition-colors"
-                  style={{ backgroundColor: "var(--bg-hover)", color: "var(--text-secondary)" }}
+                  style={{
+                    backgroundColor: "var(--bg-hover)",
+                    color: "var(--text-secondary)",
+                  }}
                 >
                   Close
                 </button>

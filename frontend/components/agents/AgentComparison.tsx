@@ -183,11 +183,11 @@ export function AgentComparison({ initialAgentId }: { initialAgentId?: string })
   const hasAnyScore = results.some(r => r.critic_score != null);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="studio-comparison flex flex-col">
       {/* Header */}
       <div className="px-4 md:px-6 py-4 flex-shrink-0" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
         <h2 className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>
-          Agent Comparison
+          One question. A few fresh perspectives.
         </h2>
         <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
           Run the same prompt through 2–3 agents and compare responses side-by-side
@@ -219,7 +219,7 @@ export function AgentComparison({ initialAgentId }: { initialAgentId?: string })
                 <button
                   key={agent.id}
                   onClick={() => toggleAgent(agent.id)}
-                  disabled={isDisabled}
+                  disabled={isDisabled || loading} aria-pressed={isSelected}
                   className="flex items-center gap-2 px-3 py-2.5 min-h-[44px] rounded-xl text-xs font-medium transition-colors duration-150"
                   style={{
                     background: isSelected ? "color-mix(in srgb, var(--brand) 10%, transparent)" : "var(--bg-raised)",
@@ -255,11 +255,11 @@ export function AgentComparison({ initialAgentId }: { initialAgentId?: string })
         </div>
         <div className="flex flex-col md:flex-row gap-2">
           <textarea
-            ref={inputRef}
+            ref={inputRef} aria-label="Question for the selected specialists"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 handleCompare();
               }
@@ -279,7 +279,7 @@ export function AgentComparison({ initialAgentId }: { initialAgentId?: string })
             className="px-5 py-3 rounded-xl text-sm font-semibold transition-colors duration-150 w-full md:w-auto md:flex-shrink-0 md:self-end"
             style={{
               backgroundColor: prompt.trim() && !loading ? "var(--brand)" : "var(--bg-raised)",
-              color: prompt.trim() && !loading ? "white" : "var(--text-faint)",
+              color: prompt.trim() && !loading ? "#27343b" : "var(--text-faint)",
               opacity: loading ? 0.7 : 1,
             }}
           >
@@ -374,7 +374,7 @@ export function AgentComparison({ initialAgentId }: { initialAgentId?: string })
                   {/* Subtle top accent */}
                   <div style={{
                     height: "2px",
-                    background: `linear-gradient(90deg, ${info.color}80, ${info.color}20, transparent)`,
+                    background: info.color,
                   }} />
                   {/* Agent header */}
                   <div

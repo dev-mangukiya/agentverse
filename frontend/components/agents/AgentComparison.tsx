@@ -187,10 +187,10 @@ export function AgentComparison({ initialAgentId }: { initialAgentId?: string })
       {/* Header */}
       <div className="px-4 md:px-6 py-4 flex-shrink-0" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
         <h2 className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>
-          One question. A few fresh perspectives.
+          Compare answers
         </h2>
         <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-          Run the same prompt through 2–3 agents and compare responses side-by-side
+          Ask 2–3 agents the same question and see their answers side by side.
           {criticIncluded && (
             <span style={{ color: "var(--brand-text)" }}> — Critic will score each response</span>
           )}
@@ -251,7 +251,7 @@ export function AgentComparison({ initialAgentId }: { initialAgentId?: string })
       {/* Prompt input */}
       <div className="px-4 md:px-6 py-4 flex-shrink-0" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
         <div className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-faint)" }}>
-          Shared Prompt
+          Your question
         </div>
         <div className="flex flex-col md:flex-row gap-2">
           <textarea
@@ -349,7 +349,7 @@ export function AgentComparison({ initialAgentId }: { initialAgentId?: string })
         {!loading && results.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16">
             <div className="text-xs text-center max-w-[280px]" style={{ color: "var(--text-faint)" }}>
-              Enter a prompt above to start
+              Type a question above, then choose Compare.
             </div>
           </div>
         )}

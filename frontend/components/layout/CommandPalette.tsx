@@ -97,11 +97,11 @@ export function CommandPalette({
   const staticCommands = useMemo((): CommandItem[] => {
     const cmds: CommandItem[] = [
       // Navigation
-      { id: "nav-dashboard", label: "Go to Insights", category: "navigation", icon: NAV_ICON, onSelect: () => { onNavigate("dashboard"); onClose(); } },
-      { id: "nav-agents", label: "Go to Your team", category: "navigation", icon: NAV_ICON, onSelect: () => { onNavigate("agents"); onClose(); } },
-      { id: "nav-chat", label: "Go to Workspace", category: "navigation", icon: NAV_ICON, onSelect: () => { onNavigate("chat"); onClose(); } },
+      { id: "nav-dashboard", label: "Go to Activity", category: "navigation", icon: NAV_ICON, onSelect: () => { onNavigate("dashboard"); onClose(); } },
+      { id: "nav-agents", label: "Go to Agents", category: "navigation", icon: NAV_ICON, onSelect: () => { onNavigate("agents"); onClose(); } },
+      { id: "nav-chat", label: "Go to Chat", category: "navigation", icon: NAV_ICON, onSelect: () => { onNavigate("chat"); onClose(); } },
       // Actions
-      { id: "act-new-chat", label: "New task", category: "action", icon: ACTION_ICON, shortcut: "⌘N", onSelect: () => { onNewChat(); onClose(); } },
+      { id: "act-new-chat", label: "New chat", category: "action", icon: ACTION_ICON, shortcut: "⌘N", onSelect: () => { onNewChat(); onClose(); } },
       { id: "act-focus-input", label: "Focus message input", category: "action", icon: ACTION_ICON, onSelect: () => { onFocusInput(); onClose(); } },
       { id: "act-sidebar", label: "Toggle Sidebar", category: "action", icon: ACTION_ICON, shortcut: "⌘/", onSelect: () => { onToggleSidebar(); onClose(); } },
     ];

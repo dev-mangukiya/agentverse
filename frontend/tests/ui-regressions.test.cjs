@@ -41,8 +41,8 @@ test('empty chat has stable markup across server renders and a labelled composer
   const props = { conversationId: null, onConversationCreated() {}, onMessageSent() {} };
   const first = renderToStaticMarkup(React.createElement(ChatPanel, props));
   for (let i = 0; i < 8; i++) assert.equal(renderToStaticMarkup(React.createElement(ChatPanel, props)), first);
-  assert.match(first, /Big ideas\./);
-  assert.match(first, /Meet your team\./);
+  assert.match(first, /What can we help you with\?/);
+  assert.match(first, /One chat for research, writing, and code\./);
   assert.equal((first.match(/<textarea/g) || []).length, 1);
   assert.equal((first.match(/type="file"/g) || []).length, 1);
   assert.match(first, /aria-label="Attach files"/);
@@ -221,13 +221,13 @@ test('task starters prepare editable drafts and focus the caret without sending 
 
 test('sidebar identifies the current view and retains meaningful collapsed controls', () => {
   const { Sidebar } = load('components/layout/Sidebar');
-  for (const [currentView, label] of [['chat', 'Workspace'], ['agents', 'Your team'], ['dashboard', 'Insights']]) {
+  for (const [currentView, label] of [['chat', 'Chat'], ['agents', 'Agents'], ['dashboard', 'Activity']]) {
     for (const collapsed of [true, false]) {
       const html = renderToStaticMarkup(React.createElement(Sidebar, { currentView, collapsed, onNavigate() {}, onToggle() {} }));
       assert.equal((html.match(/aria-current="page"/g) || []).length, 1);
       assert.match(html, new RegExp(`aria-current="page" aria-label="${label}"`));
-      assert.match(html, /aria-label="Search tasks and commands"/);
-      assert.match(html, /title="New task"/);
+      assert.match(html, /aria-label="Search chats and commands"/);
+      assert.match(html, /title="New chat"/);
       assert.doesNotMatch(html, /role="dialog"/, 'Sign in must not interrupt the initial workspace');
     }
   }

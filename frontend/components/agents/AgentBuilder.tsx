@@ -11,15 +11,6 @@ const API_URL = (
 
 import { getAgent, getAgentIcon } from "@/config/agents";
 
-function timeAgo(iso: string): string {
-  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
-  if (diff < 1) return "just now";
-  if (diff < 60) return `${diff}m ago`;
-  const hr = Math.floor(diff / 60);
-  if (hr < 24) return `${hr}h ago`;
-  return `${Math.floor(hr / 24)}d ago`;
-}
-
 export interface Agent {
   id: string;
   name: string;
@@ -39,7 +30,6 @@ export function AgentBuilder() {
   );
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<"all" | "custom">("all");
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Form state
@@ -59,17 +49,6 @@ export function AgentBuilder() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewingAgent, setViewingAgent] = useState<Agent | null>(null);
-  const [agentStats, setAgentStats] = useState<
-    Record<
-      string,
-      {
-        total_messages: number;
-        avg_response_ms: number | null;
-        last_active: string | null;
-      }
-    >
-  >({});
-
   const editorRef = useDialogFocus(isCreating, () => {
     if (!saving) setIsCreating(false);
   });
@@ -82,32 +61,11 @@ export function AgentBuilder() {
       `${info.displayName} ${agent.description} ${info.description}`
         .toLowerCase()
         .includes(query.toLowerCase().trim());
-    return matchesQuery && (filter === "all" || !agent.is_builtin);
+    return matchesQuery;
   });
 
   useEffect(() => {
     fetchAgents();
-    // Fetch per-agent stats
-    const fetchStats = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/v1/stats/agent-analytics`);
-        if (res.ok) {
-          const data = await res.json();
-          const map: Record<string, any> = {};
-          (data.agents || []).forEach((a: any) => {
-            map[a.name] = {
-              total_messages: a.total_messages,
-              avg_response_ms: a.avg_response_ms,
-              last_active: a.last_active,
-            };
-          });
-          setAgentStats(map);
-        }
-      } catch {
-        /* silently fail */
-      }
-    };
-    fetchStats();
   }, []);
 
   const fetchAgents = async () => {
@@ -244,6 +202,7 @@ export function AgentBuilder() {
       if (!res.ok)
         throw new Error("Could not delete this specialist. Please try again.");
       setAgents((current) => current.filter((a) => a.id !== id));
+      setViewingAgent((current) => (current?.id === id ? null : current));
     } catch (err) {
       setError(
         err instanceof Error
@@ -259,7 +218,7 @@ export function AgentBuilder() {
     return (
       <div className="specialist-loading" role="status">
         <WorkspaceIcon name="team" size={26} />
-        <p>Getting the team together…</p>
+        <p>Loading agents…</p>
       </div>
     );
   }
@@ -270,34 +229,16 @@ export function AgentBuilder() {
         <label className="specialist-search">
           <WorkspaceIcon name="search" size={17} />
           <input
-            aria-label="Find a specialist"
-            placeholder="Find a specialist…"
+            aria-label="Find an agent"
+            placeholder="Find an agent…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </label>
-        <div className="specialist-filters" aria-label="Specialist type">
-          <button
-            aria-pressed={filter === "all"}
-            onClick={() => setFilter("all")}
-          >
-            Everyone <span>{agents.length}</span>
-          </button>
-          <button
-            aria-pressed={filter === "custom"}
-            onClick={() => setFilter("custom")}
-          >
-            Custom <span>{agents.filter((a) => !a.is_builtin).length}</span>
-          </button>
-        </div>
         <button className="studio-primary" onClick={openCreate}>
-          <WorkspaceIcon name="plus" size={17} /> Create specialist
+          <WorkspaceIcon name="plus" size={17} /> Create agent
         </button>
       </div>
-      <p className="directory-note">
-        Tell us what you need in your workspace. The right specialists will join
-        automatically.
-      </p>
       {loadError && (
         <p role="alert" className="directory-error">
           Could not load the team.{" "}
@@ -320,9 +261,7 @@ export function AgentBuilder() {
       {!loadError && visibleAgents.length === 0 && (
         <div className="specialist-empty">
           <WorkspaceIcon name="team" size={30} />
-          <h3>
-            {query ? "No specialists found" : "Make room for your own expert."}
-          </h3>
+          <h3>{query ? "No specialists found" : "No agents yet"}</h3>
           <p>
             {query
               ? "Try a different name or specialty."
@@ -332,7 +271,7 @@ export function AgentBuilder() {
             className="text-action"
             onClick={() => (query ? setQuery("") : openCreate())}
           >
-            {query ? "Clear search" : "Create your first specialist"}
+            {query ? "Clear search" : "Create an agent"}
             <WorkspaceIcon name="arrow" size={16} />
           </button>
         </div>
@@ -340,7 +279,6 @@ export function AgentBuilder() {
       <div className="specialist-grid">
         {visibleAgents.map((agent) => {
           const info = getAgent(agent.name);
-          const stats = agentStats[agent.name];
           return (
             <article
               key={agent.id}
@@ -349,71 +287,38 @@ export function AgentBuilder() {
                 { "--specialist-color": info.color } as React.CSSProperties
               }
             >
-              <div className="specialist-card-top">
-                <span className="specialist-icon">
-                  {!agent.is_builtin && agent.emoji
-                    ? agent.emoji
-                    : getAgentIcon(agent.name, 23)}
-                </span>
-                <span className="specialist-kind">
-                  {agent.is_builtin ? "On your team" : "Custom"}
-                </span>
-              </div>
-              <h3>{info.displayName}</h3>
-              <p className="specialist-description">
-                {agent.is_builtin
-                  ? info.introduction || agent.description
-                  : agent.description ||
-                    "Your specialist, built around the way you work."}
-              </p>
-              {agent.tools && agent.tools.length > 0 && (
-                <div className="specialist-tools">
-                  {agent.tools.slice(0, 2).map((tool) => (
-                    <span key={tool}>{tool.replace(/_/g, " ")}</span>
-                  ))}
-                  {agent.tools.length > 2 && (
-                    <span>+{agent.tools.length - 2} tools</span>
+              <span className="specialist-icon">
+                {!agent.is_builtin && agent.emoji
+                  ? agent.emoji
+                  : getAgentIcon(agent.name, 20)}
+              </span>
+              <div className="specialist-body">
+                <h3>
+                  {info.displayName}
+                  {!agent.is_builtin && (
+                    <span className="specialist-kind">Custom</span>
                   )}
-                </div>
-              )}
-              <div className="specialist-activity">
-                <span
-                  className={`status-dot ${agent.is_active ? "" : "status-pending"}`}
-                />
-                {!agent.is_active
-                  ? "Paused"
-                  : stats?.total_messages
-                    ? `${stats.total_messages} responses${stats.last_active ? ` · ${timeAgo(stats.last_active)}` : ""}`
-                    : "Ready for a first task"}
+                  {!agent.is_active && (
+                    <span className="specialist-kind">Paused</span>
+                  )}
+                </h3>
+                <p className="specialist-description">
+                  {agent.is_builtin
+                    ? info.introduction || agent.description
+                    : agent.description ||
+                      "An AI helper with your own instructions."}
+                </p>
               </div>
-              <div className="specialist-card-actions">
-                <button
-                  className="text-action"
-                  onClick={() => setViewingAgent(agent)}
-                  aria-label={`About ${info.displayName}`}
-                >
-                  Meet {info.displayName}
-                  <WorkspaceIcon name="arrow" size={15} />
-                </button>
-                {!agent.is_builtin && (
-                  <div>
-                    <button
-                      onClick={() => openEdit(agent)}
-                      aria-label={`Edit ${info.displayName}`}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      disabled={!!deletingId}
-                      onClick={() => handleDelete(agent.id)}
-                      aria-label={`Delete ${info.displayName}`}
-                      className="delete-specialist"
-                    >
-                      {deletingId === agent.id ? "Deleting…" : "Delete"}
-                    </button>
-                  </div>
-                )}
-              </div>
+              <button
+                className="specialist-details"
+                onClick={() => {
+                  setError(null);
+                  setViewingAgent(agent);
+                }}
+                aria-label={`About ${info.displayName}`}
+              >
+                Details
+              </button>
             </article>
           );
         })}
@@ -452,9 +357,7 @@ export function AgentBuilder() {
                 id="specialist-editor-title"
                 className="text-xl font-bold mb-2"
               >
-                {editAgent
-                  ? "Refine your specialist"
-                  : "A new talent for your team"}
+                {editAgent ? "Edit agent" : "Create an agent"}
               </h2>
               <p
                 className="text-sm mb-5"
@@ -648,7 +551,7 @@ export function AgentBuilder() {
                       ? "Saving..."
                       : editAgent
                         ? "Save Changes"
-                        : "Create specialist"}
+                        : "Create agent"}
                   </button>
                 </div>
               </div>
@@ -712,25 +615,28 @@ export function AgentBuilder() {
                 </div>
               </div>
 
-              <div className="mb-3">
-                <div
-                  className="text-[10px] font-semibold uppercase tracking-wider mb-1"
-                  style={{ color: "var(--text-faint)" }}
-                >
-                  System Prompt
-                </div>
-                <pre
-                  className="text-xs p-3 rounded-xl overflow-x-auto whitespace-pre-wrap"
-                  style={{
-                    backgroundColor: "var(--bg-raised)",
-                    color: "var(--text-secondary)",
-                    border: "1px solid var(--border-subtle)",
-                  }}
-                >
-                  {viewingAgent.system_prompt || "(no system prompt)"}
-                </pre>
-              </div>
-
+              {viewingAgent.system_prompt && (
+                <details className="system-details mb-3">
+                  <summary>
+                    Instructions
+                    <WorkspaceIcon name="chevron" size={16} />
+                  </summary>
+                  <pre
+                    className="text-xs p-3 rounded-xl overflow-x-auto whitespace-pre-wrap"
+                    style={{
+                      backgroundColor: "var(--bg-raised)",
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    {viewingAgent.system_prompt}
+                  </pre>
+                </details>
+              )}
+              {error && (
+                <p role="alert" className="directory-error">
+                  {error}
+                </p>
+              )}
               {viewingAgent.tools && viewingAgent.tools.length > 0 && (
                 <div className="mb-3">
                   <div
@@ -756,7 +662,29 @@ export function AgentBuilder() {
                 </div>
               )}
 
-              <div className="flex justify-end mt-4">
+              <div className="flex flex-wrap justify-end gap-2 mt-4">
+                {!viewingAgent.is_builtin && (
+                  <>
+                    <button
+                      className="studio-primary"
+                      disabled={!!deletingId}
+                      onClick={() => {
+                        openEdit(viewingAgent);
+                        setViewingAgent(null);
+                      }}
+                    >
+                      Edit agent
+                    </button>
+                    <button
+                      className="studio-primary"
+                      style={{ color: "var(--red)" }}
+                      disabled={!!deletingId}
+                      onClick={() => handleDelete(viewingAgent.id)}
+                    >
+                      {deletingId ? "Deleting…" : "Delete agent"}
+                    </button>
+                  </>
+                )}
                 <button
                   onClick={() => setViewingAgent(null)}
                   className="px-4 py-2 rounded-lg text-xs font-medium transition-colors"

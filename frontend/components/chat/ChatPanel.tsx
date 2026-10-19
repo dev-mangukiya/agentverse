@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { getSessionId } from "@/lib/session";
-import { getAuthHeaders, useAuth } from "@/lib/auth";
+import { getAuthHeaders } from "@/lib/auth";
 import { getAgent } from "@/config/agents";
 import { useNotifications } from "@/components/notifications/NotificationProvider";
 import { ExportMenu } from "./ExportMenu";
@@ -70,7 +70,6 @@ export interface ToolEvent {
 
 interface ChatPanelProps {
   conversationId: string | null;
-  onExploreAgents?: () => void;
   onConversationCreated: (id: string) => void;
   onMessageSent: () => void;
   onPipelineUpdate?: (data: {
@@ -168,7 +167,7 @@ async function readFile(file: File): Promise<AttachedFile> {
   });
 }
 
-export function ChatPanel({ conversationId, onConversationCreated, onMessageSent, onPipelineUpdate, inputRef: externalInputRef, onExploreAgents }: ChatPanelProps) {
+export function ChatPanel({ conversationId, onConversationCreated, onMessageSent, onPipelineUpdate, inputRef: externalInputRef }: ChatPanelProps) {
   const [inputExpanded, setInputExpanded] = useState(false);
   const taskOptionsRef = useDialogFocus(inputExpanded, () => setInputExpanded(false));
   const [messages, setMessages] = useState<Message[]>([]);
@@ -1011,14 +1010,12 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   };
 
   const isEmpty = messages.length === 0 && !isThinking && !loadingConversation;
-  const { user } = useAuth();
   useEffect(() => {
     if (!isThinking && !loadingConversation && messages.length > 0 && document.activeElement === document.body) {
       inputRef.current?.focus({ preventScroll: true });
     }
   }, [isThinking, loadingConversation]);
 
-  const firstName = user?.name?.split(" ")[0];
   const insertPrompt = (prompt: string) => {
     setInput(prompt);
     setShowTemplates(false);
@@ -1034,26 +1031,25 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     </div>)}</div>}
     <textarea ref={inputRef} aria-label="Message" value={input} onChange={e => setInput(e.target.value)} onPaste={handlePaste}
       onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); handleSend(); } }}
-      placeholder={isThinking ? "Your team is on it…" : attachedFiles.length ? "What should we do with these files?" : isEmpty ? "Describe what you want to make, explore, or solve…" : "Keep the idea going…"}
+      placeholder={isThinking ? "Working on it…" : attachedFiles.length ? "What should we do with these files?" : isEmpty ? "Ask a question or describe a task…" : "Message AgentVerse…"}
       rows={isEmpty ? 3 : 1} disabled={isThinking || loadingConversation}/>
     <div className="composer-toolbar"><div className="composer-tools">
       <button className="composer-attach" aria-label="Attach files" onClick={() => fileInputRef.current?.click()} disabled={isThinking || loadingConversation}><WorkspaceIcon name="attach" size={17}/><span>Attach files</span></button>
-      <button className={`icon-button ${isRecording ? "is-recording" : ""}`} onClick={toggleRecording} disabled={isThinking || loadingConversation} aria-label={isRecording ? "Stop voice input" : "Voice input"} title="Voice input"><WorkspaceIcon name="mic" size={17}/></button>
-      <div className="composer-more"><button className="icon-button" onClick={() => setInputExpanded(v => !v)} disabled={isThinking} aria-label="More task options" aria-expanded={inputExpanded}>···</button>
-        {inputExpanded && <><div className="composer-menu-dismiss" aria-hidden="true" onClick={() => setInputExpanded(false)}/><div ref={taskOptionsRef} role="dialog" aria-label="Task options" tabIndex={-1} className="composer-menu"><button onClick={() => { openCamera(); setInputExpanded(false); }}>Take a photo</button><button onClick={() => { setShowTemplates(v => !v); setInputExpanded(false); }}>Browse prompt templates</button></div></>}
+      {isRecording && <button className="icon-button is-recording" onClick={toggleRecording} aria-label="Stop voice input" title="Stop voice input"><WorkspaceIcon name="mic" size={17}/></button>}
+      <div className="composer-more"><button className="icon-button" onClick={() => setInputExpanded(v => !v)} disabled={isThinking || loadingConversation} aria-label="More tools" aria-expanded={inputExpanded}>···</button>
+        {inputExpanded && <><div className="composer-menu-dismiss" aria-hidden="true" onClick={() => setInputExpanded(false)}/><div ref={taskOptionsRef} role="dialog" aria-label="Task options" tabIndex={-1} className="composer-menu"><button onClick={() => { toggleRecording(); setInputExpanded(false); }}>{isRecording ? "Stop voice input" : "Use voice input"}</button><button onClick={() => { openCamera(); setInputExpanded(false); }}>Take a photo</button><button onClick={() => { setShowTemplates(v => !v); setInputExpanded(false); }}>Browse prompt templates</button></div></>}
       </div>
-      <span className="composer-divider"/><span className="auto-team"><WorkspaceIcon name="spark" size={14}/> Auto team</span>
     </div>
-    <button className="start-task-button" aria-label="Send message" onClick={() => handleSend()} disabled={isThinking || loadingConversation || (!input.trim() && !attachedFiles.length)}><span>{isThinking ? "Working" : isEmpty ? "Let’s do this" : "Send"}</span><WorkspaceIcon name="arrow" size={18}/></button>
+    <button className="start-task-button" aria-label="Send message" onClick={() => handleSend()} disabled={isThinking || loadingConversation || (!input.trim() && !attachedFiles.length)}><span>{isThinking ? "Working…" : "Send"}</span><WorkspaceIcon name="arrow" size={18}/></button>
     </div>
     {showTemplates && <div className="composer-templates"><button className="text-action" onClick={() => setShowTemplates(false)}>Close templates ×</button><PromptTemplates onInsert={insertPrompt}/></div>}
-    <div className="composer-helper"><span>Your idea. The right agents. A useful result.</span><span>Enter to send <span className="key-divider">·</span> Shift + Enter for a new line</span></div>
+    <div className="composer-helper">Enter to send <span className="key-divider">·</span> Shift + Enter for a new line</div>
   </div>;
 
   return (
     <div className="studio-chat flex flex-col h-full min-h-0 min-w-0" style={{ backgroundColor: "var(--bg-base)" }}>
       {!isEmpty && <div className="conversation-toolbar">
-        <div><span className="eyebrow">{isThinking ? "IN GOOD HANDS" : "YOUR CONVERSATION"}</span><strong>{isThinking ? (activeAgents.length ? `${activeAgents.length} specialist${activeAgents.length > 1 ? "s" : ""} at work` : "Getting your team together…") : "Let’s move your idea forward."}</strong></div>
+        <span className="conversation-status" role="status">{isThinking ? "Working on your request…" : "Conversation"}</span>
         <div className="conversation-toolbar-actions">{conversationId && <span className={`connection-label ${wsConnected ? "" : "pending"}`}><span className="status-dot"/>{wsConnected ? "Connected" : "Reconnecting"}</span>}<ExportMenu messages={messages}/></div>
       </div>}
       {isThinking && activeAgents.length > 0 && <div className="live-team-trail" aria-label="Active specialists">{activeAgents.map(name => <span key={name} style={{ color: getAgent(name).color }}>{getAgent(name).icon} {getAgent(name).displayName}<span className="working-dot"/></span>)}</div>}
@@ -1069,7 +1065,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         {loadingConversation ? (
           <div className="p-8 text-center text-sm" role="status" style={{ color: "var(--text-muted)" }}>Loading conversation…</div>
         ) : isEmpty ? (
-          <WorkspaceWelcome composer={composer} name={firstName} onPrompt={insertPrompt} onExplore={onExploreAgents}/>
+          <WorkspaceWelcome composer={composer} onPrompt={insertPrompt}/>
         ) : (
           /* Message list */
           <div className="conversation-messages w-full max-w-3xl mx-auto px-2 md:px-6 py-4 md:py-6 space-y-4 md:space-y-6">

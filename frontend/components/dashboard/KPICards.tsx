@@ -82,15 +82,6 @@ export function KPICards({ onStartTask }: { onStartTask?: () => void }) {
       detail: `${stats?.messages.agent_today ?? 0} responses today`,
       tone: "lavender",
     },
-    {
-      label: "AI provider",
-      icon: "spark",
-      value: stats?.llm.configured ? "Configured" : "Add a key",
-      detail: stats?.llm.configured
-        ? stats.llm.provider
-        : "Finish setup to start creating",
-      tone: "butter",
-    },
   ];
   if (!loading && !stats)
     return (
@@ -141,15 +132,12 @@ export function KPICards({ onStartTask }: { onStartTask?: () => void }) {
       {!loading && stats?.conversations.total === 0 && (
         <div className="insights-first-task">
           <div>
-            <h2>Your first idea starts the story.</h2>
-            <p>
-              Try a question, a rough draft, or a problem you’ve been meaning to
-              solve.
-            </p>
+            <h2>No activity yet</h2>
+            <p>Start a chat to see your activity here.</p>
           </div>
           {onStartTask && (
             <button className="studio-primary" onClick={onStartTask}>
-              Start a task
+              Start a chat
               <WorkspaceIcon name="arrow" size={17} />
             </button>
           )}

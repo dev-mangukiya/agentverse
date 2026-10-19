@@ -2,13 +2,7 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
-import {
-  ChatPanel,
-  type PipelineAgent,
-  type DelegationEvent,
-  type ToolEvent,
-} from "@/components/chat/ChatPanel";
-import { ChatHistory } from "@/components/chat/ChatHistory";
+import { ChatPanel } from "@/components/chat/ChatPanel";
 import { SystemHealth } from "@/components/dashboard/SystemHealth";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { KPICards } from "@/components/dashboard/KPICards";
@@ -27,9 +21,9 @@ import { useTheme } from "@/lib/theme";
 
 type View = "dashboard" | "agents" | "chat";
 const TITLES: Record<View, string> = {
-  chat: "Workspace",
-  agents: "Your team",
-  dashboard: "Insights",
+  chat: "Chat",
+  agents: "Agents",
+  dashboard: "Activity",
 };
 export default function Home() {
   useAppViewport();
@@ -38,13 +32,10 @@ export default function Home() {
   const [chatResetKey, setChatResetKey] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState<
     string | null
   >(null);
   const [historyRefresh, setHistoryRefresh] = useState(0);
-  const [pipelineAgents, setPipelineAgents] = useState<PipelineAgent[]>([]);
-  const [pipelineActive, setPipelineActive] = useState(false);
   const [backendStatus, setBackendStatus] = useState<
     "online" | "waking" | "offline" | "degraded"
   >("waking");
@@ -58,15 +49,11 @@ export default function Home() {
   const sidebarDialogRef = useDialogFocus(mobileSidebarOpen, () =>
     setMobileSidebarOpen(false),
   );
-  const historyDialogRef = useDialogFocus(mobileHistoryOpen, () =>
-    setMobileHistoryOpen(false),
-  );
   useEffect(() => {
     const desktop = window.matchMedia("(min-width: 1024px)");
     const close = () => {
       if (desktop.matches) {
         setMobileSidebarOpen(false);
-        setMobileHistoryOpen(false);
       }
     };
     desktop.addEventListener("change", close);
@@ -107,7 +94,6 @@ export default function Home() {
   const navigate = useCallback((view: View) => {
     setCurrentView(view);
     setMobileSidebarOpen(false);
-    setMobileHistoryOpen(false);
   }, []);
   const newChat = useCallback(() => {
     setActiveConversationId(null);
@@ -126,22 +112,6 @@ export default function Home() {
     setHistoryRefresh((n) => n + 1);
   }, []);
   const messageSent = useCallback(() => setHistoryRefresh((n) => n + 1), []);
-  const pipelineUpdate = useCallback(
-    (data: {
-      agents: PipelineAgent[];
-      delegations: DelegationEvent[];
-      toolEvents: ToolEvent[];
-      active: boolean;
-    }) => {
-      setPipelineAgents(data.agents);
-      setPipelineActive(data.active);
-    },
-    [],
-  );
-  const exploreTeam = useCallback(() => {
-    setAgentTab("builder");
-    navigate("agents");
-  }, [navigate]);
   const compare = useCallback(
     (id?: string) => {
       setCompareAgentId(id);
@@ -159,7 +129,6 @@ export default function Home() {
         setCommandPaletteOpen(false);
         setShortcutsOpen(false);
         setMobileSidebarOpen(false);
-        setMobileHistoryOpen(false);
       },
       openShortcuts: () => setShortcutsOpen(true),
     }),
@@ -198,12 +167,7 @@ export default function Home() {
             messageSent();
           }}
           onSearch={() => setCommandPaletteOpen(true)}
-          pipelineActive={pipelineActive}
-          activeAgentCount={
-            pipelineAgents.filter((a) =>
-              ["activated", "thinking", "tool_call"].includes(a.status),
-            ).length
-          }
+          onOpenShortcuts={() => setShortcutsOpen(true)}
         />
       </div>
       <main className="studio-main">
@@ -216,21 +180,19 @@ export default function Home() {
             <WorkspaceIcon name="menu" />
           </button>
           <div className="workspace-breadcrumb">
-            <span>My space</span>
-            <span className="breadcrumb-divider">/</span>
             <strong>{TITLES[currentView]}</strong>
           </div>
           <div className="header-actions">
             {aiSetupRequired && (
               <button
                 aria-label="Finish provider setup"
-                title="Finish setup"
+                title="Connect AI"
                 className={`setup-badge ${showSetup ? "active" : ""}`}
                 onClick={() => setShowSetup((v) => !v)}
                 aria-expanded={showSetup}
               >
                 <span className="status-dot status-pending" />{" "}
-                <span className="setup-badge-label">Finish setup</span>
+                <span className="setup-badge-label">Connect AI</span>
               </button>
             )}
             <button
@@ -244,29 +206,15 @@ export default function Home() {
               />
             </button>
             <NotificationCenter onNotificationClick={selectConversation} />
-            <button
-              className="icon-button mobile-history-button"
-              onClick={() => setMobileHistoryOpen(true)}
-              aria-label="Chat history"
-            >
-              <WorkspaceIcon name="history" size={18} />
-            </button>
-            <button
-              className="keyboard-help"
-              onClick={() => setShortcutsOpen(true)}
-              aria-label="Keyboard shortcuts"
-            >
-              ?
-            </button>
           </div>
         </header>
         {showSetup && aiSetupRequired && (
           <div className="setup-notice" role="status">
             <WorkspaceIcon name="spark" size={18} />
             <p>
-              <strong>Your crew needs an AI provider.</strong> Add a provider
-              API key to the project’s .env file, then restart the backend. You
-              can explore the workspace in the meantime.
+              <strong>AI is not connected yet.</strong> Add a provider API key
+              to the project’s .env file, then restart the backend. You can
+              explore the workspace in the meantime.
             </p>
             <button
               className="icon-button"
@@ -287,44 +235,33 @@ export default function Home() {
               conversationId={activeConversationId}
               onConversationCreated={conversationCreated}
               onMessageSent={messageSent}
-              onPipelineUpdate={pipelineUpdate}
               inputRef={chatInputRef}
-              onExploreAgents={exploreTeam}
             />
           </div>
           {currentView === "dashboard" && (
             <div className="studio-page insights-page">
               <div className="page-heading">
-                <div>
-                  <span className="eyebrow">THE BIG PICTURE</span>
-                  <h1>Good work adds up.</h1>
-                  <p>
-                    A little perspective on what you and your team have been
-                    making.
-                  </p>
-                </div>
-                <span className="page-stamp">
-                  <WorkspaceIcon name="chart" size={18} /> Workspace activity
-                </span>
+                <h1>Activity</h1>
+                <p>Your conversations and agent activity in one place.</p>
               </div>
               <KPICards onStartTask={newChat} />
               <section className="insights-section">
-                <div className="section-heading">
-                  <h2>Your team in action</h2>
-                  <span className="section-note">
-                    Real activity. Useful perspective.
-                  </span>
-                </div>
-                <AgentAnalytics />
-              </section>
-              <div className="insights-two-col">
-                <FeedbackLeaderboard />
                 <ActivityFeed />
-              </div>
+              </section>
               <details className="system-details">
                 <summary>
-                  <WorkspaceIcon name="grid" size={17} /> Behind the scenes{" "}
-                  <span>System health</span>
+                  Agent performance
+                  <WorkspaceIcon name="chevron" size={16} />
+                </summary>
+                <div className="details-content">
+                  <AgentAnalytics />
+                  <FeedbackLeaderboard />
+                </div>
+              </details>
+              <details className="system-details">
+                <summary>
+                  System health
+                  <WorkspaceIcon name="chevron" size={16} />
                 </summary>
                 <SystemHealth />
               </details>
@@ -333,26 +270,20 @@ export default function Home() {
           {currentView === "agents" && (
             <div className="studio-page team-page">
               <div className="page-heading">
-                <div>
-                  <span className="eyebrow">GOOD COMPANY FOR BIG IDEAS</span>
-                  <h1>Meet your unfair advantage.</h1>
-                  <p>
-                    Specialists with different strengths. A team that grows with
-                    your ideas.
-                  </p>
-                </div>
-                <span className="team-heading-art" aria-hidden="true">
-                  ✳
-                </span>
+                <h1>Agents</h1>
+                <p>
+                  Each AI helper has a specialty. Just start a chat — we’ll
+                  choose who can help.
+                </p>
               </div>
               <div
                 className="studio-tabs"
                 role="tablist"
-                aria-label="Team tools"
+                aria-label="Agent tools"
               >
                 {[
-                  ["builder", "Your specialists"],
-                  ["compare", "Compare perspectives"],
+                  ["builder", "All agents"],
+                  ["compare", "Compare answers"],
                 ].map(([id, label]) => (
                   <button
                     key={id}
@@ -401,38 +332,6 @@ export default function Home() {
           )}
         </div>
       </main>
-      {mobileHistoryOpen && (
-        <div
-          className="history-overlay"
-          onClick={() => setMobileHistoryOpen(false)}
-        >
-          <div
-            ref={historyDialogRef}
-            className="history-drawer"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Chat history"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="history-drawer-heading">
-              <strong>Your conversations</strong>
-              <button
-                className="icon-button"
-                onClick={() => setMobileHistoryOpen(false)}
-                aria-label="Close chat history"
-              >
-                <WorkspaceIcon name="close" />
-              </button>
-            </div>
-            <ChatHistory
-              activeId={activeConversationId}
-              onSelect={selectConversation}
-              onNewChat={newChat}
-              refreshTrigger={historyRefresh}
-            />
-          </div>
-        </div>
-      )}
       <CommandPalette
         open={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}

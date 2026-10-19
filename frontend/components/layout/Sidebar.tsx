@@ -17,21 +17,19 @@ interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
   onClose?: () => void;
-  pipelineActive?: boolean;
-  activeAgentCount?: number;
   activeConversationId?: string | null;
   onSelectConversation?: (id: string) => void;
   onNewChat?: () => void;
   historyRefreshTrigger?: number;
   backendStatus?: "online" | "waking" | "offline" | "degraded";
   onAuthChange?: () => void;
-  onNotificationClick?: (id: string) => void;
   onSearch?: () => void;
+  onOpenShortcuts?: () => void;
 }
 const navigation: { id: View; label: string; icon: WorkspaceIconName }[] = [
-  { id: "chat", label: "Workspace", icon: "grid" },
-  { id: "agents", label: "Your team", icon: "team" },
-  { id: "dashboard", label: "Insights", icon: "chart" },
+  { id: "chat", label: "Chat", icon: "grid" },
+  { id: "agents", label: "Agents", icon: "team" },
+  { id: "dashboard", label: "Activity", icon: "chart" },
 ];
 export function Sidebar({
   currentView,
@@ -39,8 +37,6 @@ export function Sidebar({
   collapsed,
   onToggle,
   onClose,
-  pipelineActive,
-  activeAgentCount = 0,
   activeConversationId,
   onSelectConversation,
   onNewChat,
@@ -48,6 +44,7 @@ export function Sidebar({
   backendStatus = "waking",
   onAuthChange,
   onSearch,
+  onOpenShortcuts,
 }: SidebarProps) {
   const { user, isLoggedIn, logout } = useAuth();
   const [authOpen, setAuthOpen] = useState(false);
@@ -56,10 +53,10 @@ export function Sidebar({
     <>
       <aside className={`studio-sidebar ${collapsed ? "is-collapsed" : ""}`}>
         <div className="sidebar-brand">
-          <AgentVerseLogo size={34} showWordmark={!collapsed} />
+          <AgentVerseLogo size={30} showWordmark={!collapsed} />
           <button
             onClick={onClose}
-            className="sidebar-mobile-close"
+            className="sidebar-mobile-close icon-button"
             aria-label="Close menu"
           >
             <WorkspaceIcon name="close" size={18} />
@@ -68,30 +65,21 @@ export function Sidebar({
         <button
           className="sidebar-new-task"
           onClick={onNewChat}
-          title="New task"
+          aria-label="New chat"
+          title="New chat"
         >
           <WorkspaceIcon name="plus" size={18} />
-          {!collapsed && (
-            <>
-              <span>New task</span>
-              <kbd>⌘ N</kbd>
-            </>
-          )}
+          {!collapsed && <span>New chat</span>}
         </button>
         <button
           className="sidebar-search"
           onClick={onSearch}
-          aria-label="Search tasks and commands"
+          aria-label="Search chats and commands"
+          title={collapsed ? "Search" : undefined}
         >
           <WorkspaceIcon name="search" size={17} />
-          {!collapsed && (
-            <>
-              <span>Find anything</span>
-              <kbd>⌘ K</kbd>
-            </>
-          )}
+          {!collapsed && <span>Search</span>}
         </button>
-        {!collapsed && <div className="sidebar-section-label">YOUR SPACE</div>}
         <nav className="studio-navigation" aria-label="Main navigation">
           {navigation.map((item) => (
             <button
@@ -102,19 +90,14 @@ export function Sidebar({
               aria-label={item.label}
               title={collapsed ? item.label : undefined}
             >
-              <WorkspaceIcon name={item.icon} size={19} />
+              <WorkspaceIcon name={item.icon} size={18} />
               {!collapsed && <span>{item.label}</span>}
-              {currentView === item.id && !collapsed && (
-                <span className="nav-active-dot" />
-              )}
             </button>
           ))}
         </nav>
         {!collapsed && (
           <div className="sidebar-history">
-            <div className="sidebar-section-label">
-              RECENT CONVERSATIONS <WorkspaceIcon name="history" size={13} />
-            </div>
+            <div className="sidebar-section-label">Recent chats</div>
             {onSelectConversation && onNewChat && (
               <ChatHistory
                 activeId={activeConversationId ?? null}
@@ -127,73 +110,28 @@ export function Sidebar({
           </div>
         )}
         {collapsed && <div className="flex-1" />}
-        {!collapsed && (
-          <div className="sidebar-team-note">
-            <div className="team-note-symbol">✳</div>
-            <div>
-              <strong>
-                {pipelineActive
-                  ? `${activeAgentCount || "Your"} specialists at work`
-                  : "A little teamwork goes a long way."}
-              </strong>
-              <p>
-                {pipelineActive
-                  ? "Follow their progress in your task."
-                  : "Big questions welcome."}
-              </p>
-            </div>
-          </div>
-        )}
         <div className="sidebar-bottom">
-          <div className="sidebar-system">
-            <span
-              className={`status-dot ${backendStatus === "online" ? "" : "status-pending"}`}
-            />
-            {!collapsed && (
-              <span>
-                {backendStatus === "online"
-                  ? "Ready when you are"
-                  : backendStatus === "degraded"
-                    ? "Limited services available"
-                    : backendStatus === "waking"
-                      ? "Connecting to workspace"
-                      : "Workspace offline"}
-              </span>
-            )}
-            <button
-              className="sidebar-collapse-toggle"
-              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-              onClick={onToggle}
-            >
-              <WorkspaceIcon
-                name="chevron"
-                size={15}
-                style={{ transform: collapsed ? "rotate(180deg)" : undefined }}
-              />
-            </button>
-          </div>
+          {backendStatus === "offline" && !collapsed && (
+            <div className="sidebar-system">
+              <span className="status-dot status-pending" /> Server unavailable
+            </div>
+          )}
           <button
             className="sidebar-account"
             onClick={() =>
               isLoggedIn ? setAccountOpen((v) => !v) : setAuthOpen(true)
             }
             aria-label={isLoggedIn ? "Account options" : "Sign in"}
+            aria-expanded={isLoggedIn ? accountOpen : undefined}
           >
             <span className="account-avatar">
               {user?.name?.[0]?.toUpperCase() || "G"}
             </span>
             {!collapsed && (
-              <>
-                <span>
-                  <strong>{user?.name || "Your personal workspace"}</strong>
-                  <small>
-                    {isLoggedIn
-                      ? user?.email
-                      : "Guest · Sign in to save your place"}
-                  </small>
-                </span>
-                <span className="account-more">···</span>
-              </>
+              <span>
+                <strong>{user?.name || "Sign in"}</strong>
+                {isLoggedIn && <small>{user?.email}</small>}
+              </span>
             )}
           </button>
           {accountOpen && isLoggedIn && (
@@ -208,6 +146,27 @@ export function Sidebar({
               Sign out
             </button>
           )}
+          <div className="sidebar-utilities">
+            <button
+              className="sidebar-shortcuts"
+              onClick={onOpenShortcuts}
+              aria-label="Keyboard shortcuts"
+              title="Keyboard shortcuts"
+            >
+              {collapsed ? "?" : "Keyboard shortcuts"}
+            </button>
+            <button
+              className="sidebar-collapse-toggle icon-button"
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              onClick={onToggle}
+            >
+              <WorkspaceIcon
+                name="chevron"
+                size={15}
+                style={{ transform: collapsed ? "rotate(180deg)" : undefined }}
+              />
+            </button>
+          </div>
         </div>
       </aside>
       <AuthModal

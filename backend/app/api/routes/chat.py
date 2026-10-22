@@ -13,6 +13,8 @@ import re
 import time
 import traceback
 from datetime import datetime, timezone
+from contextlib import suppress
+from app.agents.streaming import stream_model_response, response_text
 
 from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
@@ -506,6 +508,7 @@ async def llm_status() -> dict:
 
 _chat_connections: set[WebSocket] = set()
 _event_connections: set[WebSocket] = set()
+_review_tasks: set[asyncio.Task] = set()
 
 
 async def broadcast_event(event: dict) -> None:
@@ -521,58 +524,105 @@ async def broadcast_event(event: dict) -> None:
 
 # ── WebSocket endpoint ───────────────────────────────────
 
+class _TurnSocket:
+    """Record the visible answer so Stop/disconnect can preserve partial work."""
+    def __init__(self, websocket):
+        self.websocket = websocket
+        self.content = ""
+        self.agent = "orchestrator"
+        self.completed = False
+        self.saved_message = None
+
+    def record_saved_response(self, message):
+        # Stop can arrive after commit but before the response is delivered.
+        # Keep that saved answer instead of inserting a second, partial copy.
+        self.saved_message = message
+        self.completed = True
+
+    async def send_json(self, data):
+        kind = data.get("type")
+        if kind in ("stream_start", "stream_reset"):
+            self.content = ""
+            self.agent = data.get("agent", self.agent)
+        elif kind == "stream_token":
+            self.content += data.get("token", "")
+        elif kind == "response":
+            self.record_saved_response(data.get("message"))
+        await self.websocket.send_json(data)
+
+
+async def _save_interrupted_response(turn, conversation_id):
+    if turn is None or turn.completed or not turn.content.strip():
+        return None
+    async with async_session_factory() as db:
+        message = Message(conversation_id=conversation_id, role="agent",
+                          agent_name=turn.agent, content=turn.content, interrupted=1)
+        db.add(message)
+        conversation = await db.get(Conversation, conversation_id)
+        if conversation:
+            conversation.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+        turn.completed = True
+        return message.to_dict()
+
+
 @router.websocket("/ws/{conversation_id}")
 async def chat_websocket(websocket: WebSocket, conversation_id: str):
-    """Real-time chat WebSocket."""
+    """One cancellable turn per connection; pings stay responsive during work."""
     from app.core.rate_limiter import check_ws_rate_limit, MessageRateLimiter
-
-    # Connection-level rate check
     if not check_ws_rate_limit(websocket):
         await websocket.close(code=1008, reason="Rate limit exceeded")
         return
-
     await websocket.accept()
     _chat_connections.add(websocket)
-    logger.info("ws.connected", conversation_id=conversation_id)
-
-    # Per-session message throttle: 15 messages per minute
     msg_limiter = MessageRateLimiter(max_messages=15, window_seconds=60)
-
     task = None
+    turn = None
+
+    async def stop_turn():
+        if task and not task.done():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+        if turn and turn.completed:
+            return turn.saved_message
+        return await _save_interrupted_response(turn, conversation_id)
+
     try:
         while True:
             data = await websocket.receive_json()
-
             if data.get("type") == "message":
                 content = data.get("content", "").strip()
                 if not content:
                     continue
-
-                # Check per-message rate limit
-                allowed, remaining = msg_limiter.is_allowed()
-                if not allowed:
-                    await _send_ws(websocket, {
-                        "type": "error",
-                        "content": "You're sending messages too quickly. Please wait a moment before trying again.",
-                    })
+                # Delivery unlocks the composer. A finished turn may still be
+                # cleaning up notifications when the next message arrives.
+                if task and not task.done() and not (turn and turn.completed):
+                    await _send_ws(websocket, {"type": "busy", "content": "Stop the current reply before sending another message."})
                     continue
-
-                attachments = data.get("attachments", [])
-                task = asyncio.create_task(
-                    _process_user_message(websocket, conversation_id, content, attachments)
-                )
-
+                allowed, _ = msg_limiter.is_allowed()
+                if not allowed:
+                    await _send_ws(websocket, {"type": "error", "content": "You're sending messages too quickly. Please wait a moment before trying again."})
+                    continue
+                turn = _TurnSocket(websocket)
+                task = asyncio.create_task(_process_user_message(turn, conversation_id, content, data.get("attachments", [])))
+            elif data.get("type") == "stop":
+                try:
+                    message = await stop_turn()
+                    await _send_ws(websocket, {"type": "cancelled", "message": message})
+                except Exception:
+                    await _send_ws(websocket, {"type": "cancelled", "save_failed": True})
             elif data.get("type") == "ping":
-                await websocket.send_json({"type": "pong"})
-
+                await _send_ws(websocket, {"type": "pong"})
     except WebSocketDisconnect:
         logger.info("ws.disconnected", conversation_id=conversation_id)
-        if task and not task.done():
-            logger.info("ws.cancelling_task", conversation_id=conversation_id)
-            task.cancel()
     except Exception as exc:
         logger.error("ws.error", error=str(exc))
     finally:
+        try:
+            await stop_turn()
+        except Exception as exc:
+            logger.warning("ws.partial_save_failed", error=str(exc))
         _chat_connections.discard(websocket)
 
 
@@ -699,6 +749,8 @@ async def _process_user_message(
                 if conv:
                     conv.updated_at = datetime.now(timezone.utc)
                 await db.commit()
+                if isinstance(websocket, _TurnSocket):
+                    websocket.record_saved_response(agent_msg.to_dict())
                 await _send_ws(websocket, {"type": "pipeline_complete", "total_duration_ms": fast_duration, "agents_used": 1, "contributing_agents": []})
                 await _send_ws(websocket, {"type": "response", "agent": "orchestrator", "content": fast_response, "message": agent_msg.to_dict(), "contributing_agents": [], "pipeline_duration_ms": fast_duration})
             return
@@ -746,6 +798,8 @@ async def _process_user_message(
                 )
                 db.add(review_msg)
                 await db.commit()
+                if isinstance(websocket, _TurnSocket):
+                    websocket.record_saved_response(review_msg.to_dict())
                 fast_duration = int((time.time() - fast_start) * 1000)
 
                 await _send_ws(websocket, {"type": "pipeline_start", "timestamp": time.time()})
@@ -786,9 +840,8 @@ async def _process_user_message(
         orch_start = time.time()
         # Truncate file content for orchestrator — it only needs to route, not analyze
         orch_content = _truncate_file_content(content)
-        # Don't stream orchestrator's routing response — it's used internally for
-        # delegation decisions. Only the final agent's response should be streamed.
-        orch_response = await _run_agent_with_streaming(orchestrator, orch_content, history, websocket, attachments=attachments, stream=False)
+        # Gate routing prefixes, but let direct answers arrive immediately.
+        orch_response = await _run_agent_with_streaming(orchestrator, orch_content, history, websocket, attachments=attachments, routing=True)
         orch_duration = int((time.time() - orch_start) * 1000)
 
         await _send_ws(websocket, {
@@ -858,7 +911,7 @@ async def _process_user_message(
                 # Include original user content so sub-agents see file attachments
                 full_task = f"User's original message:\n{content}\n\nYour specific task:\n{task}"
                 start = time.time()
-                result = await _run_agent_with_streaming(agent, full_task, history, websocket, attachments=attachments)
+                result = await _run_agent_with_streaming(agent, full_task, history, websocket, attachments=attachments, stream=False)
                 duration = int((time.time() - start) * 1000)
                 await _send_ws(websocket, {
                     "type": "agent_complete",
@@ -915,6 +968,7 @@ async def _process_user_message(
                 name = list(agent_outputs.keys())[0]
                 final_response = agent_outputs[name]
                 final_agent_name = name
+                await _stream_text(websocket, name, final_response)
             else:
                 final_response = orch_response
                 final_agent_name = "orchestrator"
@@ -1035,105 +1089,11 @@ async def _process_user_message(
                 # Stream orchestrator's response since it IS the final answer
                 await _stream_text(websocket, "orchestrator", orch_response)
 
-        # ── Step 3: Critic review + Save final response ──────────
-        total_duration_before_critic = int((time.time() - pipeline_start) * 1000)
-
-        # Post-process markdown to fix common LLM formatting issues
-        from app.agents.base import BaseAgent
-        final_response = BaseAgent._clean_markdown(final_response)
-
-        # ── Step 3a: Critic review (skip for orchestrator direct, critic self, trivial) ──
-        critic_score = None
-        critic_review_text = None
-
-        should_review = (
-            final_agent_name != "critic"
-            and final_agent_name != "orchestrator" or contributing_agents
+        # Save the answer immediately. Quality review runs independently and
+        # updates this message by id, without locking the next user turn.
+        should_review = final_agent_name != "critic" and (
+            final_agent_name != "orchestrator" or bool(contributing_agents)
         )
-        # Fix precedence: review if (not critic) AND (not orchestrator-direct OR has contributors)
-        should_review = (
-            final_agent_name != "critic"
-            and (final_agent_name != "orchestrator" or bool(contributing_agents))
-        )
-
-        if should_review:
-            try:
-                await _send_ws(websocket, {
-                    "type": "agent_activated",
-                    "agent": "critic",
-                    "task": "Reviewing output quality...",
-                })
-                await _send_ws(websocket, {
-                    "type": "thinking",
-                    "agent": "critic",
-                    "content": "Evaluating response quality...",
-                    "phase": "reviewing",
-                })
-
-                critic_agent = await _get_cached_agent("critic")
-                review_prompt = (
-                    f"Review this output from the **{final_agent_name}** agent.\n\n"
-                    f"**User's original request:**\n{content[:1000]}\n\n"
-                    f"**Agent's output:**\n{final_response[:3000]}"
-                )
-
-                critic_start = time.time()
-                raw_review = await asyncio.wait_for(
-                    critic_agent.run(review_prompt),
-                    timeout=30.0,
-                )
-                critic_duration = int((time.time() - critic_start) * 1000)
-
-                # Parse the [CRITIC_REVIEW] JSON block
-                critic_review_text = BaseAgent._clean_markdown(raw_review)
-                import re as _re
-                json_match = _re.search(
-                    r'\[CRITIC_REVIEW\]\s*(\{.*?\})\s*\[/CRITIC_REVIEW\]',
-                    raw_review,
-                    _re.DOTALL,
-                )
-                if json_match:
-                    try:
-                        review_data = json.loads(json_match.group(1))
-                        critic_score = int(review_data.get("score", 0))
-                        critic_score = max(1, min(10, critic_score))  # Clamp 1-10
-                    except (json.JSONDecodeError, ValueError, TypeError):
-                        critic_score = None
-
-                    # Strip the JSON block from the display review
-                    critic_review_text = _re.sub(
-                        r'\[CRITIC_REVIEW\].*?\[/CRITIC_REVIEW\]\s*',
-                        '',
-                        critic_review_text,
-                        flags=_re.DOTALL,
-                    ).strip()
-
-                await _send_ws(websocket, {
-                    "type": "agent_complete",
-                    "agent": "critic",
-                    "duration_ms": critic_duration,
-                    "summary": f"Score: {critic_score}/10" if critic_score else "Review complete",
-                })
-
-                # Send critic review event to frontend
-                await _send_ws(websocket, {
-                    "type": "critic_review",
-                    "score": critic_score,
-                    "review": critic_review_text,
-                    "agent_reviewed": final_agent_name,
-                })
-
-                logger.info(
-                    "critic.review_complete",
-                    agent=final_agent_name,
-                    score=critic_score,
-                    duration_ms=critic_duration,
-                )
-            except asyncio.TimeoutError:
-                logger.warning("critic.timeout")
-            except Exception as exc:
-                logger.warning("critic.error", error=str(exc)[:200])
-
         total_duration = int((time.time() - pipeline_start) * 1000)
 
         async with async_session_factory() as db:
@@ -1142,8 +1102,6 @@ async def _process_user_message(
                 role="agent",
                 agent_name=final_agent_name,
                 content=final_response,
-                critic_score=critic_score,
-                critic_review=critic_review_text,
             )
             db.add(agent_msg)
 
@@ -1156,6 +1114,8 @@ async def _process_user_message(
             await db.commit()
 
             # Background: embed agent response into Qdrant semantic memory
+            if isinstance(websocket, _TurnSocket):
+                websocket.record_saved_response(agent_msg.to_dict())
             _final_agent = final_agent_name
             _final_resp = final_response
             _conv_id = conversation_id
@@ -1168,7 +1128,7 @@ async def _process_user_message(
             asyncio.create_task(_store_agent_memory())
 
             # Pipeline complete event
-            all_contributors = (contributing_agents if contributing_agents else []) + (["critic"] if critic_score is not None else [])
+            all_contributors = contributing_agents or []
             await _send_ws(websocket, {
                 "type": "pipeline_complete",
                 "total_duration_ms": total_duration,
@@ -1185,6 +1145,11 @@ async def _process_user_message(
                 "pipeline_duration_ms": total_duration,
             })
 
+        if should_review:
+            review_task = asyncio.create_task(_review_saved_response(websocket, agent_msg.id, final_agent_name, content, final_response))
+            _review_tasks.add(review_task)
+            review_task.add_done_callback(_review_tasks.discard)
+
         await broadcast_event({
             "type": "activity",
             "agent": final_agent_name.capitalize(),
@@ -1195,30 +1160,69 @@ async def _process_user_message(
     except Exception as exc:
         err_str = str(exc)
         logger.error("ws.process_error", error=err_str)
+        partial_message = None
+        if isinstance(websocket, _TurnSocket):
+            try:
+                partial_message = await _save_interrupted_response(websocket, conversation_id)
+            except Exception:
+                logger.warning("ws.partial_save_failed", conversation_id=conversation_id)
         try:
             err_lower = err_str.lower()
             if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_lower or "rate limit" in err_lower or "503" in err_str or "unavailable" in err_lower or "high demand" in err_lower:
                 await _send_ws(websocket, {
                     "type": "error",
+                    "message": partial_message,
                     "content": "Both primary and fallback APIs are temporarily unavailable. Please wait ~30 seconds and try again.",
                 })
             elif "Fallback LLM" in err_str and "timed out" in err_str:
                 await _send_ws(websocket, {
                     "type": "error",
+                    "message": partial_message,
                     "content": "Fallback model (HuggingFace) timed out. The model may be cold-starting — please try again in a moment.",
                 })
             elif "API_KEY_INVALID" in err_str or "API key not valid" in err_str:
                 await _send_ws(websocket, {
                     "type": "error",
+                    "message": partial_message,
                     "content": "Invalid API key. Please check your API key configuration.",
                 })
             else:
                 await _send_ws(websocket, {
                     "type": "error",
+                    "message": partial_message,
                     "content": f"Error: {err_str[:300]}",
                 })
         except Exception:
             pass
+
+
+async def _review_saved_response(websocket, message_id, agent_name, user_content, answer):
+    """Optional quality metadata must not delay or replace the delivered reply."""
+    try:
+        from app.agents.base import BaseAgent
+        critic = await _get_cached_agent("critic")
+        prompt = (f"Review this output from the **{agent_name}** agent.\n\n"
+                  f"**User's original request:**\n{user_content[:1000]}\n\n"
+                  f"**Agent's output:**\n{answer[:3000]}")
+        raw = await asyncio.wait_for(critic.run(prompt), timeout=30)
+        match = re.search(r"\[CRITIC_REVIEW\]\s*(\{.*?\})\s*\[/CRITIC_REVIEW\]", raw, re.DOTALL)
+        score = None
+        if match:
+            try:
+                score = max(1, min(10, int(json.loads(match.group(1)).get("score", 0))))
+            except (ValueError, TypeError, json.JSONDecodeError):
+                pass
+        review = BaseAgent._clean_markdown(re.sub(r"\[CRITIC_REVIEW\].*?\[/CRITIC_REVIEW\]\s*", "", raw, flags=re.DOTALL)).strip()
+        async with async_session_factory() as db:
+            message = await db.get(Message, message_id)
+            if message is None:
+                return
+            message.critic_score = score
+            message.critic_review = review
+            await db.commit()
+        await _send_ws(websocket, {"type": "message_updated", "id": message_id, "critic_score": score, "critic_review": review})
+    except Exception as exc:
+        logger.warning("critic.background_review_failed", message_id=message_id, error=str(exc)[:200])
 
 
 # ── File content truncation for routing ────────────────────
@@ -1423,20 +1427,11 @@ async def _get_conversation_context(conversation_id: str) -> str:
 
 
 async def _stream_text(ws: WebSocket, agent_name: str, text: str):
-    """Send text to the client in small chunks to simulate streaming."""
+    """Deliver cached text once, without replaying a direct streamed answer."""
+    if isinstance(ws, _TurnSocket) and ws.content == text and ws.agent == agent_name:
+        return
     await _send_ws(ws, {"type": "stream_start", "agent": agent_name})
-    chunk_size = 20
-    i = 0
-    while i < len(text):
-        end = min(i + chunk_size, len(text))
-        if end < len(text):
-            space_idx = text.rfind(" ", i, end + 5)
-            if space_idx > i:
-                end = space_idx + 1
-        chunk = text[i:end]
-        await _send_ws(ws, {"type": "stream_token", "agent": agent_name, "token": chunk})
-        i = end
-        await asyncio.sleep(0.015)
+    await _send_ws(ws, {"type": "stream_token", "agent": agent_name, "token": text})
     await _send_ws(ws, {"type": "stream_end", "agent": agent_name})
 
 
@@ -1444,6 +1439,7 @@ async def _run_agent_with_streaming(
     agent, user_input: str, context: str, websocket: WebSocket,
     attachments: list | None = None,
     stream: bool = True,
+    routing: bool = False,
 ) -> str:
     """Run an agent with streamed tool call notifications.
     
@@ -1484,14 +1480,15 @@ async def _run_agent_with_streaming(
         tool_results_log = []
 
         for _ in range(getattr(agent, 'max_tool_rounds', 5)):  # respect per-agent limit
-            response = await _invoke_with_retry(llm, messages)
+            if stream:
+                response = await stream_model_response(llm, messages, lambda event: _send_ws(websocket, event), agent.name, _invoke_with_retry, routing=routing)
+            else:
+                response = await _invoke_with_retry(llm, messages)
 
             if hasattr(response, "tool_calls") and response.tool_calls:
                 # Gemini often returns text content alongside tool_calls — capture it
                 if isinstance(response, AIMessage) and response.content:
-                    rc = response.content
-                    if isinstance(rc, list):
-                        rc = "\n".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in rc])
+                    rc = response_text(response.content)
                     if rc.strip():
                         last_text_content = rc
 
@@ -1534,9 +1531,7 @@ async def _run_agent_with_streaming(
                         "duration_ms": tool_duration,
                     })
             else:
-                content = response.content if isinstance(response, AIMessage) else str(response)
-                if isinstance(content, list):
-                    content = "\n".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in content])
+                content = response_text(response.content) if isinstance(response, AIMessage) else str(response)
                 if content and content.strip():
                     return content
                 # If LLM returned empty content after tools, use accumulated text or tool results
@@ -1547,112 +1542,7 @@ async def _run_agent_with_streaming(
                 return "(Agent finished with no text output)"
 
         # Exhausted tool rounds — return whatever we have
-        content = response.content if isinstance(response, AIMessage) else str(response)
-        if isinstance(content, list):
-            content = "\n".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in content])
-        if content and content.strip():
-            return content
-        if last_text_content:
-            return last_text_content
-        if tool_results_log:
-            return "\n\n".join(tool_results_log)
-        return "(Agent finished with no text output)"
-
-    async def _execute_streaming() -> str:
-        """Same as _execute but streams the final response token-by-token."""
-        messages = [SystemMessage(content=agent._build_system_prompt(context))]
-
-        binary_attachments = [
-            a for a in (attachments or [])
-            if a.get("type") == "image" and a.get("data", "").startswith("data:")
-        ]
-
-        if binary_attachments:
-            content_parts: list[dict] = [{"type": "text", "text": user_input}]
-            for att in binary_attachments:
-                content_parts.append({
-                    "type": "image_url",
-                    "image_url": {"url": att["data"]},
-                })
-            messages.append(HumanMessage(content=content_parts))
-        else:
-            messages.append(HumanMessage(content=user_input))
-
-        llm = agent._get_fresh_llm()
-        last_text_content = ""
-        tool_results_log = []
-
-        for round_idx in range(getattr(agent, 'max_tool_rounds', 5)):  # respect per-agent limit
-            response = await _invoke_with_retry(llm, messages)
-
-            if hasattr(response, "tool_calls") and response.tool_calls:
-                if isinstance(response, AIMessage) and response.content:
-                    rc = response.content
-                    if isinstance(rc, list):
-                        rc = "\n".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in rc])
-                    if rc.strip():
-                        last_text_content = rc
-
-                messages.append(response)
-
-                for call in response.tool_calls:
-                    tool_start = time.time()
-                    await _send_ws(websocket, {
-                        "type": "tool_call",
-                        "agent": agent.name,
-                        "tool": call["name"],
-                        "args": {k: str(v)[:200] for k, v in call["args"].items()},
-                    })
-
-                    await broadcast_event({
-                        "type": "activity",
-                        "agent": agent.name.capitalize(),
-                        "action": f'Using: {call["name"]}',
-                        "time": "now",
-                    })
-
-                    tool_map = {t.name: t for t in agent.tools}
-                    try:
-                        if call["name"] in tool_map:
-                            result = await tool_map[call["name"]].ainvoke(call["args"])
-                        else:
-                            result = f"Unknown tool: {call['name']}"
-                    except Exception as exc:
-                        result = f"Tool error: {exc}"
-
-                    tool_duration = int((time.time() - tool_start) * 1000)
-                    tool_results_log.append(f"**Tool `{call['name']}`** ({tool_duration}ms):\n{str(result)[:2000]}")
-                    messages.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
-
-                    await _send_ws(websocket, {
-                        "type": "tool_result",
-                        "agent": agent.name,
-                        "tool": call["name"],
-                        "result": str(result)[:1000],
-                        "duration_ms": tool_duration,
-                    })
-            else:
-                # Final response — try to stream it token-by-token
-                content = response.content if isinstance(response, AIMessage) else str(response)
-                if isinstance(content, list):
-                    content = "\n".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in content])
-
-                if content and content.strip():
-                    # Stream the already-generated content in chunks
-                    await _stream_text(websocket, agent.name, content)
-                    return content
-                if last_text_content:
-                    await _stream_text(websocket, agent.name, last_text_content)
-                    return last_text_content
-                if tool_results_log:
-                    combined = "\n\n".join(tool_results_log)
-                    return combined
-                return "(Agent finished with no text output)"
-
-        # Exhausted rounds
-        content = response.content if isinstance(response, AIMessage) else str(response)
-        if isinstance(content, list):
-            content = "\n".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in content])
+        content = response_text(response.content) if isinstance(response, AIMessage) else str(response)
         if content and content.strip():
             return content
         if last_text_content:
@@ -1664,13 +1554,10 @@ async def _run_agent_with_streaming(
     try:
         # Scale timeout with tool rounds — research agents need more time
         agent_timeout = max(120.0, getattr(agent, 'max_tool_rounds', 5) * 18.0)
-        if stream:
-            return await asyncio.wait_for(_execute_streaming(), timeout=agent_timeout)
-        else:
-            return await asyncio.wait_for(_execute(), timeout=agent_timeout)
+        return await asyncio.wait_for(_execute(), timeout=agent_timeout)
     except asyncio.TimeoutError:
         logger.warning("agent.timeout", agent=agent.name)
-        return f"Agent '{agent.name}' timed out after {int(agent_timeout)} seconds. Please try a simpler request or smaller file."
+        raise RuntimeError(f"The reply timed out after {int(agent_timeout)} seconds. Any text already received is kept; you can try again.")
 
 # ── Dashboard events WebSocket ────────────────────────────
 

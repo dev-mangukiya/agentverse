@@ -137,7 +137,7 @@ function sendHarness(fetch) {
     input: state.input, attachedFiles: state.attachedFiles, isRecording: false, isRecordingRef: { current: false },
     buildMessageWithFiles: text => text, isThinking: false, loadingConversation: false,
     sendingRef: { current: false }, conversationGenerationRef: { current: 1 }, followMessagesRef: { current: false },
-    setShowScrollToBottom() {}, setInput: value => state.input = value, setAttachedFiles: value => state.attachedFiles = value,
+    setShowScrollToBottom() {}, setInput: value => state.input = typeof value === "function" ? value(state.input) : value, setAttachedFiles: value => state.attachedFiles = typeof value === "function" ? value(state.attachedFiles) : value,
     setError: value => state.error = value, resetPipeline() {},
     setMessages: update => state.messages = update(state.messages), setIsThinking: value => state.thinking = value,
     conversationId: null, AbortController, createRequestRef: { current: null }, fetch, API_URL: 'http://example.invalid',
@@ -287,7 +287,7 @@ test('stream bursts batch Markdown updates and flush exact Unicode and code on c
   clock.tick(0);
   assert.deepEqual(paints, [chunks.join('')]);
   buffer.append('\nDone');
-  clock.tick(16);
+  clock.tick(8);
   assert.equal(paints.length, 1);
   buffer.flush(); // Finalization must work even when RAF is paused in a hidden tab.
   assert.equal(paints.at(-1), chunks.join('') + '\nDone');
@@ -310,14 +310,16 @@ function streamHarness() {
   const ws = {};
   const context = {
     destroyed: false, ws, wsRef: { current: ws }, streamSequence: 0,
-    requestAnimationFrame: clock.request, cancelAnimationFrame: clock.cancel,
-    createTextBuffer: load('lib/chat-motion').createTextBuffer,
+    requestAnimationFrame: function(callback) { 'use strict'; assert.equal(this, undefined, 'native RAF cannot be called with the clock as its receiver'); return clock.request(callback); },
+    cancelAnimationFrame: function(id) { 'use strict'; assert.equal(this, undefined); clock.cancel(id); },
+    createLiveText: load('lib/chat-motion').createLiveText,
     streamingMessageRef: { current: null }, sendingRef: { current: true },
     callbacksRef: { current: { onMessageSent() { state.refreshed++; }, emitPipeline() {} } },
     setMessages(update) { state.messages = update(state.messages); state.updates++; },
     setIsThinking(value) { state.thinking = value; }, setToolActivity() {}, setThinkingAgent() {},
     thinkingAgentRef: { current: '' }, setThinkingPhase() {}, setActiveAgents() {}, setError() {},
     pipelineAgentsRef: { current: [] }, notifyRef: { current: null }, conversationId: 'chat-1',
+    setIsStopping() {}, stopTimeoutRef: { current: null }, clearTimeout() {},
   };
   const js = ts.transpileModule(`(${handler})`, { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;
   const receive = vm.runInNewContext(js, context);
@@ -348,7 +350,7 @@ test('stream end flushes the last chunk and errors retain partial replies withou
   h.emit({ type: 'stream_start' });
   h.emit({ type: 'stream_token', token: 'Some ' });
   h.emit({ type: 'stream_end' });
-  assert.equal(h.state.messages[0].content, 'Some ');
+  assert.equal(h.state.messages[0].liveText.getSnapshot(), 'Some ');
   h.emit({ type: 'stream_token', token: 'more text' });
   h.emit({ type: 'error', content: 'Connection interrupted' });
   assert.equal(h.state.messages[0].content, 'Some more text');
@@ -429,7 +431,8 @@ function scrollHarness() {
     showLatest: value => { visible = value; },
     window: { matchMedia: () => ({ matches: false }) },
     createScrollFollower: load('lib/chat-motion').createScrollFollower,
-    requestAnimationFrame: clock.request, cancelAnimationFrame: clock.cancel,
+    requestAnimationFrame: function(callback) { 'use strict'; assert.equal(this, undefined, 'native RAF cannot be called with the clock as its receiver'); return clock.request(callback); },
+    cancelAnimationFrame: function(id) { 'use strict'; assert.equal(this, undefined); clock.cancel(id); },
     ResizeObserver: class { constructor(callback) { onResize = callback; } observe() {} disconnect() { disconnected = true; } },
   };
   const js = ts.transpileModule(`(${effect})`, { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;
@@ -475,4 +478,108 @@ test('touch and keyboard read-back pause follow scrolling', () => {
     assert.equal(h.clock.pending, 0, gesture);
     h.cleanup();
   }
+});
+
+test('hundreds of streamed tokens update only the live text subscription, not chat state', () => {
+  const h = streamHarness();
+  h.state.messages = [{ id: 'old', role: 'agent', content: 'Earlier response' }, { id: 'pending', renderKey: 'stable', role: 'agent', awaiting: true, content: '' }];
+  const previous = h.state.messages[0];
+  h.emit({ type: 'stream_start', agent: 'writer' });
+  assert.equal(h.state.messages.length, 2);
+  assert.equal(h.state.messages[1].renderKey, 'stable');
+  const source = h.state.messages[1].liveText;
+  let rendered = 0;
+  const unsubscribe = source.subscribe(() => rendered++);
+  for (let index = 0; index < 300; index++) {
+    h.emit({ type: 'stream_token', token: `word${index} ` });
+    h.clock.tick(index * 16);
+  }
+  assert.equal(h.state.updates, 1, 'no parent render on tokens');
+  assert.equal(h.state.messages[0], previous, 'completed rows retain their object identity');
+  assert.equal(rendered, 300);
+  assert.match(source.getSnapshot(), /word299 $/);
+  unsubscribe();
+  source.append('final'); source.flush();
+  assert.equal(rendered, 300);
+});
+
+test('tool preambles reset the same bubble and the final answer replaces it once', () => {
+  const h = streamHarness();
+  h.emit({ type: 'stream_start' });
+  h.emit({ type: 'stream_token', token: 'Let me check' });
+  const key = h.state.messages[0].renderKey;
+  h.emit({ type: 'stream_reset' });
+  assert.equal(h.state.messages[0].awaiting, true);
+  assert.equal(h.clock.pending, 0);
+  h.emit({ type: 'stream_start' });
+  h.emit({ type: 'stream_token', token: 'The answer is 42.' });
+  h.emit({ type: 'response', message: { id: 42, role: 'agent', content: 'The answer is 42.' } });
+  assert.equal(h.state.messages.length, 1);
+  assert.equal(h.state.messages[0].renderKey, key);
+  assert.equal(h.state.messages[0].content, 'The answer is 42.');
+});
+
+test('stop acknowledgement preserves partial text and adopts its saved id', () => {
+  const h = streamHarness();
+  h.emit({ type: 'stream_start' });
+  h.emit({ type: 'stream_token', token: 'Partial answer' });
+  h.emit({ type: 'cancelled', message: { id: 99, role: 'agent', content: 'Partial answer', interrupted: true } });
+  assert.equal(h.state.messages[0].id, 99);
+  assert.equal(h.state.messages[0].content, 'Partial answer');
+  assert.equal(h.state.messages[0].interrupted, true);
+  assert.equal(h.state.thinking, false);
+  assert.equal(h.context.sendingRef.current, false);
+  assert.equal(h.clock.pending, 0);
+});
+
+test('background quality metadata never changes the current turn or the delivered answer', () => {
+  const h = streamHarness();
+  h.state.messages = [{ id: 11, role: 'agent', content: 'Already delivered' }];
+  h.emit({ type: 'stream_start' });
+  h.emit({ type: 'stream_token', token: 'Next reply' });
+  h.emit({ type: 'message_updated', id: 11, critic_score: 8, critic_review: 'Good answer' });
+  assert.equal(h.state.messages[0].content, 'Already delivered');
+  assert.equal(h.state.messages[0].critic_score, 8);
+  assert.equal(h.state.thinking, true);
+  assert.equal(h.context.sendingRef.current, true);
+  assert.equal(h.state.messages[1].liveText.content, 'Next reply');
+});
+
+test('Stop sends cancellation without deleting the follow-up draft or unlocking early', () => {
+  let sent, thinking = true, stopping = false;
+  const context = {
+    sendingRef: { current: true }, isStopping: false, createRequestRef: { current: null }, conversationId: 'chat',
+    pendingMessageRef: { current: null }, pendingAttachmentsRef: { current: [] },
+    WebSocket: { OPEN: 1 }, wsRef: { current: { readyState: 1, send: text => sent = JSON.parse(text) } },
+    setIsThinking: value => thinking = value, setIsStopping: value => stopping = value,
+    setInput() { assert.fail('must preserve draft'); }, setAttachedFiles() { assert.fail('must preserve draft files'); },
+    stopTimeoutRef: { current: null }, setTimeout: () => 123,
+  };
+  functionFromSource('components/chat/ChatPanel.tsx', 'handleStop', context)();
+  assert.equal(sent.type, 'stop');
+  assert.equal(thinking, true);
+  assert.equal(stopping, true);
+});
+
+test('markdown retains unlabelled fences, ordered-list starts, and user line breaks', () => {
+  const { MarkdownRenderer } = load('components/chat/MarkdownRenderer');
+  const html = renderToStaticMarkup(React.createElement(MarkdownRenderer, { content: '```\n  first line\n    second line\n```\n\n3. Third\n4. Fourth' }));
+  assert.match(html, /<pre[^>]*><code>  first line\n    second line\n<\/code><\/pre>/);
+  assert.match(html, /<ol start="3"/);
+  assert.match(html, /Copy/);
+  const { ChatMessage } = load('components/chat/ChatMessage');
+  const user = renderToStaticMarkup(React.createElement(ChatMessage, { message: { id: 1, role: 'user', content: 'first\nsecond' }, busy: false, onSend() {}, onFeedback() {} }));
+  assert.match(user, /user-message-text">first\nsecond/);
+});
+
+test('Stop racing a completed save keeps the final answer and its completed status', () => {
+  const h = streamHarness();
+  h.emit({ type: 'stream_start', agent: 'writer' });
+  h.emit({ type: 'stream_token', token: 'Finished answer' });
+  h.emit({ type: 'cancelled', message: { id: 'saved-final', role: 'agent', content: 'Finished answer', interrupted: false } });
+  assert.equal(h.state.messages.length, 1);
+  assert.equal(h.state.messages[0].id, 'saved-final');
+  assert.equal(h.state.messages[0].interrupted, false);
+  assert.equal(h.state.messages[0].isStreaming, false);
+  assert.equal(h.state.thinking, false);
 });

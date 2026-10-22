@@ -22,7 +22,7 @@ export function createTextBuffer(clock: FrameClock, publish: (text: string) => v
   const paint = (now: number) => {
     frame = null;
     if (closed) return;
-    if (now - lastPaint < 32) {
+    if (now - lastPaint < 16) {
       frame = clock.request(paint);
       return;
     }
@@ -84,5 +84,28 @@ export function createScrollFollower(
     },
     stop,
     get running() { return frame !== null; },
+  };
+}
+
+// Only the active message subscribes. A token must never re-render the composer,
+// history, old messages, or every Framer layout node in the conversation.
+export function createLiveText(clock: FrameClock) {
+  let snapshot = "";
+  let received = "";
+  const listeners = new Set<() => void>();
+  const buffer = createTextBuffer(clock, text => {
+    snapshot = text;
+    listeners.forEach(listener => listener());
+  });
+  return {
+    getSnapshot: () => snapshot,
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => { listeners.delete(listener); };
+    },
+    append(token: string) { received += token; buffer.append(token); },
+    flush: buffer.flush,
+    cancel: buffer.cancel,
+    get content() { return received; },
   };
 }

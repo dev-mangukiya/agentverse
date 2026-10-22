@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback, useId } from "react";
-import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { MarkdownRenderer } from "./MarkdownRenderer";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { ChatMessage } from "./ChatMessage";
+import type { ChatMessageData as Message } from "@/lib/chat-message";
 import { getSessionId } from "@/lib/session";
 import { getAuthHeaders } from "@/lib/auth";
 import { getAgent } from "@/config/agents";
@@ -11,31 +12,13 @@ import { ExportMenu } from "./ExportMenu";
 import { PromptTemplates } from "./PromptTemplates";
 import { WorkspaceWelcome } from "@/components/workspace/WorkspaceWelcome";
 import { useDialogFocus } from "@/hooks/useDialogFocus";
-import { createTextBuffer } from "@/lib/chat-motion";
+import { createLiveText } from "@/lib/chat-motion";
 import { useChatScroll } from "@/hooks/useChatScroll";
 import { transition } from "@/config/motion";
 import { WorkspaceIcon } from "@/components/workspace/WorkspaceIcon";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 const WS_BASE = API_URL.replace("http", "ws");
-
-interface Message {
-  id: string | number;
-  role: "user" | "agent" | "system" | "tool";
-  renderKey?: string;
-  animateIn?: boolean;
-  isStreaming?: boolean;
-  incomplete?: boolean;
-  agent_name?: string;
-  content: string;
-  tool_name?: string;
-  created_at?: string;
-  contributing_agents?: string[];
-  pipeline_duration_ms?: number;
-  feedback?: "up" | "down" | null;
-  critic_score?: number | null;
-  critic_review?: string | null;
-}
 
 interface ToolActivity {
   tool: string;
@@ -175,9 +158,6 @@ async function readFile(file: File): Promise<AttachedFile> {
 }
 
 export function ChatPanel({ conversationId, onConversationCreated, onMessageSent, onPipelineUpdate, inputRef: externalInputRef }: ChatPanelProps) {
-  const composerId = useId();
-  const reduceMotion = useReducedMotion();
-  const [expandedReviews, setExpandedReviews] = useState<Set<string | number>>(() => new Set());
   const [inputExpanded, setInputExpanded] = useState(false);
   const taskOptionsRef = useDialogFocus(inputExpanded, () => setInputExpanded(false));
   const [messages, setMessages] = useState<Message[]>([]);
@@ -190,7 +170,9 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const createRequestRef = useRef<AbortController | null>(null);
   const [input, setInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
-  const streamingMessageRef = useRef<{ agent: string; content: string; id: string; buffer: ReturnType<typeof createTextBuffer> } | null>(null);
+  const [isStopping, setIsStopping] = useState(false);
+  const stopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const streamingMessageRef = useRef<{ id: string; buffer: ReturnType<typeof createLiveText> } | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const recognitionRef = useRef<any>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
@@ -480,7 +462,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     pendingAttachmentsRef.current = [];
     streamingMessageRef.current?.buffer.cancel();
     streamingMessageRef.current = null;
-    setExpandedReviews(new Set());
+    setIsStopping(false);
+    if (stopTimeoutRef.current) { clearTimeout(stopTimeoutRef.current); stopTimeoutRef.current = null; }
     sendingRef.current = false;
     setIsThinking(false);
     setToolActivity(null);
@@ -668,6 +651,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             break;
 
           case "response":
+            setIsStopping(false);
+            if (stopTimeoutRef.current) { clearTimeout(stopTimeoutRef.current); stopTimeoutRef.current = null; }
             sendingRef.current = false;
             setIsThinking(false);
             setToolActivity(null);
@@ -682,37 +667,74 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
               streamingMessageRef.current = null;
               if (data.message) {
                 setMessages(prev => prev.map(m =>
-                  m.id === streamId ? { ...m, ...data.message, renderKey: m.renderKey, isStreaming: false, incomplete: false, contributing_agents: data.contributing_agents, pipeline_duration_ms: data.pipeline_duration_ms } : m
+                  m.id === streamId ? { ...m, ...data.message, renderKey: m.renderKey, liveText: undefined, awaiting: false, isStreaming: false, incomplete: false, contributing_agents: data.contributing_agents, pipeline_duration_ms: data.pipeline_duration_ms } : m
                 ));
               } else {
                 setMessages(prev => prev.map(m =>
-                  m.id === streamId ? { ...m, isStreaming: false, incomplete: false, content: data.content ?? m.content, contributing_agents: data.contributing_agents, pipeline_duration_ms: data.pipeline_duration_ms } : m
+                  m.id === streamId ? { ...m, liveText: undefined, awaiting: false, isStreaming: false, incomplete: false, content: data.content ?? m.liveText?.content ?? m.content, contributing_agents: data.contributing_agents, pipeline_duration_ms: data.pipeline_duration_ms } : m
                 ));
               }
-            } else if (data.message) {
-              setMessages(prev => [...prev, { ...data.message, animateIn: true, contributing_agents: data.contributing_agents, pipeline_duration_ms: data.pipeline_duration_ms }]);
             } else {
-              setMessages(prev => [...prev, { id: Date.now(), role: "agent", animateIn: true, agent_name: data.agent, content: data.content, contributing_agents: data.contributing_agents, pipeline_duration_ms: data.pipeline_duration_ms }]);
+              setMessages(prev => {
+                const pending = prev.find(m => m.awaiting);
+                const message: Message = {
+                  ...(data.message || { id: Date.now(), role: "agent", agent_name: data.agent, content: data.content }),
+                  renderKey: pending?.renderKey, animateIn: !pending,
+                  contributing_agents: data.contributing_agents, pipeline_duration_ms: data.pipeline_duration_ms,
+                };
+                return pending ? prev.map(m => m === pending ? message : m) : [...prev, message];
+              });
             }
             cb.onMessageSent();
             break;
 
           case "message_saved":
+            cb.onMessageSent();
+            break;
+
+          case "message_updated":
+            setMessages(prev => prev.map(m => m.id === data.id ? { ...m, critic_score: data.critic_score, critic_review: data.critic_review } : m));
+            break;
+
+          case "busy":
+            setError(data.content);
+            break;
+
+          case "cancelled":
+            if (!sendingRef.current) break;
+            streamingMessageRef.current?.buffer.flush();
+            streamingMessageRef.current?.buffer.cancel();
+            streamingMessageRef.current = null;
+            sendingRef.current = false;
+            setIsThinking(false);
+            setIsStopping(false);
+            if (stopTimeoutRef.current) { clearTimeout(stopTimeoutRef.current); stopTimeoutRef.current = null; }
+            setToolActivity(null);
+            setActiveAgents([]);
+            setMessages(prev => prev.map(m => (m.isStreaming || m.awaiting) ? {
+              ...m, ...data.message, renderKey: m.renderKey,
+              content: data.message?.content ?? m.liveText?.content ?? m.content,
+              liveText: undefined, isStreaming: false, awaiting: false, interrupted: data.message?.interrupted ?? true,
+            } : m));
+            if (data.save_failed) setError("Reply stopped, but couldn't save it. Copy any text you want to keep.");
+            cb.emitPipeline(false);
+            cb.onMessageSent();
             break;
 
           case "error":
+            setIsStopping(false);
+            if (stopTimeoutRef.current) { clearTimeout(stopTimeoutRef.current); stopTimeoutRef.current = null; }
             sendingRef.current = false;
             streamingMessageRef.current?.buffer.flush();
             streamingMessageRef.current?.buffer.cancel();
             streamingMessageRef.current = null;
-            setMessages(prev => prev.map(m => m.isStreaming ? { ...m, isStreaming: false, incomplete: true } : m));
+            setMessages(prev => prev.filter(m => !m.awaiting).map(m => m.isStreaming ? { ...m, ...data.message, renderKey: m.renderKey, content: data.message?.content ?? m.liveText?.content ?? m.content, liveText: undefined, isStreaming: false, incomplete: true } : m));
             setActiveAgents([]);
             setThinkingAgent("");
             setThinkingPhase("");
             setIsThinking(false);
             setToolActivity(null);
             setError(data.content);
-            setMessages(prev => [...prev, { id: Date.now(), role: "system", content: `${data.content}` }]);
             cb.emitPipeline(false);
             // Fire error notification
             if (notifyRef.current) {
@@ -728,33 +750,38 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             break;
 
           case "stream_start": {
-            streamingMessageRef.current?.buffer.flush();
             streamingMessageRef.current?.buffer.cancel();
             const id = `stream-${Date.now()}-${++streamSequence}`;
-            const buffer = createTextBuffer(
-              { request: requestAnimationFrame, cancel: cancelAnimationFrame },
-              content => {
-                if (destroyed || wsRef.current !== ws) return;
-                setMessages(prev => prev.map(m => m.id === id ? { ...m, content } : m));
-              },
-            );
-            streamingMessageRef.current = { agent: data.agent || "orchestrator", content: "", id, buffer };
-            setMessages(prev => [...prev.map(m => m.isStreaming ? { ...m, isStreaming: false, incomplete: true } : m), {
-              id, renderKey: id, animateIn: true, isStreaming: true,
-              role: "agent" as const, agent_name: data.agent || "orchestrator", content: "",
-            }]);
+            const buffer = createLiveText({
+              request: callback => requestAnimationFrame(callback),
+              cancel: id => cancelAnimationFrame(id),
+            });
+            streamingMessageRef.current = { id, buffer };
+            setMessages(prev => {
+              const pending = prev.find(m => m.awaiting || m.isStreaming);
+              const message: Message = {
+                id, renderKey: pending?.renderKey ?? id, animateIn: !pending,
+                isStreaming: true, liveText: buffer,
+                role: "agent", agent_name: data.agent || "orchestrator", content: "",
+              };
+              return pending ? prev.map(m => m === pending ? message : m) : [...prev, message];
+            });
             break;
           }
 
           case "stream_token":
             if (streamingMessageRef.current && typeof data.token === "string") {
-              streamingMessageRef.current.content += data.token;
               streamingMessageRef.current.buffer.append(data.token);
             }
             break;
 
+          case "stream_reset":
+            streamingMessageRef.current?.buffer.cancel();
+            streamingMessageRef.current = null;
+            setMessages(prev => prev.map(m => m.isStreaming ? { ...m, content: "", liveText: undefined, isStreaming: false, awaiting: true } : m));
+            break;
+
           case "stream_end":
-            // Keep the identity until the saved response arrives.
             streamingMessageRef.current?.buffer.flush();
             break;
 
@@ -774,6 +801,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         if (destroyed || wsRef.current !== ws) return;
         if (pingInterval) clearInterval(pingInterval);
         setWsConnected(false);
+        setIsStopping(false);
+        if (stopTimeoutRef.current) { clearTimeout(stopTimeoutRef.current); stopTimeoutRef.current = null; }
         if (sendingRef.current && !pendingMessageRef.current) {
           setError("Connection interrupted. Your response may be incomplete. Reopen this chat after reconnecting to load saved messages.");
         }
@@ -784,7 +813,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         streamingMessageRef.current?.buffer.flush();
         streamingMessageRef.current?.buffer.cancel();
         streamingMessageRef.current = null;
-        setMessages(prev => prev.map(m => m.isStreaming ? { ...m, isStreaming: false, incomplete: true } : m));
+        setMessages(prev => prev.filter(m => !m.awaiting).map(m => m.isStreaming ? { ...m, content: m.liveText?.content ?? m.content, liveText: undefined, isStreaming: false, incomplete: true } : m));
         if (toolClearTimeout) clearTimeout(toolClearTimeout);
         callbacksRef.current.emitPipeline(false);
         // Reconnect after 3s using the stable `connect` function from this effect's scope
@@ -801,6 +830,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
     return () => {
       destroyed = true;
+      if (stopTimeoutRef.current) { clearTimeout(stopTimeoutRef.current); stopTimeoutRef.current = null; }
       streamingMessageRef.current?.buffer.cancel();
       if (toolClearTimeout) clearTimeout(toolClearTimeout);
       if (pingInterval) clearInterval(pingInterval);
@@ -978,7 +1008,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     resetPipeline();
 
     const userMsg: Message = { id: Date.now(), role: "user", animateIn: true, content, created_at: new Date().toISOString() };
-    setMessages((prev) => [...prev, userMsg]);
+    setMessages((prev) => [...prev, userMsg, { id: `pending-${userMsg.id}`, renderKey: `pending-${userMsg.id}`, role: "agent", content: "", awaiting: true, animateIn: true }]);
     setIsThinking(true);
 
     let activeConvId = conversationId;
@@ -1005,9 +1035,9 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       } catch (err) {
         if (controller.signal.aborted || generation !== conversationGenerationRef.current) return;
         setError(err instanceof Error ? err.message : "Failed to create conversation. Please retry.");
-        setMessages(prev => prev.filter(message => message.id !== userMsg.id));
-        setInput(rawContent);
-        setAttachedFiles(filesToSend);
+        setMessages(prev => prev.filter(message => message.id !== userMsg.id && message.id !== `pending-${userMsg.id}`));
+        setInput(current => current || rawContent);
+        setAttachedFiles(current => current.length ? current : filesToSend);
         sendingRef.current = false;
         setIsThinking(false);
         return;
@@ -1031,6 +1061,38 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     }
   };
 
+  const handleStop = () => {
+    if (!sendingRef.current || isStopping || stopTimeoutRef.current) return;
+    if (createRequestRef.current && !conversationId) createRequestRef.current.abort();
+    if (pendingMessageRef.current || !conversationId) {
+      pendingMessageRef.current = null;
+      pendingAttachmentsRef.current = [];
+      sendingRef.current = false;
+      setIsThinking(false);
+      setMessages(prev => prev.map(m => m.awaiting ? { ...m, awaiting: false, interrupted: true } : m));
+      return;
+    }
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      setIsStopping(true);
+      wsRef.current.send(JSON.stringify({ type: "stop" }));
+      stopTimeoutRef.current = setTimeout(() => {
+        // Closing the socket also cancels server work if an old deployment
+        // cannot acknowledge Stop. Never unlock while that turn is still live.
+        wsRef.current?.close();
+      }, 5000);
+    }
+  };
+  const sendHandlerRef = useRef(handleSend);
+  sendHandlerRef.current = handleSend;
+  const sendFromMessage = useCallback((text: string) => { void sendHandlerRef.current(text); }, []);
+  const saveFeedback = useCallback((id: string | number, feedback: "up" | "down") => {
+    setMessages(prev => prev.map(m => m.id === id ? { ...m, feedback } : m));
+  }, []);
+  const responseStatus = isStopping ? "Stopping…" : toolActivity?.status === "calling" ? `Using ${toolActivity.tool}…`
+    : thinkingPhase === "planning" ? "Thinking it through…"
+    : thinkingPhase === "synthesizing" ? "Bringing the answer together…"
+    : thinkingAgent ? `${getAgent(thinkingAgent.toLowerCase()).displayName} is working…` : "Thinking…";
+
   const isEmpty = messages.length === 0 && !isThinking && !loadingConversation;
   useEffect(() => {
     if (!isThinking && !loadingConversation && messages.length > 0 && document.activeElement === document.body) {
@@ -1043,7 +1105,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     setShowTemplates(false);
     requestAnimationFrame(() => { inputRef.current?.focus(); inputRef.current?.setSelectionRange(prompt.length, prompt.length); });
   };
-  const composer = <motion.div layout="position" layoutId={composerId} transition={transition.base} className={`task-composer ${isEmpty ? "task-composer-welcome" : ""}`}
+  const composer = <div className="task-composer"
     onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver} onDrop={handleDrop}>
     <input ref={fileInputRef} type="file" multiple accept={ALL_ACCEPT} className="hidden" onChange={e => { if (e.target.files) processFiles(e.target.files); e.target.value = ""; }}/>
     {isDragging && <div className="drop-zone-overlay"><span>Drop something interesting here</span></div>}
@@ -1053,12 +1115,12 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     </div>)}</div>}
     <textarea ref={inputRef} aria-label="Message" value={input} onChange={e => setInput(e.target.value)} onPaste={handlePaste}
       onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); handleSend(); } }}
-      placeholder={isThinking ? "Working on it…" : attachedFiles.length ? "What should we do with these files?" : isEmpty ? "Ask a question or describe a task…" : "Message AgentVerse…"}
-      rows={isEmpty ? 3 : 1} disabled={isThinking || loadingConversation}/>
+      placeholder={isThinking ? "Draft your next message…" : attachedFiles.length ? "What should we do with these files?" : isEmpty ? "Ask a question or describe a task…" : "Message AgentVerse…"}
+      rows={1} disabled={loadingConversation || (isThinking && !conversationId)}/>
     <div className="composer-toolbar"><div className="composer-tools">
-      <button className="composer-attach" aria-label="Attach files" onClick={() => fileInputRef.current?.click()} disabled={isThinking || loadingConversation}><WorkspaceIcon name="attach" size={17}/><span>Attach files</span></button>
+      <button className="composer-attach" aria-label="Attach files" onClick={() => fileInputRef.current?.click()} disabled={loadingConversation || (isThinking && !conversationId)}><WorkspaceIcon name="attach" size={17}/><span>Attach files</span></button>
       {isRecording && <button className="icon-button is-recording" onClick={toggleRecording} aria-label="Stop voice input" title="Stop voice input"><WorkspaceIcon name="mic" size={17}/></button>}
-      <div className="composer-more"><button className="icon-button" onClick={() => setInputExpanded(v => !v)} disabled={isThinking || loadingConversation} aria-label="More tools" aria-expanded={inputExpanded}>···</button>
+      <div className="composer-more"><button className="icon-button" onClick={() => setInputExpanded(v => !v)} disabled={loadingConversation || (isThinking && !conversationId)} aria-label="More tools" aria-expanded={inputExpanded}>···</button>
         {inputExpanded && <div className="composer-menu-dismiss" aria-hidden="true" onClick={() => setInputExpanded(false)}/>}
         <AnimatePresence>
           {inputExpanded && <motion.div key="tools" ref={taskOptionsRef} role="dialog" aria-label="Task options" tabIndex={-1} className="composer-menu" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4, pointerEvents: "none" }} transition={transition.fast}>
@@ -1069,348 +1131,35 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         </AnimatePresence>
       </div>
     </div>
-    <button className="start-task-button" aria-label="Send message" onClick={() => handleSend()} disabled={isThinking || loadingConversation || (!input.trim() && !attachedFiles.length)}><span>{isThinking ? "Working…" : "Send"}</span><WorkspaceIcon name="arrow" size={18}/></button>
+    {isThinking ? <button className="stop-response-button" aria-label="Stop response" onClick={handleStop} disabled={isStopping}><span className="stop-symbol" aria-hidden="true"/>{isStopping ? "Stopping…" : "Stop"}</button>
+      : <button className="start-task-button" aria-label="Send message" onClick={() => handleSend()} disabled={loadingConversation || (!input.trim() && !attachedFiles.length)}><span>Send</span><WorkspaceIcon name="arrow" size={18}/></button>}
     </div>
     {showTemplates && <div className="composer-templates"><button className="text-action" onClick={() => setShowTemplates(false)}>Close templates ×</button><PromptTemplates onInsert={insertPrompt}/></div>}
-    <div className="composer-helper">Enter to send <span className="key-divider">·</span> Shift + Enter for a new line</div>
-  </motion.div>;
+    <div className="composer-helper">{isThinking ? "Keep writing while the reply comes in. Your draft stays here." : <>Enter to send <span className="key-divider">·</span> Shift + Enter for a new line</>}</div>
+  </div>;
 
   return (
     <div className="studio-chat flex flex-col h-full min-h-0 min-w-0" style={{ backgroundColor: "var(--bg-base)" }}>
-      {!isEmpty && <div className="conversation-toolbar">
-        <span className="conversation-status" role="status">{isThinking ? "Working on your request…" : "Conversation"}</span>
-        <div className="conversation-toolbar-actions">{conversationId && <span className={`connection-label ${wsConnected ? "" : "pending"}`}><span className="status-dot"/>{wsConnected ? "Connected" : "Reconnecting"}</span>}<ExportMenu messages={messages}/></div>
-      </div>}
-      <AnimatePresence initial={false}>
-        {isThinking && activeAgents.length > 0 && <motion.div key="team" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={reduceMotion ? { duration: 0 } : transition.fast} className="live-team-container">
-          <div className="live-team-trail" aria-label="Active specialists">{activeAgents.map(name => <span key={name} style={{ color: getAgent(name).color }}>{getAgent(name).icon} {getAgent(name).displayName}<span className="working-dot"/></span>)}</div>
-        </motion.div>}
-      </AnimatePresence>
+      <div className="chat-topbar">
+        <span>{conversationId && !wsConnected ? "Connecting…" : isEmpty ? "A little help for your next idea" : "Your conversation"}</span>
+        {!isEmpty && !isThinking && <ExportMenu messages={messages}/>}
+      </div>
 
       {/* Resize observation follows content growth without token-by-token jumps. */}
-      <motion.div layoutScroll ref={scrollRef} className="chat-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain" aria-label="Conversation messages" tabIndex={0} aria-busy={loadingConversation}>
+      <div ref={scrollRef} className="chat-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain" aria-label="Conversation messages" tabIndex={0} aria-busy={loadingConversation}>
         <div ref={contentRef} className={`chat-scroll-content ${isEmpty ? "is-welcome" : ""}`}>
         {loadingConversation ? (
           <div className="p-8 text-center text-sm" role="status" style={{ color: "var(--text-muted)" }}>Loading conversation…</div>
         ) : isEmpty ? (
-          <WorkspaceWelcome composer={composer} onPrompt={insertPrompt}/>
+          <WorkspaceWelcome onPrompt={insertPrompt}/>
         ) : (
           /* Message list */
-          <div className="conversation-messages w-full max-w-3xl mx-auto px-2 md:px-6 py-4 md:py-6 space-y-4 md:space-y-6">
-            <AnimatePresence>
-              {messages.map((msg) => {
-                const meta = msg.agent_name ? getAgent(msg.agent_name.toLowerCase()) : null;
-                return (
-                  <motion.div
-                    key={msg.renderKey ?? `${msg.role}-${msg.id}`}
-                    initial={msg.animateIn ? { opacity: 0, y: reduceMotion ? 0 : 10 } : false}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0 }}
-                    transition={transition.base}
-                    className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-                  >
-                    {msg.role !== "user" && (
-                      <div
-                        className="agent-avatar agent-avatar--sm flex-shrink-0 mr-3 mt-0.5"
-                        style={{
-                          backgroundColor: meta
-                            ? `color-mix(in srgb, ${meta.color} 20%, var(--bg-panel))`
-                            : "var(--bg-elevated)",
-                          border: meta
-                            ? `1px solid color-mix(in srgb, ${meta.color} 30%, transparent)`
-                            : "1px solid var(--border-muted)",
-                        }}
-                      >
-                        <span style={{ fontSize: "10px" }}>{meta?.icon || "?"}</span>
-                      </div>
-                    )}
-
-                    <div
-                      className={`overflow-hidden ${
-                        msg.isStreaming
-                          ? "response-in-progress"
-                          : ""
-                      }`}
-                      style={{
-                        overflowWrap: "anywhere",
-                        ...(msg.role === "user" ? {
-                          maxWidth: "75%",
-                          padding: "12px 16px",
-                          borderRadius: "18px 18px 4px 18px",
-                          background: "var(--bubble-user-bg)",
-                          color: "var(--bubble-user-text)",
-                          fontSize: "15px",
-                          lineHeight: "1.6",
-                          border: "1px solid var(--bubble-user-border)",
-                        } : msg.role === "system" ? {
-                          maxWidth: "80%",
-                          padding: "12px 16px",
-                          borderRadius: "16px",
-                          backgroundColor: "var(--red-dim)",
-                          color: "var(--red)",
-                          border: "1px solid color-mix(in srgb, var(--red) 20%, transparent)",
-                          fontSize: "15px",
-                        } : {
-                          flex: 1,
-                          color: "var(--text-primary)",
-                          fontSize: "15px",
-                          lineHeight: "1.7",
-                          paddingLeft: "12px",
-                        }),
-                      }}
-                    >
-                      {/* Agent badge */}
-                      {msg.role === "agent" && msg.agent_name && (
-                        <div className="flex items-center gap-2 mb-2 flex-wrap">
-                          <span
-                            className="agent-badge"
-                            style={{ "--agent-color": meta?.color || "var(--brand)" } as React.CSSProperties}
-                          >
-                            <span className="badge-dot" />
-                            {meta?.displayName || msg.agent_name}
-                          </span>
-                          {msg.contributing_agents && msg.contributing_agents.length > 0 && (
-                            <span className="text-[10px]" style={{ color: "var(--text-faint)" }}>
-                              with {msg.contributing_agents.map(a => getAgent(a).displayName).join(", ")}
-                            </span>
-                          )}
-                          {msg.pipeline_duration_ms && (
-                            <span className="text-[10px] font-mono" style={{ color: "var(--text-faint)" }}>
-                              {(msg.pipeline_duration_ms / 1000).toFixed(1)}s
-                            </span>
-                          )}
-                        </div>
-                      )}
-                      {msg.role === "user"
-                        ? (() => {
-                            // Strip file attachment blocks from display
-                            const cleanContent = msg.content.replace(/(?:^|\n\n)\[(?:File|Attached image|Attached document): [^\]]+\](?:\n```[\s\S]*?```|\n[\s\S]*?(?=\n\n\[|$))?/g, "").trim();
-                            const fileMatches = msg.content.match(/\[(?:File|Attached image|Attached document): ([^\]]+)\]/g) || [];
-                            return (
-                              <>
-                                {cleanContent && <span className="break-words">{cleanContent}</span>}
-                                {fileMatches.length > 0 && (
-                                  <div className="flex flex-wrap gap-1 mt-1.5">
-                                    {fileMatches.map((match, i) => {
-                                      const fileName = match.replace(/\[(?:File|Attached image|Attached document): /, "").replace("]", "");
-                                      const cat = getFileCategory(fileName);
-                                      return (
-                                        <span
-                                          key={i}
-                                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium"
-                                          style={{
-                                            backgroundColor: "var(--bg-panel)",
-                                            color: "var(--text-secondary)",
-                                          }}
-                                        >
-                                          {fileTypeIcon(cat.type)} {fileName}
-                                        </span>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                              </>
-                            );
-                          })()
-                        : (() => {
-                            const hitlMatch = msg.content.match(/\[APPROVAL_REQUIRED:([^:]+):(.*?)\]/);
-                            if (hitlMatch) {
-                              const [fullMatch, action, reason] = hitlMatch;
-                              const textBefore = msg.content.split(fullMatch)[0];
-                              return (
-                                <>
-                                  {textBefore && <MarkdownRenderer content={textBefore} />}
-                                  <div className="mt-4 p-4 rounded-xl border" style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--bg-elevated)" }}>
-                                    <div className="flex items-center gap-2 mb-2 text-yellow-500">
-                                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                                        <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                      </svg>
-                                      <span className="font-bold">Approval Required</span>
-                                    </div>
-                                    <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>
-                                      <strong>Action:</strong> <span className="font-mono">{action}</span><br/>
-                                      <strong>Reason:</strong> {reason}
-                                    </p>
-                                    <div className="flex gap-3">
-                                      <button
-                                        onClick={() => handleSend(`APPROVED action: ${action}`)}
-                                        className="px-4 py-2 bg-green-500/20 text-green-500 hover:bg-green-500/30 rounded-lg text-sm font-semibold transition-colors"
-                                      >
-                                        Approve
-                                      </button>
-                                      <button
-                                        onClick={() => handleSend(`REJECTED action: ${action}`)}
-                                        className="px-4 py-2 bg-red-500/20 text-red-500 hover:bg-red-500/30 rounded-lg text-sm font-semibold transition-colors"
-                                      >
-                                        Reject
-                                      </button>
-                                    </div>
-                                  </div>
-                                </>
-                              );
-                            }
-                            const cleanedContent = msg.content.replace(/\[DOWNLOAD_LINK:[^\]]+\]/g, "").trim();
-                            return <MarkdownRenderer content={cleanedContent} />;
-                          })()
-                      }
-
-                      {msg.isStreaming && !msg.content && <span className="response-dots" role="status" aria-label="Preparing response"><i/><i/><i/></span>}
-
-                      {/* Feedback buttons + download links + critic score for agent messages */}
-                      {msg.role === "agent" && !msg.isStreaming && !msg.incomplete && (
-                        <div className="message-actions mt-2 pt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
-                          {/* Critic score badge + expandable review */}
-                          {msg.critic_score != null && (
-                            <div className="mb-2">
-                              <button
-                                onClick={() => {
-                                  setExpandedReviews(previous => {
-                                    const next = new Set(previous);
-                                    if (next.has(msg.id)) next.delete(msg.id); else next.add(msg.id);
-                                    return next;
-                                  });
-                                }}
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors duration-150 cursor-pointer"
-                                style={{
-                                  backgroundColor: msg.critic_score >= 7
-                                    ? "color-mix(in srgb, #22c55e 12%, transparent)"
-                                    : msg.critic_score >= 5
-                                    ? "color-mix(in srgb, #eab308 12%, transparent)"
-                                    : "color-mix(in srgb, #ef4444 12%, transparent)",
-                                  color: msg.critic_score >= 7
-                                    ? "#22c55e"
-                                    : msg.critic_score >= 5
-                                    ? "#eab308"
-                                    : "#ef4444",
-                                  border: `1px solid ${msg.critic_score >= 7
-                                    ? "color-mix(in srgb, #22c55e 25%, transparent)"
-                                    : msg.critic_score >= 5
-                                    ? "color-mix(in srgb, #eab308 25%, transparent)"
-                                    : "color-mix(in srgb, #ef4444 25%, transparent)"}`,
-                                }}
-                                aria-expanded={expandedReviews.has(msg.id)}
-                                aria-controls={`critic-review-${msg.id}`}
-                                title="Click to view critic review"
-                              >
-                                {msg.critic_score >= 7 ? "✅" : msg.critic_score >= 5 ? "⚠️" : "❌"}
-                                <span>Quality: {msg.critic_score}/10</span>
-                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <polyline points="6 9 12 15 18 9" />
-                                </svg>
-                              </button>
-                              <AnimatePresence initial={false}>{msg.critic_review && expandedReviews.has(msg.id) && (
-                                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={reduceMotion ? { duration: 0 } : transition.fast} style={{ overflow: "hidden" }}>
-                                <div
-                                  id={`critic-review-${msg.id}`}
-                                  style={{
-                                    marginTop: "8px",
-                                    padding: "12px 16px",
-                                    borderRadius: "10px",
-                                    backgroundColor: "var(--bg-elevated)",
-                                    border: "1px solid var(--border-subtle)",
-                                    fontSize: "13px",
-                                    lineHeight: "1.6",
-                                  }}
-                                >
-                                  <MarkdownRenderer content={msg.critic_review} />
-                                </div>
-                                </motion.div>
-                              )}</AnimatePresence>
-                            </div>
-                          )}
-
-                          <div className="flex items-center gap-1">
-                          {msg.content.match(/\[DOWNLOAD_LINK:([^:]+):([^\]]+)\]/) && (() => {
-                            const m = msg.content.match(/\[DOWNLOAD_LINK:([^:]+):([^\]]+)\]/);
-                            if (!m) return null;
-                            const [, fileId, fileName] = m;
-                            return (
-                              <a
-                                href={`${API_URL}/api/v1/documents/download/${fileId}`}
-                                download={fileName}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors duration-150 mr-auto"
-                                style={{
-                                  backgroundColor: "var(--brand-dim)",
-                                  color: "var(--brand)",
-                                  border: "1px solid color-mix(in srgb, var(--brand) 20%, transparent)",
-                                }}
-                                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "color-mix(in srgb, var(--brand) 20%, transparent)"; }}
-                                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "var(--brand-dim)"; }}
-                              >
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-                                  <polyline points="7 10 12 15 17 10" />
-                                  <line x1="12" y1="15" x2="12" y2="3" />
-                                </svg>
-                                Download {fileName}
-                              </a>
-                            );
-                          })()}
-
-                          {/* Thumbs up/down */}
-                          <div className="flex items-center gap-0.5 ml-auto">
-                            {(["up", "down"] as const).map(fb => (
-                              <button
-                                key={fb}
-                                onClick={async () => {
-                                  try {
-                                    await fetch(`${API_URL}/api/v1/chat/messages/${msg.id}/feedback`, {
-                                      method: "POST",
-                                      headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-                                      body: JSON.stringify({ feedback: fb }),
-                                    });
-                                    setMessages(prev => prev.map(m =>
-                                      m.id === msg.id ? { ...m, feedback: fb } : m
-                                    ));
-                                  } catch { /* silently fail */ }
-                                }}
-                                className="p-1.5 rounded-lg transition-colors duration-150"
-                                style={{
-                                  color: msg.feedback === fb
-                                    ? fb === "up" ? "var(--green)" : "var(--red)"
-                                    : "var(--text-faint)",
-                                  backgroundColor: msg.feedback === fb
-                                    ? fb === "up" ? "color-mix(in srgb, var(--green) 12%, transparent)" : "color-mix(in srgb, var(--red) 12%, transparent)"
-                                    : "transparent",
-                                }}
-                                title={fb === "up" ? "Helpful" : "Not helpful"}
-                              >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill={msg.feedback === fb ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-                                  style={fb === "down" ? { transform: "rotate(180deg)" } : {}}
-                                >
-                                  <path d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3zM7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3" />
-                                </svg>
-                              </button>
-                            ))}
-                          </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </motion.div>
-                );
-              })}
-            </AnimatePresence>
-
-            <AnimatePresence initial={false}>
-              {isThinking && !messages.some(message => message.isStreaming) && (
-                <motion.div key="working" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={reduceMotion ? { duration: 0 } : transition.fast} className="response-status-container">
-                  <div className="response-status" role="status">
-                    <span className="response-dots" aria-hidden="true"><i/><i/><i/></span>
-                    <span>{toolActivity
-                      ? toolActivity.status === "calling" ? `Using ${toolActivity.tool}…` : `${toolActivity.tool} finished`
-                      : thinkingPhase === "planning" ? "Planning the next steps…"
-                      : thinkingPhase === "synthesizing" ? "Bringing it together…"
-                      : thinkingAgent ? `${getAgent(thinkingAgent.toLowerCase()).displayName} is working…`
-                      : "Thinking…"}</span>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+          <div className="conversation-messages">
+            {messages.map(message => <ChatMessage key={message.renderKey ?? `${conversationId}-${message.role}-${message.id}`} message={message} status={message.awaiting || message.isStreaming ? responseStatus : undefined} busy={!!message.content.includes("[APPROVAL_REQUIRED:") && isThinking} onSend={sendFromMessage} onFeedback={saveFeedback}/>)}
           </div>
         )}
         </div>
-      </motion.div>
+      </div>
 
       {/* Error banner */}
       {error && (
@@ -1432,12 +1181,12 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         </div>
       )}
 
-      {!isEmpty && <div className="conversation-composer">
+      <div className="conversation-composer">
         <AnimatePresence>
           {showScrollToBottom && <motion.button key="latest" className="latest-messages-button" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={transition.fast} onClick={scrollToLatest}>↓ Latest messages</motion.button>}
         </AnimatePresence>
         <div className="conversation-composer-inner">{composer}</div>
-      </div>}
+      </div>
       {/* Camera modal */}
       {cameraOpen && (
         <div className="camera-modal">

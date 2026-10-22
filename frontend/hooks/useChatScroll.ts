@@ -23,7 +23,13 @@ export function useChatScroll(
 
   useEffect(() => {
     if (loading) jumpOnResize.current = true;
-  }, [loading]);
+    else if (followerRef.current && followingRef.current) {
+      // History can replace a same-height loading panel without a resize event.
+      // Position it once; subsequent live text growth uses the smooth follower.
+      followerRef.current.jump();
+      jumpOnResize.current = false;
+    }
+  }, [loading, followingRef]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -31,7 +37,8 @@ export function useChatScroll(
     if (!viewport || !content) return;
     const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
     const follower = createScrollFollower(
-      { request: requestAnimationFrame, cancel: cancelAnimationFrame },
+      // Native animation methods must not receive the clock object as `this`.
+      { request: callback => requestAnimationFrame(callback), cancel: id => cancelAnimationFrame(id) },
       () => viewport.clientHeight ? {
         top: viewport.scrollTop,
         bottom: Math.max(0, viewport.scrollHeight - viewport.clientHeight),
@@ -56,7 +63,9 @@ export function useChatScroll(
       else if (movingDown) followingRef.current = true;
       showLatest(!followingRef.current);
     };
-    const onWheel = (event: WheelEvent) => { if (event.deltaY < 0) detach(); };
+    const onWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0 && Math.abs(event.deltaY) >= Math.abs(event.deltaX || 0)) detach();
+    };
     let touchY = 0;
     const onTouchStart = (event: TouchEvent) => { touchY = event.touches[0]?.clientY ?? 0; };
     const onTouchMove = (event: TouchEvent) => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState } from "react";
+import { Children, isValidElement, memo, useEffect, useRef, useState, type ReactElement } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
@@ -11,12 +11,15 @@ interface MarkdownRendererProps {
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => setCopied(false), 2000);
     } catch {
       // fallback
     }
@@ -79,86 +82,22 @@ const components: Components = {
     <em style={{ color: "var(--text-secondary)" }} className="italic">{children}</em>
   ),
 
-  ul: ({ children }) => (
-    <ul className="mb-2 last:mb-0 space-y-1 pl-1">{children}</ul>
-  ),
-  ol: ({ children }) => (
-    <ol className="mb-2 last:mb-0 space-y-1 pl-1 list-none counter-reset-[list-counter]"
-      style={{ counterReset: "list-counter" }}
-    >
-      {children}
-    </ol>
-  ),
-  li: ({ children, node }) => {
-    // Detect if parent is an <ol> by checking if ordered prop exists
-    const parentTag = node?.position ? undefined : undefined; // Not available in react-markdown
-    // Instead, check if the node's parent is OL by looking for list counter styles
-    // We use a data attribute approach: ol sets a class, li checks for it
-    // Simpler approach: always render both, hide one via CSS
+  ul: ({ children }) => <ul className="reply-list unordered">{children}</ul>,
+  ol: ({ children, start }) => <ol start={start} className="reply-list ordered">{children}</ol>,
+  li: ({ children }) => <li>{children}</li>,
 
-    // Check if this li is inside an ordered list
-    // We can detect this because ol has counter-reset style
-    // Fallback: always show bullet for ul, number for ol
-    // react-markdown passes `ordered` via the list component context
-    // but the li component doesn't get it directly.
-    // Use a workaround: check if children has ordered number prefix
-    return (
-      <li
-        className="flex gap-2 items-start markdown-li"
-        style={{ counterIncrement: "list-counter" }}
-      >
-        <span
-          className="mt-[7px] w-1.5 h-1.5 rounded-full flex-shrink-0 markdown-bullet"
-          style={{ backgroundColor: "var(--brand)" }}
-        />
-        <span
-          className="mt-[1px] text-xs font-semibold flex-shrink-0 markdown-number"
-          style={{ color: "var(--brand)", display: "none", minWidth: "16px" }}
-        />
-        <span className="flex-1">{children}</span>
-      </li>
-    );
+  code: ({ children }) => <code className="reply-inline-code">{children}</code>,
+  pre: ({ children }) => {
+    // The pre element, not a language class, identifies a code block.
+    // Unlabelled and still-streaming fences must retain their whitespace too.
+    const code = Children.toArray(children).find(isValidElement) as ReactElement<{ className?: string; children?: React.ReactNode }> | undefined;
+    const text = String(code?.props.children ?? "").replace(/\n$/, "");
+    const language = code?.props.className?.replace("language-", "") || "code";
+    return <div className="reply-code-block">
+      <div className="reply-code-heading"><span>{language}</span><CopyButton text={text}/></div>
+      <pre tabIndex={0} aria-label={`${language} code`}><code>{code?.props.children ?? children}</code></pre>
+    </div>;
   },
-
-  code: ({ className, children }) => {
-    const isInline = !className;
-    if (isInline) {
-      return (
-        <code
-          className="px-1.5 py-0.5 rounded-md font-mono text-[0.85em]"
-          style={{
-            backgroundColor: "var(--bg-raised)",
-            color: "var(--brand-text)",
-            border: "1px solid var(--border-muted)",
-          }}
-        >
-          {children}
-        </code>
-      );
-    }
-    const language = className?.replace("language-", "") || "";
-    const codeText = String(children).replace(/\n$/, "");
-    return (
-      <div
-        className="my-3 rounded-xl overflow-hidden group/code"
-        style={{ border: "1px solid var(--border-subtle)" }}
-      >
-        <div
-          className="px-3 py-1.5 flex items-center justify-between relative overflow-hidden"
-          style={{ backgroundColor: "var(--bg-raised)", borderBottom: "1px solid var(--border-subtle)" }}
-        >
-          <span className="text-[10px] font-mono uppercase font-medium" style={{ color: "var(--text-faint)" }}>
-            {language || "code"}
-          </span>
-          <CopyButton text={codeText} />
-        </div>
-        <pre className="p-4 overflow-x-auto" style={{ backgroundColor: "var(--bg-panel)" }}>
-          <code className="text-xs font-mono leading-relaxed" style={{ color: "var(--text-secondary)" }}>{children}</code>
-        </pre>
-      </div>
-    );
-  },
-  pre: ({ children }) => <>{children}</>,
 
   a: ({ href, children }) => (
     <a

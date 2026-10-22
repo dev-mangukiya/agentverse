@@ -68,6 +68,10 @@ async def init_db() -> None:
 
                 # Messages table migrations
                 msg_columns = [c["name"] for c in inspector.get_columns("messages")]
+                if "interrupted" not in msg_columns:
+                    sync_conn.execute(text(
+                        "ALTER TABLE messages ADD COLUMN interrupted INTEGER NOT NULL DEFAULT 0"
+                    ))
                 if "feedback" not in msg_columns:
                     sync_conn.execute(text(
                         "ALTER TABLE messages ADD COLUMN feedback VARCHAR(10)"

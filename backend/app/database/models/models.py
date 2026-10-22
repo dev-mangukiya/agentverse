@@ -82,6 +82,7 @@ class Message(Base):
     content = Column(Text, nullable=False)
     tool_name = Column(String(50), nullable=True)
     feedback = Column(String(10), nullable=True)  # "up", "down", or null
+    interrupted = Column(Integer, nullable=False, default=0, server_default="0")
     critic_score = Column(Integer, nullable=True)  # 1-10 quality score from Critic agent
     critic_review = Column(Text, nullable=True)  # Full critic review markdown
     created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
@@ -97,6 +98,7 @@ class Message(Base):
             "content": self.content,
             "tool_name": self.tool_name,
             "feedback": self.feedback,
+            "interrupted": bool(self.interrupted),
             "critic_score": self.critic_score,
             "critic_review": self.critic_review,
             "created_at": self.created_at.isoformat() if self.created_at else None,

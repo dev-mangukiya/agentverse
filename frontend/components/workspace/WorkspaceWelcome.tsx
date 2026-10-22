@@ -42,7 +42,7 @@ export function WorkspaceWelcome({
   composer,
   onPrompt,
 }: {
-  composer: ReactNode;
+  composer?: ReactNode;
   onPrompt: (prompt: string) => void;
 }) {
   return (
@@ -58,9 +58,7 @@ export function WorkspaceWelcome({
           Describe your task. AgentVerse picks the right AI helpers.
         </p>
       </div>
-      <section aria-label="Start a chat" className="welcome-composer">
-        {composer}
-      </section>
+      {composer && <section aria-label="Start a chat" className="welcome-composer">{composer}</section>}
       <div className="quick-starts" role="group" aria-label="Try an example">
         {STARTERS.map((starter) => (
           <button

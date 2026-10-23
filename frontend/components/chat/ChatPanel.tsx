@@ -1131,11 +1131,11 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         </AnimatePresence>
       </div>
     </div>
+    <div className="composer-helper">{isThinking ? "You can draft your next message" : <>Enter to send <span className="key-divider">·</span> Shift + Enter for a new line</>}</div>
     {isThinking ? <button className="stop-response-button" aria-label="Stop response" onClick={handleStop} disabled={isStopping}><span className="stop-symbol" aria-hidden="true"/>{isStopping ? "Stopping…" : "Stop"}</button>
       : <button className="start-task-button" aria-label="Send message" onClick={() => handleSend()} disabled={loadingConversation || (!input.trim() && !attachedFiles.length)}><span>Send</span><WorkspaceIcon name="arrow" size={18}/></button>}
     </div>
     {showTemplates && <div className="composer-templates"><button className="text-action" onClick={() => setShowTemplates(false)}>Close templates ×</button><PromptTemplates onInsert={insertPrompt}/></div>}
-    <div className="composer-helper">{isThinking ? "Keep writing while the reply comes in. Your draft stays here." : <>Enter to send <span className="key-divider">·</span> Shift + Enter for a new line</>}</div>
   </div>;
 
   return (

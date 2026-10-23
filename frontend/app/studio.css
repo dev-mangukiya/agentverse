@@ -495,11 +495,11 @@ summary:focus-visible {
   color: var(--text-primary);
   border: 0;
   outline: none;
-  min-height: 64px;
+  min-height: 40px;
   max-height: 180px;
-  padding: 18px 20px 10px;
+  padding: 10px 16px 4px;
   font-size: 15px;
-  line-height: 1.65;
+  line-height: 1.6;
 }
 .task-composer-welcome > textarea {
   min-height: 96px;
@@ -512,7 +512,7 @@ summary:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 0 12px 12px;
+  padding: 0 8px 8px;
 }
 .composer-tools {
   display: flex;
@@ -554,12 +554,13 @@ summary:focus-visible {
 }
 .composer-helper {
   display: flex;
+  flex: 1;
   align-items: center;
   justify-content: center;
   gap: 5px;
   font-size: 10px;
   color: var(--text-muted);
-  padding: 0 10px 10px;
+  padding: 0;
 }
 .key-divider {
   opacity: 0.5;
@@ -1085,10 +1086,19 @@ summary:focus-visible {
     font-size: 32px;
   }
   .task-composer > textarea {
-    padding: 16px 16px 8px;
+    padding: 10px 12px 4px;
+    font-size: 16px;
   }
   .composer-toolbar {
-    padding: 0 10px 10px;
+    padding: 0 8px 8px;
+  }
+  .composer-tools > button,
+  .composer-more > .icon-button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  .start-task-button {
+    min-height: 42px;
   }
   .composer-helper {
     display: none;
@@ -1330,7 +1340,6 @@ summary:focus-visible {
 .reply-code-block code { white-space: pre; overflow-wrap: normal; }
 .conversation-composer { padding-top: 12px; }
 .task-composer { transition: border-color var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out); }
-.task-composer > textarea { min-height: 64px; }
 .stop-response-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 38px; padding: 8px 14px; border-radius: 10px; color: var(--text-primary); background: var(--bg-raised); border: 1px solid var(--border-subtle); font-size: 12px; }
 .stop-response-button:hover { background: var(--bg-hover); }
 .stop-symbol { width: 10px; height: 10px; background: currentColor; border-radius: 2px; }

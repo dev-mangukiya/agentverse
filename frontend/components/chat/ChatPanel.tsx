@@ -638,16 +638,6 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
                 : a
             );
             cb.emitPipeline(false, data.total_duration_ms, data.agents_used);
-            // Fire notification
-            if (notifyRef.current) {
-              const dur = data.total_duration_ms ? `${(data.total_duration_ms / 1000).toFixed(1)}s` : "";
-              notifyRef.current({
-                type: "agent-complete",
-                title: "Pipeline Complete",
-                message: `${data.agents_used || 1} agent${(data.agents_used || 1) > 1 ? "s" : ""} finished${dur ? ` in ${dur}` : ""}`,
-                conversationId: conversationId || undefined,
-              });
-            }
             break;
 
           case "response":

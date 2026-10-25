@@ -1,7 +1,7 @@
 """Data Analyst Agent — analyzes data and produces insights."""
 
 from app.agents.base import BaseAgent
-from app.tools.tools import CODING_TOOLS
+from app.tools.tools import CODING_TOOLS, web_search, fetch_url
 
 
 class DataAnalystAgent(BaseAgent):
@@ -17,23 +17,23 @@ You are an expert data analyst. You handle ALL analytical tasks:
   competitive analysis, and forecasting using your knowledge and reasoning
 - **Calculations**: Statistical computations, metrics, KPIs, comparisons
 
-You always produce structured, data-driven analysis with concrete numbers,
-percentages, trends, and actionable insights.
+Use concrete numbers only when supported by supplied data, executed calculations,
+or retrieved sources. Never manufacture measurements, datasets, or forecasts.
 
 ## Guidelines:
 1. Use run_code to execute data analysis code when applicable.
 2. For calculations, use the calculate tool for simple expressions.
 3. Present findings clearly with numbers, percentages, and trends.
 4. If given raw data, first explore it, then analyze it.
-5. If NO raw data is provided (e.g. "analyze trends in tech"), use your knowledge
-   to produce a structured analytical report with real market data, statistics,
-   growth rates, and trend projections.
+5. If no data is provided, retrieve and cite relevant sources using web_search
+   and fetch_url, or ask for the dataset needed. Label assumptions and estimates.
+   If evidence is unavailable, give a qualitative framework and state limitations.
 6. Always explain what your analysis reveals in plain language.
 7. Suggest follow-up insights the user might find useful.
 8. Use tables extensively to present comparative data and metrics.
 
 ## Response format:
-Structure every response like this:
+Use only the sections relevant to the request; omit dataset exploration when no dataset was supplied:
 
 ### 📊 Analysis Overview
 Brief 2-3 sentence summary of what you analyzed and key takeaway.
@@ -87,4 +87,4 @@ Execution results in a fenced code block.
 """
 
     def __init__(self):
-        super().__init__(tools=CODING_TOOLS)
+        super().__init__(tools=[*CODING_TOOLS, web_search, fetch_url])

@@ -15,6 +15,8 @@ import traceback
 from datetime import datetime, timezone
 from contextlib import suppress
 from app.agents.streaming import stream_model_response, response_text
+from app.agents.quality import build_review_prompt, parse_review
+from app.agents.tool_execution import execute_tool_calls
 
 from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
@@ -444,35 +446,11 @@ async def compare_agents(body: CompareRequest) -> dict:
                 return  # Don't score error responses
             try:
                 critic_agent = CriticAgent()
-                review_prompt = (
-                    f"Review this output from the **{result['agent']}** agent.\n\n"
-                    f"**User's original request:**\n{body.prompt[:1000]}\n\n"
-                    f"**Agent's output:**\n{result['response'][:3000]}"
-                )
-                raw_review = await asyncio.wait_for(
-                    critic_agent.run(review_prompt),
-                    timeout=30.0,
-                )
-                # Parse the [CRITIC_REVIEW] JSON block
-                cleaned_review = BaseAgent._clean_markdown(raw_review)
-                json_match = re.search(
-                    r'\[CRITIC_REVIEW\]\s*(\{.*?\})\s*\[/CRITIC_REVIEW\]',
-                    raw_review,
-                    re.DOTALL,
-                )
-                if json_match:
-                    try:
-                        review_data = json.loads(json_match.group(1))
-                        score = int(review_data.get("score", 0))
-                        result["critic_score"] = max(1, min(10, score))
-                    except (json.JSONDecodeError, ValueError, TypeError):
-                        pass
-                    # Strip JSON block from display review
-                    cleaned_review = re.sub(
-                        r'\[CRITIC_REVIEW\].*?\[/CRITIC_REVIEW\]\s*',
-                        '', cleaned_review, flags=re.DOTALL,
-                    ).strip()
-                result["critic_review"] = cleaned_review
+                review_prompt, partial = build_review_prompt(body.prompt, result['response'])
+                raw_review = await asyncio.wait_for(critic_agent.run(review_prompt), timeout=30.0)
+                score, review = parse_review(raw_review, partial)
+                result["critic_score"] = score
+                result["critic_review"] = review
             except asyncio.TimeoutError:
                 logger.warning("compare.critic_timeout", agent=result["agent"])
             except Exception as exc:
@@ -532,12 +510,26 @@ class _TurnSocket:
         self.agent = "orchestrator"
         self.completed = False
         self.saved_message = None
+        self.started_at = time.monotonic()
+        self.first_token_ms = None
+        self.evidence: list[str] = []
+        self.evidence_chars = 0
 
     def record_saved_response(self, message):
         # Stop can arrive after commit but before the response is delivered.
         # Keep that saved answer instead of inserting a second, partial copy.
         self.saved_message = message
         self.completed = True
+
+    def record_evidence(self, agent, call, result):
+        remaining = 48000 - self.evidence_chars
+        if remaining <= 0:
+            return
+        entry = f"Agent: {agent}; Tool: {call['name']}; Arguments: {json.dumps(call['args'])}\n{result}"
+        if len(entry) > remaining:
+            entry = entry[:remaining] + "\n[Evidence truncated]"
+        self.evidence.append(entry)
+        self.evidence_chars += len(entry)
 
     async def send_json(self, data):
         kind = data.get("type")
@@ -546,6 +538,9 @@ class _TurnSocket:
             self.agent = data.get("agent", self.agent)
         elif kind == "stream_token":
             self.content += data.get("token", "")
+            if self.first_token_ms is None and data.get("token"):
+                self.first_token_ms = int((time.monotonic() - self.started_at) * 1000)
+                logger.info("chat.first_token", agent=self.agent, duration_ms=self.first_token_ms)
         elif kind == "response":
             self.record_saved_response(data.get("message"))
         await self.websocket.send_json(data)
@@ -645,6 +640,7 @@ async def _process_user_message(
     Pipeline: Save → Orchestrate → Delegate (parallel) → Synthesize → Respond
     """
     pipeline_start = time.time()
+    history = ""
 
     try:
         # Attachments arrive separately from the visible chat text. Convert PDF
@@ -873,6 +869,11 @@ async def _process_user_message(
             while len(sub_tasks) < len(agent_names):
                 sub_tasks.append(content)
 
+            jobs = list(dict(zip(agent_names, sub_tasks)).items())
+            if len(jobs) > 1:
+                jobs = [(name, task) for name, task in jobs if name != "critic"]
+            agent_names = [name for name, _ in jobs]
+            sub_tasks = [task for _, task in jobs]
             agents_planned = ["orchestrator"] + agent_names
             await _send_ws(websocket, {
                 "type": "pipeline_start",
@@ -897,11 +898,11 @@ async def _process_user_message(
                         "task": sub_tasks[i][:200],
                     })
 
-            # Run all agents in parallel
-            async def _run_sub(name: str, task: str) -> tuple[str, str, int]:
+            # Run specialists, respecting dependencies below.
+            async def _run_sub(name: str, task: str, supporting_context: str = "", visible: bool = False) -> tuple[str, str, int]:
                 agent = await _get_cached_agent(name)
                 if not agent:
-                    return name, f"Agent '{name}' not available.", 0
+                    raise RuntimeError(f"Agent '{name}' not available.")
                 await _send_ws(websocket, {
                     "type": "thinking",
                     "agent": name,
@@ -911,7 +912,7 @@ async def _process_user_message(
                 # Include original user content so sub-agents see file attachments
                 full_task = f"User's original message:\n{content}\n\nYour specific task:\n{task}"
                 start = time.time()
-                result = await _run_agent_with_streaming(agent, full_task, history, websocket, attachments=attachments, stream=False)
+                result = await _run_agent_with_streaming(agent, full_task, history + supporting_context, websocket, attachments=attachments, stream=visible)
                 duration = int((time.time() - start) * 1000)
                 await _send_ws(websocket, {
                     "type": "agent_complete",
@@ -927,25 +928,41 @@ async def _process_user_message(
                 })
                 return name, result, duration
 
-            # Execute in parallel with asyncio.gather
-            parallel_results = await asyncio.gather(
-                *[_run_sub(name, sub_tasks[i]) for i, name in enumerate(agent_names)],
+            # Work that consumes another agent's result must wait for it.
+            # Research can provide its own summary, but older router outputs may
+            # still request a separate writer. Preserve that dependency here.
+            parallel_results = []
+            supporting_context = ""
+            if "research" in dict(jobs) and "writer" in dict(jobs):
+                research_task = dict(jobs)["research"]
+                research_result = await _run_sub("research", research_task)
+                parallel_results.append(research_result)
+                supporting_context = "\n\nCompleted research to use (preserve source links):\n" + research_result[1]
+                jobs = [(name, task) for name, task in jobs if name != "research"]
+            parallel_results.extend(await asyncio.gather(
+                *[_run_sub(name, task, supporting_context, visible=bool(supporting_context) and len(jobs) == 1) for name, task in jobs],
                 return_exceptions=True,
-            )
+            ))
 
             # Collect results
             agent_outputs: dict[str, str] = {}
             contributing_agents = []
+            failed_count = 0
             for res in parallel_results:
                 if isinstance(res, Exception):
                     logger.error("parallel.agent.error", error=str(res))
+                    failed_count += 1
                     continue
                 name, output, duration = res
                 agent_outputs[name] = output
                 contributing_agents.append(name)
 
             # Synthesize if multiple agents responded
-            if len(agent_outputs) > 1:
+            if set(agent_outputs) == {"research", "writer"}:
+                final_response = agent_outputs["writer"]
+                final_agent_name = "writer"
+                await _stream_text(websocket, "writer", final_response)
+            elif len(agent_outputs) > 1:
                 await _send_ws(websocket, {
                     "type": "synthesis_start",
                     "agents_completed": contributing_agents,
@@ -957,21 +974,26 @@ async def _process_user_message(
                     "phase": "synthesizing",
                 })
 
-                synthesis_prompt = "Synthesize the following agent outputs into a single, cohesive response for the user:\n\n"
+                from app.agents.orchestrator import SynthesisAgent
+                synthesis_prompt = (
+                    f"Original user request and constraints:\n{content}\n\n"
+                    "Completed specialist outputs (supporting evidence):\n\n"
+                )
+                if failed_count:
+                    synthesis_prompt += f"{failed_count} specialist(s) failed. Do not claim all requested work is complete.\n\n"
                 for name, output in agent_outputs.items():
-                    synthesis_prompt += f"## {name.title()} Agent's Output:\n{output}\n\n"
-                synthesis_prompt += "Combine the above into a well-structured final response. Give credit to each agent's contribution."
-
-                final_response = await _run_agent_with_streaming(orchestrator, synthesis_prompt, "", websocket)
+                    synthesis_prompt += f"## {name.title()} output:\n{output}\n\n"
+                final_response = await _run_agent_with_streaming(SynthesisAgent(), synthesis_prompt, history, websocket)
                 final_agent_name = "orchestrator"
             elif agent_outputs:
                 name = list(agent_outputs.keys())[0]
                 final_response = agent_outputs[name]
+                if failed_count:
+                    final_response += "\n\nSome specialist work could not be completed. This answer contains only the available results."
                 final_agent_name = name
                 await _stream_text(websocket, name, final_response)
             else:
-                final_response = orch_response
-                final_agent_name = "orchestrator"
+                raise RuntimeError("The specialists could not complete the request. Please try again.")
 
         elif delegate_match:
             # ── Single agent delegation ──────────────────────────
@@ -1022,11 +1044,7 @@ async def _process_user_message(
                 final_response = sub_response
                 contributing_agents = [sub_agent_name]
             else:
-                final_agent_name = "orchestrator"
-                final_response = orch_response
-                contributing_agents = []
-                # Stream orchestrator's response since it IS the final answer
-                await _stream_text(websocket, "orchestrator", orch_response)
+                raise RuntimeError(f"The requested specialist '{sub_agent_name}' is unavailable. Please try again.")
         else:
             # ── Orchestrator didn't use DELEGATE/PARALLEL format ──
             # Decide: did it answer directly, or try to delegate in natural language?
@@ -1095,6 +1113,9 @@ async def _process_user_message(
             final_agent_name != "orchestrator" or bool(contributing_agents)
         )
         total_duration = int((time.time() - pipeline_start) * 1000)
+        logger.info("chat.answer_complete", conversation_id=conversation_id, agent=final_agent_name,
+                    duration_ms=total_duration, first_token_ms=getattr(websocket, "first_token_ms", None),
+                    answer_chars=len(final_response), contributors=contributing_agents)
 
         async with async_session_factory() as db:
             agent_msg = Message(
@@ -1146,7 +1167,7 @@ async def _process_user_message(
             })
 
         if should_review:
-            review_task = asyncio.create_task(_review_saved_response(websocket, agent_msg.id, final_agent_name, content, final_response))
+            review_task = asyncio.create_task(_review_saved_response(websocket, agent_msg.id, final_agent_name, content, final_response, history))
             _review_tasks.add(review_task)
             review_task.add_done_callback(_review_tasks.discard)
 
@@ -1196,23 +1217,18 @@ async def _process_user_message(
             pass
 
 
-async def _review_saved_response(websocket, message_id, agent_name, user_content, answer):
+async def _review_saved_response(websocket, message_id, agent_name, user_content, answer, context=""):
     """Optional quality metadata must not delay or replace the delivered reply."""
     try:
-        from app.agents.base import BaseAgent
         critic = await _get_cached_agent("critic")
-        prompt = (f"Review this output from the **{agent_name}** agent.\n\n"
-                  f"**User's original request:**\n{user_content[:1000]}\n\n"
-                  f"**Agent's output:**\n{answer[:3000]}")
+        evidence = "\n\n".join(getattr(websocket, "evidence", []))
+        prompt, partial = build_review_prompt(user_content, answer, context, evidence)
+        started = time.monotonic()
         raw = await asyncio.wait_for(critic.run(prompt), timeout=30)
-        match = re.search(r"\[CRITIC_REVIEW\]\s*(\{.*?\})\s*\[/CRITIC_REVIEW\]", raw, re.DOTALL)
-        score = None
-        if match:
-            try:
-                score = max(1, min(10, int(json.loads(match.group(1)).get("score", 0))))
-            except (ValueError, TypeError, json.JSONDecodeError):
-                pass
-        review = BaseAgent._clean_markdown(re.sub(r"\[CRITIC_REVIEW\].*?\[/CRITIC_REVIEW\]\s*", "", raw, flags=re.DOTALL)).strip()
+        score, review = parse_review(raw, partial)
+        logger.info("critic.complete", message_id=message_id, score=score,
+                    duration_ms=int((time.monotonic() - started) * 1000),
+                    answer_chars=len(answer), partial_context=partial)
         async with async_session_factory() as db:
             message = await db.get(Message, message_id)
             if message is None:
@@ -1418,12 +1434,20 @@ async def _get_conversation_context(conversation_id: str) -> str:
         if len(messages) <= 1:
             return ""
 
+        from app.agents.quality import excerpt
         parts = []
-        for msg in messages[:-1]:
+        remaining = 15000
+        for msg in reversed(messages[:-1]):
             role = "User" if msg.role == "user" else f"Agent ({msg.agent_name or 'system'})"
-            parts.append(f"{role}: {msg.content[:2000]}")
+            if msg.interrupted:
+                role += " [interrupted answer]"
+            text, cut = excerpt(msg.content, max(0, remaining - len(role) - 4))
+            parts.append(f"{role}: {text}")
+            remaining -= len(parts[-1]) + 2
+            if cut or remaining < 200:
+                break
+        return "Previous conversation (most recent available messages):\n" + "\n\n".join(reversed(parts)) if parts else ""
 
-        return "Previous conversation:\n" + "\n".join(parts) if parts else ""
 
 
 async def _stream_text(ws: WebSocket, agent_name: str, text: str):
@@ -1447,10 +1471,12 @@ async def _run_agent_with_streaming(
     they are included as image_url parts in the HumanMessage for Gemini vision.
     """
     from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, AIMessage
-    from app.agents.base import _invoke_with_retry
+    from app.agents.base import _invoke_with_retry, _underlying_model
+    from functools import partial
 
     async def _execute() -> str:
-        messages = [SystemMessage(content=agent._build_system_prompt(context))]
+        prompt_builder = getattr(agent, "_build_routing_prompt", agent._build_system_prompt) if routing else agent._build_system_prompt
+        messages = [SystemMessage(content=prompt_builder(context))]
         
         # PDFs are converted to text before this function is called. Keep image
         # attachments multimodal for vision-capable providers.
@@ -1474,86 +1500,57 @@ async def _run_agent_with_streaming(
         else:
             messages.append(HumanMessage(content=user_input))
 
-        llm = agent._get_fresh_llm()
-
-        last_text_content = ""
-        tool_results_log = []
-
-        for _ in range(getattr(agent, 'max_tool_rounds', 5)):  # respect per-agent limit
+        llm_factory = getattr(agent, "_get_routing_llm", agent._get_fresh_llm) if routing else agent._get_fresh_llm
+        llm = llm_factory()
+        budget = max(1, getattr(agent, 'max_tool_rounds', 5))
+        for round_index in range(budget + 1):
+            final_round = round_index == budget
+            round_llm = _underlying_model(llm) if final_round else llm
+            invoke = partial(_invoke_with_retry, tools=[] if routing or final_round else agent.tools)
+            if final_round:
+                messages.append(HumanMessage(content=(
+                    "The tool budget is exhausted. Give your final answer using the available "
+                    "evidence, address the original request, and state any remaining limitations. "
+                    "Do not request additional tools."
+                )))
             if stream:
-                response = await stream_model_response(llm, messages, lambda event: _send_ws(websocket, event), agent.name, _invoke_with_retry, routing=routing)
+                response = await stream_model_response(round_llm, messages, lambda event: _send_ws(websocket, event), agent.name, invoke, routing=routing)
             else:
-                response = await _invoke_with_retry(llm, messages)
+                response = await invoke(round_llm, messages)
 
             if hasattr(response, "tool_calls") and response.tool_calls:
-                # Gemini often returns text content alongside tool_calls — capture it
-                if isinstance(response, AIMessage) and response.content:
-                    rc = response_text(response.content)
-                    if rc.strip():
-                        last_text_content = rc
+                if final_round:
+                    raise RuntimeError("The agent could not produce a final answer within its tool budget.")
 
                 messages.append(response)
 
-                for call in response.tool_calls:
-                    tool_start = time.time()
+                async def on_tool_start(call):
                     await _send_ws(websocket, {
-                        "type": "tool_call",
-                        "agent": agent.name,
-                        "tool": call["name"],
+                        "type": "tool_call", "agent": agent.name, "tool": call["name"],
                         "args": {k: str(v)[:200] for k, v in call["args"].items()},
                     })
 
-                    await broadcast_event({
-                        "type": "activity",
-                        "agent": agent.name.capitalize(),
-                        "action": f'Using: {call["name"]}',
-                        "time": "now",
-                    })
-
-                    tool_map = {t.name: t for t in agent.tools}
-                    try:
-                        if call["name"] in tool_map:
-                            result = await tool_map[call["name"]].ainvoke(call["args"])
-                        else:
-                            result = f"Unknown tool: {call['name']}"
-                    except Exception as exc:
-                        result = f"Tool error: {exc}"
-
-                    tool_duration = int((time.time() - tool_start) * 1000)
-                    tool_results_log.append(f"**Tool `{call['name']}`** ({tool_duration}ms):\n{str(result)[:2000]}")
-                    messages.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
-
+                async def on_tool_result(call, result, duration):
+                    if isinstance(websocket, _TurnSocket):
+                        websocket.record_evidence(agent.name, call, result)
                     await _send_ws(websocket, {
-                        "type": "tool_result",
-                        "agent": agent.name,
-                        "tool": call["name"],
-                        "result": str(result)[:1000],
-                        "duration_ms": tool_duration,
+                        "type": "tool_result", "agent": agent.name, "tool": call["name"],
+                        "result": result[:1000], "duration_ms": duration,
                     })
+
+                results = await execute_tool_calls(response.tool_calls, agent.tools, on_tool_start, on_tool_result)
+                for call, result in zip(response.tool_calls, results):
+                    messages.append(ToolMessage(content=result, tool_call_id=call["id"]))
+
             else:
                 content = response_text(response.content) if isinstance(response, AIMessage) else str(response)
                 if content and content.strip():
                     return content
-                # If LLM returned empty content after tools, use accumulated text or tool results
-                if last_text_content:
-                    return last_text_content
-                if tool_results_log:
-                    return "\n\n".join(tool_results_log)
-                return "(Agent finished with no text output)"
-
-        # Exhausted tool rounds — return whatever we have
-        content = response_text(response.content) if isinstance(response, AIMessage) else str(response)
-        if content and content.strip():
-            return content
-        if last_text_content:
-            return last_text_content
-        if tool_results_log:
-            return "\n\n".join(tool_results_log)
-        return "(Agent finished with no text output)"
+                raise RuntimeError("The model returned no answer. Please try again.")
 
     try:
         # Scale timeout with tool rounds — research agents need more time
-        agent_timeout = max(120.0, getattr(agent, 'max_tool_rounds', 5) * 18.0)
+        agent_timeout = get_settings().routing_timeout_seconds if routing else max(120.0, getattr(agent, 'max_tool_rounds', 5) * 18.0)
         return await asyncio.wait_for(_execute(), timeout=agent_timeout)
     except asyncio.TimeoutError:
         logger.warning("agent.timeout", agent=agent.name)

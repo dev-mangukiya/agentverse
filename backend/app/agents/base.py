@@ -265,47 +265,64 @@ def _get_fallback_llm(temperature: float = 0.3) -> BaseChatModel | None:
     return None
 
 
-async def _invoke_with_retry(llm, messages, max_retries=0):
-    """Invoke LLM with timeout and automatic fallback on transient errors.
-    
-    On transient error (429 rate limit, 503 unavailable, overloaded):
-    1. Mark the current Google key as unavailable
-    2. Try the next available Google key  
-    3. If all Google keys exhausted, fall back to HuggingFace
-    """
+def _underlying_model(llm):
+    while getattr(llm, "bound", None) is not None:
+        llm = llm.bound
+    return llm
+
+
+def _preserve_bindings(original, replacement, tools=None):
+    # Tool schemas and routing options live on RunnableBinding, not the model.
+    # Losing these on fallback turns a tool-using request into an ungrounded answer.
+    bindings = {}
+    layers = []
+    while getattr(original, "bound", None) is not None:
+        layers.append(getattr(original, "kwargs", {}))
+        original = original.bound
+    for layer in reversed(layers):
+        bindings.update(layer)
+    # Thinking controls are model-specific; never forward them to another model.
+    if getattr(original, "model", None) != getattr(replacement, "model", None):
+        for name in ("thinking_budget", "thinking_level", "include_thoughts"):
+            bindings.pop(name, None)
+    if tools:
+        # Rebuild schemas with the replacement provider's own adapter.
+        bindings.pop("tools", None)
+        bindings.pop("tool_choice", None)
+        replacement = replacement.bind_tools(tools)
+    return replacement.bind(**bindings) if bindings else replacement
+
+
+async def _invoke_with_retry(llm, messages, max_retries=None, *, initial_error=None, tools=None):
+    """Bound fallback time and preserve tools; never replay a known failed stream."""
+    attempts = get_settings().max_retries if max_retries is None else max_retries
+    current = llm
+    error = initial_error
+    seen = {id(_underlying_model(llm))}
     try:
-        return await asyncio.wait_for(llm.ainvoke(messages), timeout=120)
+        # One deadline for the whole request, not a fresh 120s for every key.
+        async with asyncio.timeout(120):
+            for attempt in range(attempts + 1):
+                if error is None:
+                    try:
+                        return await current.ainvoke(messages)
+                    except Exception as exc:
+                        error = exc
+                if not _is_transient_error(error) or attempt == attempts:
+                    raise error
+                model = _underlying_model(current)
+                key = getattr(model, 'google_api_key', None)
+                if key is not None:
+                    _google_key_manager.mark_rate_limited(key)
+                logger.warning('llm.transient_error', attempt=attempt + 1, error_type=type(error).__name__)
+                replacement = _get_fallback_llm(temperature=getattr(model, 'temperature', 0.3))
+                if replacement is None or id(_underlying_model(replacement)) in seen:
+                    raise error
+                seen.add(id(_underlying_model(replacement)))
+                current = _preserve_bindings(llm, replacement, tools)
+                error = None
     except asyncio.TimeoutError:
-        raise RuntimeError("LLM request timed out after 120 seconds.")
-    except Exception as exc:
-        if _is_transient_error(exc):
-            # Mark the current key as unavailable if it's a Google LLM
-            if hasattr(llm, 'google_api_key'):
-                _google_key_manager.mark_rate_limited(llm.google_api_key)
-            
-            logger.warning("llm.transient_error", error=str(exc)[:200])
-            
-            # Try up to N more keys (all remaining Google keys + 1 HuggingFace attempt)
-            for attempt in range(max(_google_key_manager.key_count, 1) + 1):
-                fallback = _get_fallback_llm()
-                if fallback is None:
-                    break
-                try:
-                    logger.info("llm.retry_with_fallback", attempt=attempt + 1)
-                    return await asyncio.wait_for(fallback.ainvoke(messages), timeout=120)
-                except asyncio.TimeoutError:
-                    raise RuntimeError("Fallback LLM timed out after 120 seconds.")
-                except Exception as fb_exc:
-                    if _is_transient_error(fb_exc):
-                        if hasattr(fallback, 'google_api_key'):
-                            _google_key_manager.mark_rate_limited(fallback.google_api_key)
-                        logger.warning("llm.fallback_also_limited", attempt=attempt + 1)
-                        continue
-                    raise fb_exc
-            
-            # All keys exhausted
-            raise
-        raise
+        raise RuntimeError('LLM request timed out after 120 seconds.') from None
 
 
 class BaseAgent:
@@ -376,7 +393,7 @@ class BaseAgent:
         llm = self._get_fresh_llm()
 
         try:
-            response = await _invoke_with_retry(llm, messages)
+            response = await _invoke_with_retry(llm, messages, tools=self.tools)
 
             # Handle tool calls — loop up to max_tool_rounds in case the LLM
             # needs multiple rounds (e.g., search → fetch → refine → fetch)
@@ -387,18 +404,13 @@ class BaseAgent:
                 messages.append(response)
                 for result in tool_results:
                     messages.append(result)
-                response = await _invoke_with_retry(llm, messages)
+                response = await _invoke_with_retry(llm, messages, tools=self.tools)
 
             raw = response.content if isinstance(response, AIMessage) else str(response)
             # Gemini with bound tools may return content as a list of parts
             # e.g. [{"type": "text", "text": "..."}] instead of a plain string
-            if isinstance(raw, list):
-                content = "\n".join(
-                    part.get("text", "") if isinstance(part, dict) else str(part)
-                    for part in raw
-                ).strip()
-            else:
-                content = str(raw) if raw else ""
+            from app.agents.streaming import response_text
+            content = response_text(raw)
 
             # Post-process markdown to fix common formatting issues
             content = self._clean_markdown(content)
@@ -414,46 +426,26 @@ class BaseAgent:
         """Execute tool calls and return ToolMessage results."""
         from langchain_core.messages import ToolMessage
 
-        results = []
-        tool_map = {t.name: t for t in self.tools}
-
-        for call in tool_calls:
-            tool_name = call["name"]
-            tool_args = call["args"]
-
-            logger.info(f"agent.{self.name}.tool_call", tool=tool_name)
-
-            if tool_name in tool_map:
-                try:
-                    result = await tool_map[tool_name].ainvoke(tool_args)
-                    results.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
-                except Exception as exc:
-                    results.append(ToolMessage(content=f"Tool error: {exc}", tool_call_id=call["id"]))
-            else:
-                results.append(ToolMessage(content=f"Unknown tool: {tool_name}", tool_call_id=call["id"]))
-
-        return results
+        from app.agents.tool_execution import execute_tool_calls
+        results = await execute_tool_calls(tool_calls, self.tools)
+        return [ToolMessage(content=result, tool_call_id=call["id"])
+                for call, result in zip(tool_calls, results)]
 
     # Shared formatting rules appended to every agent's system prompt so
     # the frontend MarkdownRenderer always receives well-structured markdown.
     _FORMATTING_RULES = """
 
-## ⚠️ Output Formatting Rules (MANDATORY)
-Your response is rendered as **Markdown**. Follow these rules strictly:
-
-1. **Structure with headings** — Use `##` and `###` to create clear sections. Never output a wall of text.
-2. **Fenced code blocks** — Always wrap code in triple-backtick fences with the language tag:
-   ```python
-   print("hello")
-   ```
-   Never put code inline when it's more than a short expression.
-3. **Bullet points & numbered lists** — Use `-` or `1.` for lists. Each point on its own line.
-4. **Bold key terms** — Use `**term**` for emphasis on important words or labels.
-5. **Separate sections visually** — Use `---` horizontal rules between major sections.
-6. **Short paragraphs** — Keep paragraphs to 2-3 sentences max. Add blank lines between them.
-7. **Tables when comparing** — Use markdown tables for any side-by-side comparisons or structured data.
-8. **No raw dumps** — Never dump raw JSON, logs, or output without wrapping in a code block.
-9. **Explain, then show** — Always give a brief explanation before any code block or data output.
+## Answer quality
+Follow the user's actual format, length, language, audience, and constraints.
+Answer the request directly; match the amount of detail to the task. Use headings,
+lists, or tables only when useful. Do not add mandatory introductions, conclusions,
+process commentary, or decorative sections to short answers.
+Use valid Markdown and fenced code blocks. Preserve code indentation and citations.
+Distinguish verified facts, assumptions, and missing information. Never invent
+sources, statistics, executed tests, or successful tool actions. If a tool fails,
+explain the relevant limitation and use the evidence available.
+Before answering, check that you addressed every requested part, preserved key
+constraints, and supported factual claims with available evidence.
 """
 
     def _build_identity_clause(self) -> str:
@@ -491,7 +483,8 @@ Your role: {self.role}
 """
 
     def _build_system_prompt(self, context: str = "") -> str:
-        prompt = self._build_identity_clause() + self.system_prompt + self._FORMATTING_RULES
+        from datetime import datetime, timezone
+        prompt = f"Current UTC date: {datetime.now(timezone.utc).date().isoformat()}\n" + self._build_identity_clause() + self.system_prompt + self._FORMATTING_RULES
         if context:
             prompt += f"\n\n## Context from other agents:\n{context}"
         return prompt

@@ -10,7 +10,7 @@ vars discoverable in one place.
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -86,6 +86,9 @@ class Settings(BaseSettings):
     google_oauth_client_id: str | None = None  # For "Sign in with Google"
 
     # ── Agent limits ─────────────────────────────────────
+    routing_timeout_seconds: float = Field(default=25, gt=0)
+    tool_timeout_seconds: float = Field(default=25, gt=0)
+    max_parallel_tools: int = Field(default=4, ge=1, le=8)
     max_retries: int = 2
     max_plan_steps: int = 10
     critic_pass_threshold: float = 0.75
@@ -116,7 +119,7 @@ class Settings(BaseSettings):
         return bool(
             self.openai_api_key
             or self.anthropic_api_key
-            or self.google_api_key
+            or self.google_api_key_list
             or self.huggingface_api_key
         )
 

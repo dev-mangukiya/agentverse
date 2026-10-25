@@ -62,10 +62,13 @@ async def stream_model_response(
                     await emit({"type": "stream_start", "agent": agent})
                     started = True
                 await emit({"type": "stream_token", "agent": agent, "token": text})
-    except Exception:
+    except Exception as exc:
         if started or tool_call:
             raise  # Don't silently re-run a partially delivered answer/tool call.
-        response = await fallback(llm, messages)
+        if isinstance(exc, (NotImplementedError, AttributeError)):
+            response = await fallback(llm, messages)
+        else:
+            response = await fallback(llm, messages, initial_error=exc)
         text = response_text(response.content)
         private_route = routing and text.lstrip().upper().startswith(directives)
         if text and not getattr(response, "tool_calls", None) and not private_route:

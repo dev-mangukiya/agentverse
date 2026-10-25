@@ -39,8 +39,8 @@ async def web_search(query: str) -> str:
     def _search():
         from ddgs import DDGS
         results = []
-        with DDGS() as ddgs:
-            for r in ddgs.text(query, max_results=10):
+        with DDGS(timeout=12) as ddgs:
+            for r in ddgs.text(query, max_results=6):
                 date_info = f"\nPublished: {r['date']}" if r.get('date') else ""
                 results.append(f"**{r['title']}**\n{r['body']}{date_info}\nSource: {r['href']}")
         return results
@@ -80,8 +80,9 @@ async def fetch_url(url: str) -> str:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; AgentVerse/1.0)"})
         try:
             with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
-                # Limit download to 50KB to avoid memory issues
-                raw = resp.read(50_000)
+                # Bound downloads while allowing space for page headers/scripts
+                # before the article body (50KB often captured only navigation).
+                raw = resp.read(500_000)
                 html = raw.decode("utf-8", errors="replace")
         except Exception as exc:
             return f"Failed to fetch URL: {exc}"

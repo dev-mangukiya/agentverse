@@ -37,7 +37,11 @@ async def search_memory(query: str) -> str:
         formatted = []
         for i, r in enumerate(results, 1):
             ts = r.get("timestamp", 0)
-            when = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M") if ts else "unknown"
+            when = (
+                datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
+                if ts
+                else "unknown"
+            )
             role = r.get("role", "unknown")
             agent = r.get("agent_name", "")
             speaker = f"{agent} ({role})" if agent else role

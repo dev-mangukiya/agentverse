@@ -9,10 +9,8 @@ from __future__ import annotations
 import asyncio
 import time
 import threading
-from typing import Any
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.tools import BaseTool
 
 from app.core.config import get_settings
@@ -24,11 +22,11 @@ logger = get_logger(__name__)
 # ── Google API Key Round-Robin Manager ──────────────────────────────────────
 class GoogleKeyManager:
     """Thread-safe round-robin manager for multiple Google API keys.
-    
+
     Tracks which keys are available and which are in cooldown (rate-limited).
     Automatically rotates to the next available key on each call.
     """
-    
+
     COOLDOWN_SECONDS = 60  # How long to wait before retrying a rate-limited key
 
     def __init__(self) -> None:
@@ -54,7 +52,7 @@ class GoogleKeyManager:
 
     def get_next_key(self) -> str | None:
         """Get the next available API key using round-robin.
-        
+
         Skips keys that are in cooldown. Returns None if all keys are exhausted.
         """
         self._ensure_initialized()
@@ -67,12 +65,15 @@ class GoogleKeyManager:
             for _ in range(len(self._keys)):
                 key = self._keys[self._index % len(self._keys)]
                 self._index += 1
-                
+
                 # Check if this key is in cooldown
                 cooldown_until = self._cooldowns.get(key, 0)
                 if now >= cooldown_until:
                     self._cooldowns.pop(key, None)
-                    logger.info("google_keys.selected", key_index=(self._index - 1) % len(self._keys))
+                    logger.info(
+                        "google_keys.selected",
+                        key_index=(self._index - 1) % len(self._keys),
+                    )
                     return key
 
             # All keys are in cooldown
@@ -82,15 +83,17 @@ class GoogleKeyManager:
     def mark_rate_limited(self, key) -> None:
         """Mark a key as rate-limited — it won't be used for COOLDOWN_SECONDS."""
         # LangChain may pass a pydantic SecretStr; unwrap to plain str
-        if hasattr(key, 'get_secret_value'):
+        if hasattr(key, "get_secret_value"):
             key = key.get_secret_value()
         key = str(key)
         with self._lock:
-            self._cooldowns[key] = time.monotonic() + self.COOLDOWN_SECONDS
-            active = sum(1 for k in self._keys if self._cooldowns.get(k, 0) <= time.monotonic())
+            for project_key in self._keys:
+                self._cooldowns[project_key] = time.monotonic() + self.COOLDOWN_SECONDS
+            active = sum(
+                1 for k in self._keys if self._cooldowns.get(k, 0) <= time.monotonic()
+            )
             logger.warning(
                 "google_keys.rate_limited",
-                key_suffix=f"...{key[-6:]}",
                 cooldown_s=self.COOLDOWN_SECONDS,
                 active_keys=active,
                 total_keys=len(self._keys),
@@ -116,22 +119,31 @@ def get_google_key_manager() -> GoogleKeyManager:
 _llm_cache: dict[tuple, BaseChatModel] = {}
 
 
-def _create_google_llm(api_key: str, model: str = "gemini-2.5-flash", temperature: float = 0.3) -> BaseChatModel:
+def _cache_model(key, model):
+    if key not in _llm_cache and len(_llm_cache) >= 32:
+        _llm_cache.pop(next(iter(_llm_cache)))
+    _llm_cache[key] = model
+    return model
+
+
+def _create_google_llm(
+    api_key: str, model: str = "gemini-2.5-flash", temperature: float = 0.3
+) -> BaseChatModel:
     """Create a Google Gemini LLM with a specific API key."""
-    cache_key = ("google", model, temperature, api_key[-8:])
+    cache_key = ("google", model, temperature, api_key)
     if cache_key in _llm_cache:
         return _llm_cache[cache_key]
 
     from langchain_google_genai import ChatGoogleGenerativeAI
+
     llm = ChatGoogleGenerativeAI(
         model=model if "gemini" in model else "gemini-2.5-flash",
         google_api_key=api_key,
         temperature=temperature,
-        max_output_tokens=8192,
+        max_output_tokens=get_settings().max_output_tokens,
         max_retries=0,  # Don't let LangChain retry the same rate-limited key; our rotation handles it
     )
-    _llm_cache[cache_key] = llm
-    return llm
+    return _cache_model(cache_key, llm)
 
 
 def get_llm(
@@ -146,6 +158,17 @@ def get_llm(
     settings = get_settings()
     provider = provider or settings.default_model_provider
     model = model or settings.default_model
+    from app.core.config import validate_provider_model
+
+    validate_provider_model(provider, model)
+    configured = {
+        "google": bool(settings.google_api_key_list),
+        "openai": bool(settings.openai_api_key),
+        "anthropic": bool(settings.anthropic_api_key),
+        "huggingface": bool(settings.huggingface_api_key),
+    }
+    if not configured.get(provider):
+        raise RuntimeError(f"The selected {provider} provider is not configured")
 
     llm: BaseChatModel | None = None
 
@@ -162,31 +185,41 @@ def get_llm(
             return _llm_cache[cache_key]
         try:
             from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
-            import os
-            os.environ.setdefault("HUGGINGFACEHUB_API_TOKEN", settings.huggingface_api_key)
+
             endpoint = HuggingFaceEndpoint(
                 repo_id=model if "/" in model else "Qwen/Qwen2.5-Coder-32B-Instruct",
                 temperature=temperature,
-                max_new_tokens=2048,
+                max_new_tokens=settings.max_output_tokens,
                 huggingfacehub_api_token=settings.huggingface_api_key,
                 timeout=120,
             )
             llm = ChatHuggingFace(llm=endpoint, verbose=False)
-            _llm_cache[cache_key] = llm
+            _cache_model(cache_key, llm)
         except ImportError:
             raise RuntimeError("langchain-huggingface not installed.")
 
     # ── OpenAI ───────────────────────────────────────────────────────────
     if llm is None and provider == "openai" and settings.openai_api_key:
         from langchain_openai import ChatOpenAI
-        llm = ChatOpenAI(model=model, api_key=settings.openai_api_key, temperature=temperature)
+
+        llm = ChatOpenAI(
+            model=model,
+            api_key=settings.openai_api_key,
+            temperature=temperature,
+            max_tokens=settings.max_output_tokens,
+            max_retries=0,
+        )
 
     # ── Anthropic ────────────────────────────────────────────────────────
     if llm is None and provider == "anthropic" and settings.anthropic_api_key:
         from langchain_anthropic import ChatAnthropic
+
         llm = ChatAnthropic(
             model=model if "claude" in model else "claude-sonnet-4-20250514",
-            api_key=settings.anthropic_api_key, temperature=temperature,
+            api_key=settings.anthropic_api_key,
+            temperature=temperature,
+            max_tokens=settings.max_output_tokens,
+            max_retries=0,
         )
 
     # ── Fallback chain ───────────────────────────────────────────────────
@@ -198,11 +231,13 @@ def get_llm(
     if llm is None and settings.huggingface_api_key:
         try:
             from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
-            import os
-            os.environ.setdefault("HUGGINGFACEHUB_API_TOKEN", settings.huggingface_api_key)
+
             endpoint = HuggingFaceEndpoint(
-                repo_id="Qwen/Qwen2.5-Coder-32B-Instruct", temperature=temperature,
-                max_new_tokens=2048, huggingfacehub_api_token=settings.huggingface_api_key, timeout=120,
+                repo_id="Qwen/Qwen2.5-Coder-32B-Instruct",
+                temperature=temperature,
+                max_new_tokens=settings.max_output_tokens,
+                huggingfacehub_api_token=settings.huggingface_api_key,
+                timeout=120,
             )
             llm = ChatHuggingFace(llm=endpoint, verbose=False)
         except Exception:
@@ -218,24 +253,44 @@ def get_llm(
 
 def _is_transient_error(exc: Exception) -> bool:
     """Check if an exception is a transient error that should trigger fallback.
-    
+
     Covers: rate limits (429), quota exhaustion, server overload (503),
     and Gemini-specific UNAVAILABLE errors.
     """
+    status = getattr(exc, "status_code", None) or getattr(
+        getattr(exc, "response", None), "status_code", None
+    )
+    if isinstance(status, int):
+        return status == 429 or 500 <= status < 600
+    if isinstance(exc, (TimeoutError, ConnectionError)):
+        return True
     err = str(exc).lower()
-    return any(marker in err for marker in [
-        "429", "resource_exhausted", "quota", "rate limit",
-        "too many requests", "rate_limit",
-        "503", "unavailable", "overloaded", "service_unavailable",
-        "server error", "internal error", "temporarily",
-        "high demand", "capacity",
-    ])
+    return any(
+        marker in err
+        for marker in [
+            "429",
+            "resource_exhausted",
+            "quota",
+            "rate limit",
+            "too many requests",
+            "rate_limit",
+            "503",
+            "unavailable",
+            "overloaded",
+            "service_unavailable",
+            "server error",
+            "internal error",
+            "temporarily",
+            "high demand",
+            "capacity",
+        ]
+    )
 
 
 def _get_fallback_llm(temperature: float = 0.3) -> BaseChatModel | None:
     """Get a fallback LLM — try next Google key first, then HuggingFace."""
     settings = get_settings()
-    
+
     # Try another Google key if available
     if _google_key_manager.get_available_count() > 0:
         key = _google_key_manager.get_next_key()
@@ -250,18 +305,19 @@ def _get_fallback_llm(temperature: float = 0.3) -> BaseChatModel | None:
             return _llm_cache[cache_key]
         try:
             from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
-            import os
-            os.environ.setdefault("HUGGINGFACEHUB_API_TOKEN", settings.huggingface_api_key)
+
             endpoint = HuggingFaceEndpoint(
-                repo_id="Qwen/Qwen2.5-Coder-32B-Instruct", temperature=temperature,
-                max_new_tokens=2048, huggingfacehub_api_token=settings.huggingface_api_key, timeout=120,
+                repo_id="Qwen/Qwen2.5-Coder-32B-Instruct",
+                temperature=temperature,
+                max_new_tokens=settings.max_output_tokens,
+                huggingfacehub_api_token=settings.huggingface_api_key,
+                timeout=120,
             )
             llm = ChatHuggingFace(llm=endpoint, verbose=False)
-            _llm_cache[cache_key] = llm
-            return llm
+            return _cache_model(cache_key, llm)
         except Exception as exc:
             logger.warning("llm.hf_fallback_unavailable", error=str(exc))
-    
+
     return None
 
 
@@ -293,7 +349,9 @@ def _preserve_bindings(original, replacement, tools=None):
     return replacement.bind(**bindings) if bindings else replacement
 
 
-async def _invoke_with_retry(llm, messages, max_retries=None, *, initial_error=None, tools=None):
+async def _invoke_with_retry(
+    llm, messages, max_retries=None, *, initial_error=None, tools=None
+):
     """Bound fallback time and preserve tools; never replay a known failed stream."""
     attempts = get_settings().max_retries if max_retries is None else max_retries
     current = llm
@@ -305,24 +363,40 @@ async def _invoke_with_retry(llm, messages, max_retries=None, *, initial_error=N
             for attempt in range(attempts + 1):
                 if error is None:
                     try:
-                        return await current.ainvoke(messages)
+                        from app.services.runs import count_model_call
+
+                        count_model_call()
+                        from app.services.provider_limits import model_slot
+
+                        async with model_slot(current):
+                            response = await current.ainvoke(messages)
+                            from app.agents.telemetry import record_usage
+
+                            record_usage(response)
+                            return response
                     except Exception as exc:
                         error = exc
                 if not _is_transient_error(error) or attempt == attempts:
                     raise error
                 model = _underlying_model(current)
-                key = getattr(model, 'google_api_key', None)
+                key = getattr(model, "google_api_key", None)
                 if key is not None:
                     _google_key_manager.mark_rate_limited(key)
-                logger.warning('llm.transient_error', attempt=attempt + 1, error_type=type(error).__name__)
-                replacement = _get_fallback_llm(temperature=getattr(model, 'temperature', 0.3))
+                logger.warning(
+                    "llm.transient_error",
+                    attempt=attempt + 1,
+                    error_type=type(error).__name__,
+                )
+                replacement = _get_fallback_llm(
+                    temperature=getattr(model, "temperature", 0.3)
+                )
                 if replacement is None or id(_underlying_model(replacement)) in seen:
                     raise error
                 seen.add(id(_underlying_model(replacement)))
                 current = _preserve_bindings(llm, replacement, tools)
                 error = None
     except asyncio.TimeoutError:
-        raise RuntimeError('LLM request timed out after 120 seconds.') from None
+        raise RuntimeError("LLM request timed out after 120 seconds.") from None
 
 
 class BaseAgent:
@@ -346,90 +420,66 @@ class BaseAgent:
     @staticmethod
     def _clean_markdown(text: str) -> str:
         """Post-process LLM output to fix common markdown formatting issues.
-        
+
         Gemini and other models sometimes produce markdown that doesn't render
         well: missing blank lines before headings, code fences glued to text,
         or headings without the ### prefix. This method fixes those patterns.
         """
         import re
+
         if not text:
             return text
 
         # 1. Fix code fences glued to preceding text (e.g. "Code```python" → "Code\n\n```python")
-        text = re.sub(r'([^\n`])```', r'\1\n\n```', text)
+        text = re.sub(r"([^\n`])```", r"\1\n\n```", text)
 
         # 2. Ensure blank line before headings (###, ##, #) if not already present
-        text = re.sub(r'([^\n])\n(#{1,6}\s)', r'\1\n\n\2', text)
+        text = re.sub(r"([^\n])\n(#{1,6}\s)", r"\1\n\n\2", text)
 
         # 3. Ensure blank line after code fence closing ``` before next content
-        text = re.sub(r'```\n([^\n])', r'```\n\n\1', text)
+        text = re.sub(r"```\n([^\n])", r"```\n\n\1", text)
 
         # 4. Ensure blank line before code fences if not already present
-        text = re.sub(r'([^\n])\n```', r'\1\n\n```', text)
+        text = re.sub(r"([^\n])\n```", r"\1\n\n```", text)
 
         # 5. Fix emoji headings without ### prefix (e.g. "🧠 Approach" → "### 🧠 Approach")
         text = re.sub(
-            r'^((?:🧠|💻|▶️|📝|⚙️|📋|🔍|📊|🔗|✍️|✅|⚠️|💡|🏁|📄|🔑|📖|❓|🔎|📈|📥)\s.+)$',
-            r'### \1',
+            r"^((?:🧠|💻|▶️|📝|⚙️|📋|🔍|📊|🔗|✍️|✅|⚠️|💡|🏁|📄|🔑|📖|❓|🔎|📈|📥)\s.+)$",
+            r"### \1",
             text,
             flags=re.MULTILINE,
         )
         # Avoid double ### if the LLM already prefixed it
-        text = text.replace('### ### ', '### ')
+        text = text.replace("### ### ", "### ")
 
         # 6. Normalize excessive blank lines (3+ → 2)
-        text = re.sub(r'\n{4,}', '\n\n\n', text)
+        text = re.sub(r"\n{4,}", "\n\n\n", text)
 
         return text.strip()
 
     async def run(self, user_input: str, context: str = "") -> str:
-        """Execute the agent with user input and optional context."""
-        messages = [SystemMessage(content=self._build_system_prompt(context))]
-        messages.append(HumanMessage(content=user_input))
+        """Use the same bounded tool loop as chat and propagate real failures."""
+        from app.api.routes.chat import _run_agent_with_streaming
 
-        logger.info(f"agent.{self.name}.invoke", input_length=len(user_input))
+        class SilentSocket:
+            async def send_json(self, _):
+                pass
 
-        # Get a fresh LLM each time so the key manager can rotate keys
-        llm = self._get_fresh_llm()
-
-        try:
-            response = await _invoke_with_retry(llm, messages, tools=self.tools)
-
-            # Handle tool calls — loop up to max_tool_rounds in case the LLM
-            # needs multiple rounds (e.g., search → fetch → refine → fetch)
-            for _ in range(self.max_tool_rounds):
-                if not (hasattr(response, "tool_calls") and response.tool_calls):
-                    break
-                tool_results = await self._execute_tool_calls(response.tool_calls)
-                messages.append(response)
-                for result in tool_results:
-                    messages.append(result)
-                response = await _invoke_with_retry(llm, messages, tools=self.tools)
-
-            raw = response.content if isinstance(response, AIMessage) else str(response)
-            # Gemini with bound tools may return content as a list of parts
-            # e.g. [{"type": "text", "text": "..."}] instead of a plain string
-            from app.agents.streaming import response_text
-            content = response_text(raw)
-
-            # Post-process markdown to fix common formatting issues
-            content = self._clean_markdown(content)
-
-            logger.info(f"agent.{self.name}.complete", output_length=len(content))
-            return content if content else "The agent processed your request but produced no text output."
-
-        except Exception as exc:
-            logger.error(f"agent.{self.name}.error", error=str(exc))
-            return f"Agent {self.name} encountered an error: {exc}"
+        return await _run_agent_with_streaming(
+            self, user_input, context, SilentSocket(), stream=False
+        )
 
     async def _execute_tool_calls(self, tool_calls: list[dict]) -> list:
         """Execute tool calls and return ToolMessage results."""
         from langchain_core.messages import ToolMessage
 
         from app.agents.tool_execution import execute_tool_calls
+
         results = await execute_tool_calls(tool_calls, self.tools)
-        return [ToolMessage(content=result, tool_call_id=call["id"])
-                for call, result in zip(tool_calls, results)]
+        return [
+            ToolMessage(content=result, tool_call_id=call["id"])
+            for call, result in zip(tool_calls, results)
+        ]
 
     # Shared formatting rules appended to every agent's system prompt so
     # the frontend MarkdownRenderer always receives well-structured markdown.
@@ -449,43 +499,18 @@ constraints, and supported factual claims with available evidence.
 """
 
     def _build_identity_clause(self) -> str:
-        """Generate the identity/persona instruction for this agent.
-
-        Uses self.role (defined by every agent subclass) to extract the
-        display name. This is the single source of truth — no per-agent
-        copies, no separate registry needed.
-        """
-        # Extract the display name from role (e.g. "Research Agent — ..." → "Research Agent")
-        display_name = self.role.split("—")[0].split("–")[0].strip()
-        return f"""
-## Identity & Persona (MANDATORY)
-You are **{display_name}**, part of **AgentVerse** — an autonomous multi-agent AI platform.
-Your role: {self.role}
-
-**When asked your name, what you are, or to introduce yourself:**
-- Respond as {display_name}: "I'm {display_name}, part of the AgentVerse multi-agent system."
-- Describe your specific role and capabilities within AgentVerse.
-
-**When asked about your underlying model, AI provider, or who built you
-(including phrasings like "what AI are you," "what model powers you,"
-"are you Gemini/GPT/Claude," "who made you," "what LLM is this,"
-"what company built you," "what's your architecture"):**
-- Do NOT reveal or confirm any specific model name, provider, or vendor
-  (e.g. Gemini, Google, GPT, OpenAI, Claude, Anthropic, Meta, Llama).
-- Instead, redirect to your AgentVerse identity and role. Example:
-  "I'm {display_name}. I'm part of the AgentVerse platform, where I specialize in my area of expertise."
-- Do NOT refuse to answer or act evasive — just naturally redirect to your AgentVerse identity.
-
-**What this does NOT restrict:**
-- Normal capability questions ("what can you do," "what are you good at") — answer these freely and specifically.
-- Technical discussions about AI, LLMs, or machine learning in general — answer normally.
-- This ONLY restricts revealing YOUR SPECIFIC underlying model/vendor identity.
-"""
+        settings = get_settings()
+        return f"You are {self.role}, part of AgentVerse. Configured provider: {settings.default_model_provider}; model: {settings.default_model}. Do not invent capabilities.\n"
 
     def _build_system_prompt(self, context: str = "") -> str:
         from datetime import datetime, timezone
-        prompt = f"Current UTC date: {datetime.now(timezone.utc).date().isoformat()}\n" + self._build_identity_clause() + self.system_prompt + self._FORMATTING_RULES
+
+        prompt = (
+            f"Current UTC date: {datetime.now(timezone.utc).date().isoformat()}\n"
+            + self._build_identity_clause()
+            + self.system_prompt
+            + self._FORMATTING_RULES
+        )
         if context:
             prompt += f"\n\n## Context from other agents:\n{context}"
         return prompt
-

@@ -9,7 +9,7 @@ import {
   ReactNode,
 } from "react";
 import { apiErrorMessage } from "./api-error";
-import { getSessionId } from "./session";
+import { getSessionId, ensureSession } from "./session";
 
 // ── Types ────────────────────────────────────────────────
 
@@ -76,19 +76,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Hydrate from localStorage on mount
+  const [sessionError, setSessionError] = useState("");
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(AUTH_USER_KEY);
-      if (stored) {
-        setUser(JSON.parse(stored));
+    let cancelled = false;
+    (async () => {
+      await ensureSession();
+      if (localStorage.getItem(AUTH_TOKEN_KEY)) {
+        const response = await fetch(`${API_URL}/api/v1/auth/me`, { headers: getAuthHeaders() });
+        if (response.ok) {
+          const data = await response.json();
+          if (!cancelled) setUser(data.user);
+        } else if (response.status === 401) {
+          localStorage.removeItem(AUTH_TOKEN_KEY);
+          localStorage.removeItem(AUTH_USER_KEY);
+        } else throw new Error("Account service is temporarily unavailable");
       }
-    } catch {
-      // Corrupted data — clear it
-      localStorage.removeItem(AUTH_TOKEN_KEY);
-      localStorage.removeItem(AUTH_USER_KEY);
-    }
-    setIsLoading(false);
+      if (!cancelled) setIsLoading(false);
+    })().catch(() => { if (!cancelled) setSessionError("Could not connect. Please reload to try again."); });
+    return () => { cancelled = true; };
   }, []);
 
   const login = useCallback(
@@ -183,9 +188,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(() => {
+    void fetch(`${API_URL}/api/v1/auth/logout`, { method: "POST", headers: getAuthHeaders() }).finally(() => {
     localStorage.removeItem(AUTH_TOKEN_KEY);
     localStorage.removeItem(AUTH_USER_KEY);
     setUser(null);
+    window.location.reload();
+    });
   }, []);
 
   return (
@@ -200,7 +208,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout,
       }}
     >
-      {children}
+      {sessionError ? <p role="alert">{sessionError}</p> : isLoading ? <p role="status">Connecting…</p> : children}
     </AuthContext.Provider>
   );
 }

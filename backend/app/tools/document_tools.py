@@ -1,9 +1,11 @@
 """Document-related tools for reading and generating documents."""
 
-import os
+import asyncio
+import tempfile
+import html
+import csv
+import io
 import re
-import uuid
-import time
 from pathlib import Path
 
 from langchain_core.tools import tool
@@ -11,68 +13,9 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Temporary document storage — cleaned up periodically
-DOCS_DIR = Path("/tmp/agentverse_docs")
-DOCS_DIR.mkdir(parents=True, exist_ok=True)
-
-# Track generated documents for cleanup
-_generated_docs: dict[str, dict] = {}  # file_id -> {path, created_at, filename}
-
-
-@tool
-async def analyze_document(document_text: str) -> str:
-    """Analyze a document and provide a structured analysis including key points,
-    themes, and a summary. Use this when asked to analyze, review, or break down
-    a document.
-
-    Args:
-        document_text: The full text content of the document to analyze.
-    """
-    logger.info("tool.analyze_document", text_length=len(document_text))
-
-    if not document_text.strip():
-        return "Error: No document text provided."
-
-    # Truncate very long documents
-    if len(document_text) > 50000:
-        document_text = document_text[:50000] + "\n\n[Document truncated at 50,000 characters]"
-
-    word_count = len(document_text.split())
-    char_count = len(document_text)
-    line_count = document_text.count("\n") + 1
-
-    return (
-        f"Document Statistics:\n"
-        f"- Words: {word_count:,}\n"
-        f"- Characters: {char_count:,}\n"
-        f"- Lines: {line_count:,}\n\n"
-        f"Document Content:\n{document_text}\n\n"
-        f"Please provide your analysis of this document."
-    )
-
-
-@tool
-async def extract_key_points(document_text: str, max_points: int = 10) -> str:
-    """Extract key points, facts, figures, and dates from a document.
-    Returns them as a structured list.
-
-    Args:
-        document_text: The text content to extract key points from.
-        max_points: Maximum number of key points to extract (default: 10).
-    """
-    logger.info("tool.extract_key_points", text_length=len(document_text))
-
-    if not document_text.strip():
-        return "Error: No text provided for key point extraction."
-
-    return (
-        f"Please extract up to {max_points} key points from the following document:\n\n"
-        f"{document_text[:30000]}\n\n"
-        f"Format each key point clearly with a bullet point."
-    )
-
 
 # ── Format converters ─────────────────────────────────────
+
 
 def _write_markdown(content: str, filepath: Path, title: str) -> None:
     """Write plain markdown content."""
@@ -86,6 +29,8 @@ def _write_text(content: str, filepath: Path, title: str) -> None:
 
 def _write_html(content: str, filepath: Path, title: str) -> None:
     """Write HTML-wrapped content."""
+    title = html.escape(title)
+    content = "<pre>" + html.escape(content) + "</pre>"
     html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -112,7 +57,7 @@ def _write_html(content: str, filepath: Path, title: str) -> None:
 def _write_docx(content: str, filepath: Path, title: str) -> None:
     """Convert markdown-style content to a Word .docx document."""
     from docx import Document
-    from docx.shared import Pt, Inches
+    from docx.shared import Pt
     from docx.enum.text import WD_ALIGN_PARAGRAPH
 
     doc = Document()
@@ -137,6 +82,38 @@ def _write_docx(content: str, filepath: Path, title: str) -> None:
         # Skip empty lines
         if not stripped:
             i += 1
+            continue
+
+        if stripped.startswith("```"):
+            code_lines = []
+            i += 1
+            while i < len(lines) and not lines[i].strip().startswith("```"):
+                code_lines.append(lines[i])
+                i += 1
+            paragraph = doc.add_paragraph()
+            run = paragraph.add_run("\n".join(code_lines))
+            run.font.name = "Consolas"
+            run.font.size = Pt(10)
+            i += 1
+            continue
+        if (
+            "|" in stripped
+            and i + 1 < len(lines)
+            and re.fullmatch(r"[\s|:-]+", lines[i + 1])
+        ):
+            headers = [cell.strip() for cell in stripped.strip("|").split("|")]
+            table = doc.add_table(rows=1, cols=len(headers))
+            table.style = "Table Grid"
+            for cell, value in zip(table.rows[0].cells, headers):
+                cell.text = value
+            i += 2
+            while i < len(lines) and "|" in lines[i]:
+                values = [
+                    cell.strip() for cell in lines[i].strip().strip("|").split("|")
+                ]
+                for cell, value in zip(table.add_row().cells, values):
+                    cell.text = value
+                i += 1
             continue
 
         # Headings
@@ -189,16 +166,24 @@ def _write_xlsx(content: str, filepath: Path, title: str) -> None:
     Falls back to putting each line in a row if no structure is detected.
     """
     from openpyxl import Workbook
-    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.styles import Font
 
     wb = Workbook()
     ws = wb.active
-    ws.title = title[:31]  # Excel sheet name max 31 chars
+    ws.title = (
+        re.sub(r"[\\/*?:\[\]]", "_", title).strip("'")[:31] or "Sheet"
+    )  #  # Excel sheet name max 31 chars
 
     lines = [l for l in content.split("\n") if l.strip()]
 
     # Try to detect markdown table format (| col1 | col2 |)
-    table_lines = [l for l in lines if "|" in l and not l.strip().startswith("|--") and not re.match(r"^\|[-:| ]+\|$", l.strip())]
+    table_lines = [
+        l
+        for l in lines
+        if "|" in l
+        and not l.strip().startswith("|--")
+        and not re.match(r"^\|[-:| ]+\|$", l.strip())
+    ]
     separator_lines = [l for l in lines if re.match(r"^\|[-:| ]+\|$", l.strip())]
 
     if len(table_lines) >= 2 and len(separator_lines) >= 1:
@@ -210,7 +195,7 @@ def _write_xlsx(content: str, filepath: Path, title: str) -> None:
         _fill_worksheet(ws, rows)
     else:
         # Try CSV-style (comma-separated with consistent column counts)
-        csv_rows = [l.split(",") for l in lines if "," in l]
+        csv_rows = list(csv.reader(io.StringIO(content))) if "," in content else []
         if len(csv_rows) >= 2 and len(set(len(r) for r in csv_rows)) <= 2:
             rows = [[c.strip() for c in r] for r in csv_rows]
             _fill_worksheet(ws, rows)
@@ -223,8 +208,10 @@ def _write_xlsx(content: str, filepath: Path, title: str) -> None:
             else:
                 # Fallback: each line is a row with one cell
                 for idx, line in enumerate(lines, 1):
-                    stripped = line.strip().lstrip("#").lstrip("- ").lstrip("* ").strip()
-                    ws.cell(row=idx, column=1, value=stripped)
+                    stripped = (
+                        line.strip().lstrip("#").lstrip("- ").lstrip("* ").strip()
+                    )
+                    ws.cell(row=idx, column=1, value=stripped).data_type = "s"
                     # Bold for lines that look like headers
                     if line.strip().startswith("#") or idx == 1:
                         ws.cell(row=idx, column=1).font = Font(bold=True, size=12)
@@ -248,7 +235,9 @@ def _fill_worksheet(ws, rows: list[list[str]]) -> None:
     """Fill a worksheet with rows, styling the first row as a header."""
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
-    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    header_fill = PatternFill(
+        start_color="4472C4", end_color="4472C4", fill_type="solid"
+    )
     header_font = Font(bold=True, color="FFFFFF", size=11)
     thin_border = Border(
         left=Side(style="thin"),
@@ -260,6 +249,15 @@ def _fill_worksheet(ws, rows: list[list[str]]) -> None:
     for row_idx, row in enumerate(rows, 1):
         for col_idx, value in enumerate(row, 1):
             cell = ws.cell(row=row_idx, column=col_idx, value=value)
+            cell.data_type = (
+                "s"  # Generated content is data, never executable formulas.
+            )
+            if (
+                row_idx > 1
+                and re.fullmatch(r"-?\d+(?:\.\d+)?", value)
+                and not re.fullmatch(r"0\d+", value)
+            ):
+                cell.value = float(value) if "." in value else int(value)
             cell.border = thin_border
             cell.alignment = Alignment(wrap_text=True, vertical="top")
             if row_idx == 1:
@@ -268,89 +266,28 @@ def _fill_worksheet(ws, rows: list[list[str]]) -> None:
 
 
 def _write_pdf(content: str, filepath: Path, title: str) -> None:
-    """Convert content to a PDF document."""
+    """Unicode PDF with embedded, licensed fonts and Indic text shaping."""
     from fpdf import FPDF
 
-    class PDF(FPDF):
-        def header(self):
-            self.set_font("Helvetica", "B", 10)
-            self.set_text_color(120, 120, 120)
-            self.cell(0, 8, title, align="R")
-            self.ln(10)
-
-        def footer(self):
-            self.set_y(-15)
-            self.set_font("Helvetica", "I", 8)
-            self.set_text_color(150, 150, 150)
-            self.cell(0, 10, f"Page {self.page_no()}/{{nb}}", align="C")
-
-    pdf = PDF()
-    pdf.alias_nb_pages()
-    pdf.set_auto_page_break(auto=True, margin=20)
+    fonts = Path(__file__).resolve().parents[2] / "assets" / "fonts"
+    pdf = FPDF()
+    for family in ("NotoSans", "NotoSansDevanagari", "NotoSansGujarati"):
+        pdf.add_font(family, fname=str(fonts / (family + ".ttf")))
+    pdf.set_fallback_fonts(
+        ["NotoSansDevanagari", "NotoSansGujarati"], exact_match=False
+    )
+    pdf.set_text_shaping(True)
+    pdf.set_auto_page_break(auto=True, margin=18)
     pdf.add_page()
-
-    # Title
-    pdf.set_font("Helvetica", "B", 20)
-    pdf.set_text_color(30, 30, 60)
-    pdf.cell(0, 15, title, new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(5)
-
-    # Horizontal rule after title
-    pdf.set_draw_color(200, 200, 200)
-    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-    pdf.ln(8)
-
-    lines = content.split("\n")
-    for line in lines:
-        stripped = line.strip()
-
-        if not stripped:
-            pdf.ln(4)
-            continue
-
-        # Headings
-        if stripped.startswith("### "):
-            pdf.set_font("Helvetica", "B", 12)
-            pdf.set_text_color(50, 50, 80)
-            pdf.ln(3)
-            pdf.multi_cell(0, 7, stripped[4:])
-            pdf.ln(2)
-        elif stripped.startswith("## "):
-            pdf.set_font("Helvetica", "B", 14)
-            pdf.set_text_color(40, 40, 70)
-            pdf.ln(4)
-            pdf.multi_cell(0, 8, stripped[3:])
-            pdf.ln(3)
-        elif stripped.startswith("# "):
-            pdf.set_font("Helvetica", "B", 16)
-            pdf.set_text_color(30, 30, 60)
-            pdf.ln(5)
-            pdf.multi_cell(0, 9, stripped[2:])
-            pdf.ln(4)
-        # Bullet points
-        elif stripped.startswith("- ") or stripped.startswith("* "):
-            pdf.set_font("Helvetica", "", 11)
-            pdf.set_text_color(40, 40, 40)
-            text = stripped[2:]
-            # Remove markdown bold markers for PDF
-            text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
-            pdf.cell(8)  # indent
-            pdf.multi_cell(0, 6, f"\u2022  {text}")
-            pdf.ln(1)
-        # Horizontal rule
-        elif stripped in ("---", "***", "___"):
-            pdf.set_draw_color(200, 200, 200)
-            pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-            pdf.ln(5)
-        # Regular paragraph
-        else:
-            pdf.set_font("Helvetica", "", 11)
-            pdf.set_text_color(40, 40, 40)
-            # Remove markdown bold markers
-            text = re.sub(r"\*\*([^*]+)\*\*", r"\1", stripped)
-            pdf.multi_cell(0, 6, text)
-            pdf.ln(2)
-
+    pdf.set_font("NotoSans", size=18)
+    pdf.multi_cell(0, 10, title, new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+    for line in content.splitlines():
+        text = re.sub(r"\*\*([^*]+)\*\*", r"\1", line)
+        heading = re.match(r"^(#{1,3})\s+(.*)", text)
+        pdf.set_font("NotoSans", size=15 if heading else 11)
+        text = heading[2] if heading else re.sub(r"^[-*] ", "• ", text)
+        pdf.multi_cell(0, 7, text or " ", new_x="LMARGIN", new_y="NEXT")
     pdf.output(str(filepath))
 
 
@@ -358,17 +295,20 @@ def _write_pdf(content: str, filepath: Path, title: str) -> None:
 
 FORMAT_CONFIG = {
     "markdown": {"ext": ".md", "writer": _write_markdown},
-    "text":     {"ext": ".txt", "writer": _write_text},
-    "html":     {"ext": ".html", "writer": _write_html},
-    "docx":     {"ext": ".docx", "writer": _write_docx},
-    "xlsx":     {"ext": ".xlsx", "writer": _write_xlsx},
-    "pdf":      {"ext": ".pdf", "writer": _write_pdf},
+    "text": {"ext": ".txt", "writer": _write_text},
+    "html": {"ext": ".html", "writer": _write_html},
+    "docx": {"ext": ".docx", "writer": _write_docx},
+    "xlsx": {"ext": ".xlsx", "writer": _write_xlsx},
+    "pdf": {"ext": ".pdf", "writer": _write_pdf},
 }
 
 # Aliases so the LLM can say "word", "doc", "excel", "spreadsheet", etc.
 FORMAT_ALIASES = {
-    "doc": "docx", "word": "docx",
-    "excel": "xlsx", "spreadsheet": "xlsx", "csv": "xlsx",
+    "doc": "docx",
+    "word": "docx",
+    "excel": "xlsx",
+    "spreadsheet": "xlsx",
+    "csv": "xlsx",
     "md": "markdown",
     "txt": "text",
 }
@@ -395,77 +335,31 @@ async def generate_document(
     if fmt not in FORMAT_CONFIG:
         return f"Error: Unsupported format '{format}'. Supported: {', '.join(FORMAT_CONFIG.keys())}"
 
-    logger.info("tool.generate_document", title=title, format=fmt, content_length=len(content))
-
+    if len(content) > 100000 or len(title) > 160:
+        return "Error: document exceeds the 100,000 character or title limit."
     config = FORMAT_CONFIG[fmt]
-
-    # Clean filename
-    safe_title = "".join(c if c.isalnum() or c in " -_" else "_" for c in title).strip()
-    if not safe_title:
-        safe_title = "document"
-
-    # Generate unique file ID
-    file_id = uuid.uuid4().hex[:16]
-    filename = f"{safe_title}{config['ext']}"
-    filepath = DOCS_DIR / f"{file_id}_{filename}"
-
-    # Write document using the format-specific writer
-    try:
-        config["writer"](content, filepath, title)
-    except Exception as e:
-        logger.error("tool.generate_document.write_error", format=fmt, error=str(e))
-        return f"Error generating {fmt.upper()} file: {str(e)}"
-
-    # Track for cleanup and serving
-    file_size = filepath.stat().st_size
-    _generated_docs[file_id] = {
-        "path": str(filepath),
-        "filename": filename,
-        "created_at": time.time(),
-        "format": fmt,
-    }
-
-    # Cleanup old files (older than 1 hour)
-    _cleanup_old_docs()
-
-    api_url = os.environ.get("RENDER_EXTERNAL_URL", "")
-    if not api_url:
-        api_url = os.environ.get("API_URL", "http://localhost:8000")
-
-    download_url = f"{api_url}/api/v1/documents/download/{file_id}"
-
-    size_str = f"{file_size:,} bytes" if file_size < 1024 else f"{file_size / 1024:.1f} KB"
-
-    return (
-        f"Document generated successfully!\n\n"
-        f"**Title:** {title}\n"
-        f"**Format:** {fmt.upper()}\n"
-        f"**Size:** {size_str}\n\n"
-        f"Download link: {download_url}\n\n"
-        f"[DOWNLOAD_LINK:{file_id}:{filename}]"
+    safe_title = (
+        "".join(c if c.isalnum() or c in " -_" else "_" for c in title).strip()[:100]
+        or "document"
     )
+    filename = safe_title + config["ext"]
 
+    def render():
+        with tempfile.TemporaryDirectory(prefix="agentverse-document-") as directory:
+            path = Path(directory) / filename
+            config["writer"](content, path, title)
+            return path.read_bytes()
 
-def get_generated_doc(file_id: str) -> dict | None:
-    """Retrieve a generated document by its file ID."""
-    return _generated_docs.get(file_id)
+    from app.services.files import save_artifact
+    import mimetypes
 
-
-def _cleanup_old_docs():
-    """Remove documents older than 1 hour."""
-    now = time.time()
-    expired = [fid for fid, info in _generated_docs.items()
-               if now - info["created_at"] > 3600]
-    for fid in expired:
-        info = _generated_docs.pop(fid)
-        try:
-            Path(info["path"]).unlink(missing_ok=True)
-        except Exception:
-            pass
-    if expired:
-        logger.info("docs.cleanup", removed=len(expired))
+    data = await asyncio.to_thread(render)
+    record = await save_artifact(
+        filename, data, mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    )
+    return f"Created {filename} ({len(data)} bytes). [DOWNLOAD_LINK:{record.id}:{filename}]"
 
 
 # Tool collections for document agents
-DOC_READER_TOOLS = [analyze_document, extract_key_points]
+DOC_READER_TOOLS = []  # Analyze supplied text directly; echo tools add no evidence.
 DOC_GENERATOR_TOOLS = [generate_document]

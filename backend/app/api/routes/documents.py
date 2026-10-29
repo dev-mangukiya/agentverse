@@ -1,45 +1,34 @@
-"""Document download API routes."""
+"""Authenticated, durable artifact downloads."""
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
-from pathlib import Path
+from datetime import datetime, timezone
+from urllib.parse import quote
+from fastapi import APIRouter, Depends, HTTPException, Response
+from app.database.session import get_db
+from app.database.models.models import Artifact
+from app.security.identity import Owner, get_owner
 
-from app.tools.document_tools import get_generated_doc
-from app.core.logging import get_logger
-
-logger = get_logger(__name__)
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 
 @router.get("/download/{file_id}")
-async def download_document(file_id: str):
-    """Download a generated document by its file ID."""
-    doc = get_generated_doc(file_id)
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found or expired")
-
-    filepath = Path(doc["path"])
-    if not filepath.exists():
-        raise HTTPException(status_code=404, detail="Document file not found")
-
-    # Determine media type
-    media_types = {
-        "markdown": "text/markdown",
-        "text": "text/plain",
-        "html": "text/html",
-        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "pdf": "application/pdf",
-    }
-    media_type = media_types.get(doc.get("format", "markdown"), "application/octet-stream")
-
-    logger.info("documents.download", file_id=file_id, filename=doc["filename"])
-
-    return FileResponse(
-        path=str(filepath),
-        filename=doc["filename"],
-        media_type=media_type,
+async def download_document(
+    file_id: str, owner: Owner = Depends(get_owner), db=Depends(get_db)
+):
+    record = await db.get(Artifact, file_id)
+    if (
+        not record
+        or record.owner_key != owner.key
+        or record.expires_at.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc)
+    ):
+        raise HTTPException(404, "Document not found or expired")
+    return Response(
+        record.data,
+        media_type=record.content_type,
         headers={
-            "Content-Disposition": f'attachment; filename="{doc["filename"]}"',
+            "Content-Disposition": "attachment; filename*=UTF-8''"
+            + quote(record.filename),
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox",
         },
     )

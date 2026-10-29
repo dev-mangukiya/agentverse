@@ -1,5 +1,7 @@
 "use client";
 
+import { getAuthHeaders } from "@/lib/auth";
+
 import { useState, useEffect } from "react";
 import {
   WorkspaceIcon,
@@ -31,7 +33,7 @@ export function KPICards({ onStartTask }: { onStartTask?: () => void }) {
     setLoading(true);
     const fetchStats = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/v1/stats`, {
+        const res = await fetch(`${API_URL}/api/v1/stats`, { headers: getAuthHeaders(),
           signal: controller.signal,
         });
         if (!res.ok) throw new Error("Could not load activity");

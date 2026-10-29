@@ -1,0 +1,7 @@
+FROM python:3.12-slim
+RUN apt-get update && apt-get install -y --no-install-recommends nodejs bash \
+    && rm -rf /var/lib/apt/lists/*
+# Preinstalled analysis libraries; executions cannot install packages or use network.
+RUN pip install --no-cache-dir pandas==2.2.3 matplotlib==3.9.2 openpyxl==3.1.5
+USER 65534:65534
+WORKDIR /tmp

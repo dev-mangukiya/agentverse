@@ -1,199 +1,188 @@
-"""Qdrant-backed semantic memory for agents.
-
-Embeds conversation messages using Google's text-embedding-004 model and
-stores them in Qdrant for semantic retrieval. Gracefully degrades when
-Qdrant or the embedding model are unavailable.
-"""
-
-from __future__ import annotations
+"""Owner-scoped, chunked semantic memory; SQL ownership is checked on every read."""
 
 import asyncio
+import math
 import time
 import uuid
-from typing import Any
-
+from sqlalchemy import select
 from app.core.config import get_settings
+from app.database.session import async_session_factory
+from app.database.models.models import Conversation
+from app.security.identity import require_context
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
-
 _qdrant_client = None
-_qdrant_available: bool | None = None
+_retry_at = 0.0
+_lock = asyncio.Lock()
 
 
 async def _get_qdrant():
-    """Get or create the async Qdrant client singleton."""
-    global _qdrant_client, _qdrant_available
-
-    if _qdrant_available is False:
-        return None
-    if _qdrant_client is not None:
-        return _qdrant_client
-
-    try:
+    global _qdrant_client, _retry_at
+    async with _lock:
+        if _qdrant_client is not None:
+            return _qdrant_client
+        if time.monotonic() < _retry_at or not get_settings().qdrant_url:
+            return None
         from qdrant_client import AsyncQdrantClient
 
         settings = get_settings()
-        _qdrant_client = AsyncQdrantClient(
-            url=settings.qdrant_url,
-            api_key=settings.qdrant_api_key,
-            timeout=10,
+        client = AsyncQdrantClient(
+            url=settings.qdrant_url, api_key=settings.qdrant_api_key, timeout=5
         )
-        # Quick health check
-        await _qdrant_client.get_collections()
-        _qdrant_available = True
-        logger.info("qdrant.connected", url=settings.qdrant_url[:40])
-        return _qdrant_client
-    except Exception as exc:
-        _qdrant_available = False
-        _qdrant_client = None
-        logger.warning("qdrant.unavailable", error=str(exc)[:200])
-        return None
+        try:
+            await client.get_collections()
+            _qdrant_client = client
+            return client
+        except asyncio.CancelledError:
+            await client.close()
+            raise
+        except Exception:
+            await client.close()
+            _retry_at = time.monotonic() + 30
+            return None
 
 
 async def close_qdrant():
-    """Close the Qdrant client. Call on app shutdown."""
-    global _qdrant_client, _qdrant_available
-    if _qdrant_client is not None:
+    global _qdrant_client
+    if _qdrant_client:
         await _qdrant_client.close()
         _qdrant_client = None
-        _qdrant_available = None
-        logger.info("qdrant.closed")
 
 
-def _embed_text(text: str, api_key: str, model: str = "text-embedding-004") -> list[float] | None:
-    """Synchronous embedding call using Google GenAI (runs in thread pool)."""
-    try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        result = genai.embed_content(model=f"models/{model}", content=text)
-        return result["embedding"]
-    except Exception as exc:
-        logger.warning("embedding.failed", error=str(exc)[:200])
-        return None
-
-
-async def _async_embed(text: str) -> list[float] | None:
-    """Async wrapper for embedding."""
+async def _async_embed(text):
     settings = get_settings()
-    api_key = settings.google_api_key
-    if not api_key:
-        keys = settings.google_api_key_list
-        api_key = keys[0] if keys else None
-    if not api_key:
+    if not settings.google_api_key_list:
         return None
-    return await asyncio.to_thread(_embed_text, text[:2000], api_key, settings.embedding_model)
+    from google import genai
+    from google.genai import types
+
+    async with genai.Client(
+        api_key=settings.google_api_key_list[0],
+        http_options=types.HttpOptions(timeout=10000),
+    ).aio as client:
+        response = await client.models.embed_content(
+            model=settings.embedding_model,
+            contents=text,
+            config=types.EmbedContentConfig(output_dimensionality=768),
+        )
+    vector = response.embeddings[0].values
+    norm = math.sqrt(sum(v * v for v in vector))
+    return [v / norm for v in vector] if norm else None
 
 
-async def ensure_collection() -> bool:
-    """Create the Qdrant collection if it doesn't exist. Returns True on success."""
+async def ensure_collection():
     client = await _get_qdrant()
-    if client is None:
+    if not client:
         return False
+    from qdrant_client.models import Distance, VectorParams
 
-    settings = get_settings()
-    try:
-        collections = await client.get_collections()
-        names = [c.name for c in collections.collections]
-        if settings.qdrant_collection not in names:
-            from qdrant_client.models import Distance, VectorParams
-            await client.create_collection(
-                collection_name=settings.qdrant_collection,
-                vectors_config=VectorParams(size=768, distance=Distance.COSINE),
-            )
-            logger.info("qdrant.collection_created", name=settings.qdrant_collection)
-        return True
-    except Exception as exc:
-        logger.warning("qdrant.collection_setup_failed", error=str(exc)[:200])
-        return False
+    name = get_settings().qdrant_collection
+    if not await client.collection_exists(name):
+        await client.create_collection(
+            name, vectors_config=VectorParams(size=768, distance=Distance.COSINE)
+        )
+    return True
 
 
 async def store_message(
-    conversation_id: str,
-    role: str,
-    content: str,
-    agent_name: str | None = None,
-) -> bool:
-    """Embed and store a message in Qdrant. Returns True on success."""
+    conversation_id, role, content, agent_name=None, message_id=None
+):
+    owner = require_context()
+    async with async_session_factory() as db:
+        if not await db.scalar(
+            select(Conversation.id).where(
+                Conversation.id == conversation_id, owner.condition()
+            )
+        ):
+            return False
+    if len(content.strip()) < 10 or not await ensure_collection():
+        return False
     client = await _get_qdrant()
-    if client is None:
-        return False
+    from qdrant_client.models import PointStruct
 
-    # Skip very short messages
-    if len(content.strip()) < 10:
-        return False
-
-    vector = await _async_embed(content)
-    if vector is None:
-        return False
-
-    settings = get_settings()
-    try:
-        from qdrant_client.models import PointStruct
+    # Six overlapping chunks cap both provider expense and context size.
+    chunks = [content[i : i + 3500] for i in range(0, min(len(content), 18000), 3200)]
+    for i, chunk in enumerate(chunks):
+        vector = await _async_embed(chunk)
+        if vector is None:
+            return False
+        key = f"{conversation_id}:{message_id or role + content}:{i}"
         point = PointStruct(
-            id=str(uuid.uuid4()),
+            id=str(uuid.uuid5(uuid.NAMESPACE_URL, key)),
             vector=vector,
             payload={
+                "owner_key": owner.key,
                 "conversation_id": conversation_id,
+                "message_id": message_id,
+                "chunk": i,
                 "role": role,
                 "agent_name": agent_name or "",
-                "content": content[:5000],  # Limit stored content size
+                "content": chunk,
                 "timestamp": time.time(),
             },
         )
-        await client.upsert(
-            collection_name=settings.qdrant_collection,
-            points=[point],
-        )
-        return True
-    except Exception as exc:
-        logger.warning("qdrant.store_failed", error=str(exc)[:200])
-        return False
+        await client.upsert(get_settings().qdrant_collection, points=[point])
+    return True
 
 
-async def search_memory(
-    query: str,
-    top_k: int = 5,
-    conversation_id: str | None = None,
-) -> list[dict[str, Any]]:
-    """Search semantic memory. Returns list of {content, role, agent_name, score, conversation_id}."""
-    client = await _get_qdrant()
-    if client is None:
-        return []
-
-    vector = await _async_embed(query)
-    if vector is None:
-        return []
-
-    settings = get_settings()
-    try:
-        from qdrant_client.models import Filter, FieldCondition, MatchValue
-
-        query_filter = None
+async def search_memory(query, top_k=5, conversation_id=None):
+    owner = require_context()
+    async with async_session_factory() as db:
+        stmt = select(Conversation.id).where(owner.condition())
         if conversation_id:
-            query_filter = Filter(
-                must=[FieldCondition(key="conversation_id", match=MatchValue(value=conversation_id))]
-            )
+            stmt = stmt.where(Conversation.id == conversation_id)
+        ids = list((await db.scalars(stmt.limit(5000))).all())
+    if not ids:
+        return []
+    client = await _get_qdrant()
+    if not client:
+        return []
+    from qdrant_client.models import Filter, FieldCondition, MatchAny, MatchValue
 
-        results = await client.search(
-            collection_name=settings.qdrant_collection,
+    try:
+        vector = await _async_embed(query[:3500])
+        if vector is None:
+            return []
+        condition = Filter(
+            must=[
+                FieldCondition(key="owner_key", match=MatchValue(value=owner.key)),
+                FieldCondition(key="conversation_id", match=MatchAny(any=ids)),
+            ]
+        )
+        hits = await client.search(
+            get_settings().qdrant_collection,
             query_vector=vector,
-            query_filter=query_filter,
-            limit=top_k,
+            query_filter=condition,
+            limit=min(max(top_k, 1), 10),
             score_threshold=0.5,
         )
-
-        return [
-            {
-                "content": hit.payload.get("content", ""),
-                "role": hit.payload.get("role", ""),
-                "agent_name": hit.payload.get("agent_name", ""),
-                "conversation_id": hit.payload.get("conversation_id", ""),
-                "timestamp": hit.payload.get("timestamp", 0),
-                "score": round(hit.score, 3),
-            }
-            for hit in results
-        ]
-    except Exception as exc:
-        logger.warning("qdrant.search_failed", error=str(exc)[:200])
+        return [{**hit.payload, "score": round(hit.score, 3)} for hit in hits]
+    except Exception:
+        logger.warning("memory.search_unavailable")
         return []
+
+
+async def delete_conversation_memory(conversation_id):
+    client = await _get_qdrant()
+    if client:
+        from qdrant_client.models import (
+            Filter,
+            FieldCondition,
+            MatchValue,
+            FilterSelector,
+        )
+
+        await client.delete(
+            get_settings().qdrant_collection,
+            points_selector=FilterSelector(
+                filter=Filter(
+                    must=[
+                        FieldCondition(
+                            key="conversation_id",
+                            match=MatchValue(value=conversation_id),
+                        )
+                    ]
+                )
+            ),
+        )

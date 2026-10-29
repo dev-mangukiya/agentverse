@@ -6,12 +6,42 @@ production traces are queryable JSON, not free-text prints. This is what lets yo
 say in an interview: "every agent decision is traceable end to end."
 """
 
+import re
 import logging
 import sys
 
 import structlog
 
 from app.core.config import get_settings
+
+
+def redact_fields(_, __, event):
+    settings = get_settings()
+    values = [
+        settings.secret_key,
+        settings.openai_api_key,
+        settings.anthropic_api_key,
+        settings.huggingface_api_key,
+        settings.execution_token,
+        settings.slack_bot_token,
+        settings.linear_api_key,
+        settings.github_token,
+        settings.smtp_password,
+        *settings.google_api_key_list,
+    ]
+    for key, value in list(event.items()):
+        if isinstance(value, str):
+            for secret in values:
+                if secret and len(secret) >= 8:
+                    value = value.replace(secret, "[redacted]")
+            value = re.sub(r"(://)[^/@\s]+:[^/@\s]+@", r"\1[redacted]@", value)
+            value = re.sub(
+                r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
+                "[redacted token]",
+                value,
+            )
+            event[key] = value
+    return event
 
 
 def configure_logging() -> None:
@@ -26,6 +56,7 @@ def configure_logging() -> None:
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
+            redact_fields,
             structlog.processors.add_log_level,
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.processors.StackInfoRenderer(),
@@ -43,20 +74,5 @@ def configure_logging() -> None:
     )
 
 
-def get_logger(name: str) -> logging.Logger:
-    """Get a structlog-wrapped logger."""
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
-    
-    # Ensure logs go to stdout
-    if not logger.handlers:
-        handler = logging.StreamHandler(sys.stdout)
-        handler.setFormatter(logging.Formatter("%(message)s"))
-        logger.addHandler(handler)
-        
-        # Add file handler for debugging on Render
-        file_handler = logging.FileHandler("/tmp/render_app.log")
-        file_handler.setFormatter(logging.Formatter("%(message)s"))
-        logger.addHandler(file_handler)
-
-    return structlog.wrap_logger(logger)
+def get_logger(name: str):
+    return structlog.wrap_logger(logging.getLogger(name))

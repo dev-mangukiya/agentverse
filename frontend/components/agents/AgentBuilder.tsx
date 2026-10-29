@@ -1,5 +1,7 @@
 "use client";
 
+import { getAuthHeaders } from "@/lib/auth";
+
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useDialogFocus } from "@/hooks/useDialogFocus";
@@ -71,7 +73,7 @@ export function AgentBuilder() {
   const fetchAgents = async () => {
     setLoadError(false);
     try {
-      const res = await fetch(`${API_URL}/api/v1/agents`);
+      const res = await fetch(`${API_URL}/api/v1/agents`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Could not load agents");
       if (res.ok) {
         const data = await res.json();
@@ -156,7 +158,7 @@ export function AgentBuilder() {
 
       const res = await fetch(url, {
         method: editAgent ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify(payload),
       });
 
@@ -197,7 +199,7 @@ export function AgentBuilder() {
     setError(null);
     try {
       const res = await fetch(`${API_URL}/api/v1/agents/${id}`, {
-        method: "DELETE",
+        method: "DELETE", headers: getAuthHeaders(),
       });
       if (!res.ok)
         throw new Error("Could not delete this specialist. Please try again.");

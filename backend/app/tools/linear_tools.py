@@ -1,7 +1,7 @@
 """Linear integration tools."""
 
-import os
-import json
+from app.core.config import get_settings
+from app.security.identity import require_context
 from langchain_core.tools import tool
 import httpx
 
@@ -13,35 +13,35 @@ logger = get_logger(__name__)
 @tool
 async def create_linear_issue(title: str, description: str, team_id: str = "") -> str:
     """Create an issue in Linear.
-    
+
     Args:
         title: The title of the issue.
         description: The description of the issue.
-        team_id: The ID of the team to create the issue in. (Optional, uses first team if omitted).
+        team_id: The ID of the team to create the issue in. Required; never choose a team automatically.
     """
-    logger.info("tool.create_linear_issue", title=title)
-    
-    token = os.environ.get("LINEAR_API_KEY")
+    logger.info("tool.create_linear_issue")
+
+    from app.services.approvals import require_approved
+
+    require_approved(
+        "create_linear_issue",
+        {"title": title, "description": description, "team_id": team_id},
+    )
+    settings = get_settings()
+    owner = require_context()
+    if not owner.user_id or owner.user_id != settings.connector_owner_id:
+        raise PermissionError("Connector permission required")
+    token = settings.linear_api_key
     if not token:
         return "ERROR: LINEAR_API_KEY environment variable is not set. Please set it to use this tool."
-        
+
     try:
-        async with httpx.AsyncClient() as client:
-            headers = {
-                "Authorization": token,
-                "Content-Type": "application/json"
-            }
-            
-            # If team_id is missing, fetch the first team
+        async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
+            headers = {"Authorization": token, "Content-Type": "application/json"}
+
             if not team_id:
-                query = """query { teams { nodes { id name } } }"""
-                res = await client.post("https://api.linear.app/graphql", json={"query": query}, headers=headers)
-                res.raise_for_status()
-                teams = res.json().get("data", {}).get("teams", {}).get("nodes", [])
-                if not teams:
-                    return "ERROR: No teams found in Linear."
-                team_id = teams[0]["id"]
-                
+                return "ERROR: An explicit Linear team_id is required."
+
             mutation = """
             mutation IssueCreate($title: String!, $description: String, $teamId: String!) {
               issueCreate(input: {title: $title, description: $description, teamId: $teamId}) {
@@ -50,27 +50,26 @@ async def create_linear_issue(title: str, description: str, team_id: str = "") -
               }
             }
             """
-            
-            variables = {
-                "title": title,
-                "description": description,
-                "teamId": team_id
-            }
-            
+
+            variables = {"title": title, "description": description, "teamId": team_id}
+
             response = await client.post(
                 "https://api.linear.app/graphql",
                 json={"query": mutation, "variables": variables},
                 headers=headers,
-                timeout=10.0
+                timeout=10.0,
             )
             response.raise_for_status()
             data = response.json()
-            
+
             if "errors" in data:
-                return f"Linear API Error: {json.dumps(data['errors'])}"
-                
-            issue = data["data"]["issueCreate"]["issue"]
+                return "ERROR: Linear rejected the action."
+
+            result = data.get("data", {}).get("issueCreate", {})
+            if not result.get("success") or not result.get("issue"):
+                return "ERROR: Linear did not confirm issue creation."
+            issue = result["issue"]
             return f"Successfully created issue {issue['identifier']}: {issue['title']}\nURL: {issue['url']}"
-            
-    except Exception as e:
-        return f"Linear Integration Error: {str(e)}"
+
+    except Exception:
+        return "ERROR: Linear did not confirm issue creation. Check the destination before retrying."

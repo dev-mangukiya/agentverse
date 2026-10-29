@@ -3,10 +3,9 @@
 Run with: uvicorn app.main:app --reload
 """
 
-import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.rate_limiter import RateLimitMiddleware
 
@@ -30,13 +29,15 @@ async def lifespan(app: FastAPI):
     logger.info("agentverse.startup", env=settings.app_env)
     # Import models so Base.metadata knows about them, then create tables
     import app.database.models.models  # noqa: F401
+
     await init_db()
-    logger.info("agentverse.db_initialized", url=settings.effective_database_url[:50])
+    logger.info("agentverse.db_initialized")
 
     # Background startup tasks — run ALL in parallel, non-blocking
     async def _warmup_redis():
         try:
             from app.database.redis_client import get_redis
+
             r = await get_redis()
             logger.info("startup.redis", status="ok" if r else "skipped")
         except Exception as exc:
@@ -45,46 +46,50 @@ async def lifespan(app: FastAPI):
     async def _warmup_qdrant():
         try:
             from app.memory.vector_store import ensure_collection
+
             ok = await ensure_collection()
             logger.info("startup.qdrant", status="ok" if ok else "skipped")
         except Exception as exc:
             logger.warning("startup.qdrant_failed", error=str(exc)[:100])
-
-    async def _warmup_llm():
-        try:
-            if settings.llm_configured:
-                from app.agents.base import get_llm
-                from langchain_core.messages import HumanMessage
-                llm = get_llm()
-                await asyncio.wait_for(
-                    llm.ainvoke([HumanMessage(content="hi")]),
-                    timeout=15,
-                )
-                logger.info("startup.llm_ready")
-        except Exception as exc:
-            logger.warning("startup.llm_failed", error=str(exc)[:100])
 
     async def _run_all_warmups():
         await asyncio.sleep(0.5)  # Let the server finish binding the port
         await asyncio.gather(
             _warmup_redis(),
             _warmup_qdrant(),
-            _warmup_llm(),
             return_exceptions=True,
         )
         logger.info("startup.warmup_complete")
 
     import asyncio
-    asyncio.create_task(_run_all_warmups())
 
-    yield
+    warmup_task = asyncio.create_task(_run_all_warmups())
 
-    # Cleanup
-    from app.database.redis_client import close_redis
-    from app.memory.vector_store import close_qdrant
-    await close_redis()
-    await close_qdrant()
-    logger.info("agentverse.shutdown")
+    from app.services import jobs
+
+    try:
+        await jobs.start()
+        yield
+    finally:
+        await jobs.stop()
+
+        # Cleanup
+        warmup_task.cancel()
+        await asyncio.gather(warmup_task, return_exceptions=True)
+        from app.api.routes.chat import _review_tasks
+
+        for task in tuple(_review_tasks):
+            task.cancel()
+        await asyncio.gather(*tuple(_review_tasks), return_exceptions=True)
+        from app.database.session import engine
+
+        await engine.dispose()
+        from app.database.redis_client import close_redis
+        from app.memory.vector_store import close_qdrant
+
+        await close_redis()
+        await close_qdrant()
+        logger.info("agentverse.shutdown")
 
 
 def create_app() -> FastAPI:
@@ -95,33 +100,24 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    @application.get("/logs")
-    def get_logs():
-        if settings.is_production:
-            raise HTTPException(status_code=404, detail="Not found")
-        try:
-            if os.path.exists("/tmp/render_app.log"):
-                with open("/tmp/render_app.log", "r") as f:
-                    return {"logs": f.read()[-50000:]}  # Last 50k chars
-            return {"logs": "Log file not found"}
-        except Exception as e:
-            return {"error": str(e)}
+    from app.core.body_limit import BodyLimitMiddleware
 
+    application.add_middleware(BodyLimitMiddleware)
+    application.add_middleware(RateLimitMiddleware)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=[
-            "http://localhost:3000",
-            "http://127.0.0.1:3000",
-            "https://agentverse-psi.vercel.app",
+            value.strip()
+            for value in settings.allowed_origins.split(",")
+            if value.strip()
         ],
-        allow_origin_regex=r"https://.*\.(vercel\.app|onrender\.com)",
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Session-ID"],
     )
+    from app.api.routes.approvals import router as approvals_router
 
-    # Rate limiting — runs after CORS so preflight OPTIONS aren't blocked
-    application.add_middleware(RateLimitMiddleware)
+    application.include_router(approvals_router, prefix=settings.api_v1_prefix)
 
     application.include_router(health_router)
     application.include_router(chat_router, prefix=settings.api_v1_prefix)

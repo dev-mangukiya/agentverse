@@ -1,11 +1,15 @@
 """Dynamic custom agent — loads config from database."""
 
-import json
-
 from app.agents.base import BaseAgent
 from app.tools.tools import (
-    web_search, run_code, calculate, read_file, write_file,
-    get_current_time, open_url,
+    web_search,
+    run_code,
+    calculate,
+    read_file,
+    write_file,
+    get_current_time,
+    open_url,
+    fetch_url,
 )
 from app.tools.hitl import request_user_approval
 from app.tools.github_tools import search_github_repos
@@ -15,6 +19,7 @@ from app.tools.memory_tools import search_memory
 
 # Map tool names to actual tool functions
 TOOL_REGISTRY = {
+    "fetch_url": fetch_url,
     "web_search": web_search,
     "run_code": run_code,
     "calculate": calculate,
@@ -32,7 +37,7 @@ TOOL_REGISTRY = {
 
 class DynamicCustomAgent(BaseAgent):
     """An agent created by the user at runtime via the Agent Builder UI.
-    
+
     Unlike built-in agents whose name/prompt are class attributes,
     DynamicCustomAgent instances are configured from database records.
     """
@@ -52,7 +57,7 @@ class DynamicCustomAgent(BaseAgent):
 
         # Resolve tool names to actual tool objects
         tools = []
-        for name in (tool_names or []):
+        for name in tool_names or []:
             if name in TOOL_REGISTRY:
                 tools.append(TOOL_REGISTRY[name])
 
@@ -61,6 +66,11 @@ class DynamicCustomAgent(BaseAgent):
     def _get_fresh_llm(self):
         """Override to use custom model if specified."""
         if self._model_override:
-            from app.agents.base import create_llm
-            return create_llm(model=self._model_override)
+            from app.agents.base import get_llm
+
+            llm = get_llm(
+                model=self._model_override,
+                temperature=getattr(self, "temperature", 0.3),
+            )
+            return llm.bind_tools(self.tools) if self.tools else llm
         return super()._get_fresh_llm()

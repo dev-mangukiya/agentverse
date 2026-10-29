@@ -1,5 +1,7 @@
 "use client";
 
+import { getAuthHeaders } from "@/lib/auth";
+
 import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MessageSquareIcon } from "../icons/Icons";
@@ -105,7 +107,7 @@ export function ActivityFeed() {
   useEffect(() => {
     const fetchActivity = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/v1/stats`);
+        const res = await fetch(`${API_URL}/api/v1/stats`, { headers: getAuthHeaders() });
         if (res.ok) {
           const data = await res.json();
           setActivities(data.recent_activity || []);

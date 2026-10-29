@@ -1,0 +1,7 @@
+[
+  {"id":"concise","agent":"writer","prompt":"Explain a binary search in exactly two sentences for a beginner. Do not use headings.","max_words":90,"checks":["two sentences","no headings","correct sorted input requirement"]},
+  {"id":"language","agent":"writer","prompt":"Write a friendly thank-you email to a teacher in Hindi, at most 80 words.","max_words":80,"checks":["Hindi","email","no invented personal details"]},
+  {"id":"calculation","agent":"coding","prompt":"What is sqrt(144) + 7 * 3? Give just the result.","max_words":5,"contains":"33","checks":["correct arithmetic","no unnecessary sections"]},
+  {"id":"missing-data","agent":"data","prompt":"Find the exact growth in my store revenue last quarter. I have not supplied any sales records.","max_words":100,"checks":["asks for records","does not invent numbers"]},
+  {"id":"grounded","agent":"research","prompt":"Find the Python documentation for asyncio.TaskGroup and explain when child tasks are cancelled. Cite the official documentation.","max_words":250,"contains":"docs.python.org","checks":["retrieves primary source","accurate cancellation behavior","unique citations"]}
+]

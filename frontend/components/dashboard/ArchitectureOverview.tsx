@@ -1,5 +1,7 @@
 "use client";
 
+import { getAuthHeaders } from "@/lib/auth";
+
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AGENT_REGISTRY, getAgentIcon } from "@/config/agents";
@@ -150,7 +152,7 @@ export function ArchitectureOverview({ pipelineAgents }: Props) {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/v1/stats/agent-analytics`);
+        const res = await fetch(`${API_URL}/api/v1/stats/agent-analytics`, { headers: getAuthHeaders() });
         if (res.ok) {
           const data = await res.json();
           setStats(data.agents || []);

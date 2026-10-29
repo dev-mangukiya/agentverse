@@ -1,33 +1,21 @@
-/**
- * Anonymous browser session ID.
- *
- * Generates a unique ID per browser and persists it in localStorage.
- * Used to scope conversations so each visitor has their own chat history.
- * NOT a security mechanism — just isolation for a demo app.
- */
-
-const SESSION_KEY = "agentverse_session_id";
-
-function generateId(): string {
-  // crypto.randomUUID() is available in all modern browsers
-  if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-  // Fallback for older environments
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
-
+/** Server-issued guest bearer token. Legacy random IDs are exchanged once. */
+const SESSION_KEY = "agentverse_guest_token";
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
+let pending: Promise<void> | null = null;
 export function getSessionId(): string {
-  if (typeof window === "undefined") return "";
-
-  let id = localStorage.getItem(SESSION_KEY);
-  if (!id) {
-    id = generateId();
-    localStorage.setItem(SESSION_KEY, id);
-  }
-  return id;
+  return typeof window === "undefined" ? "" : localStorage.getItem(SESSION_KEY) || "";
+}
+export function ensureSession(): Promise<void> {
+  if (pending) return pending;
+  pending = (async () => {
+    const response = await fetch(`${API_URL}/api/v1/auth/guest`, {
+      method: "POST", headers: { "Content-Type": "application/json", "X-Session-ID": getSessionId() },
+      body: JSON.stringify({ legacy_id: localStorage.getItem("agentverse_session_id") }),
+    });
+    if (!response.ok) throw new Error("Could not start a private session");
+    const data = await response.json();
+    localStorage.setItem(SESSION_KEY, data.token);
+    localStorage.removeItem("agentverse_session_id");
+  })().finally(() => { pending = null; });
+  return pending;
 }

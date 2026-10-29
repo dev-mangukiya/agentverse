@@ -1,115 +1,43 @@
-# AgentVerse — Architecture Deep Dive
+# AgentVerse backend architecture
 
-## 1. Design principles
+This describes the implemented runtime after the October 2026 backend audit. The earlier LangGraph/checkpoint design was a proposal, not the running application.
 
-1. **Plans are objects, not vibes.** The Orchestrator produces a structured `Plan`
-   (list of `Task` objects with `agent`, `goal`, `dependencies`, `status`) that is
-   persisted to Postgres before any agent executes. This is what makes the system
-   inspectable and demoable — you can show a recruiter the actual plan JSON.
-2. **The graph is the source of truth for control flow.** Routing between agents is
-   a LangGraph conditional edge function reading `state["next_agent"]`, not a chain
-   of `if` statements in application code.
-3. **Reflection and retry are nodes, not exceptions.** The Critic agent's output
-   updates `state["evaluation"]`; a conditional edge sends the task back to the
-   originating agent (up to `max_retries`) or forward to the Writer for final
-   synthesis.
-4. **Memory is layered.** Redis holds hot, ephemeral state (current run's scratch
-   memory, in-flight task state) with TTLs. The vector DB holds durable semantic
-   memory (past conversations, ingested documents) keyed by user.
-5. **Everything emits events.** Every node transition publishes a WebSocket event
-   `{agent, status, message, timestamp}` so the frontend's live execution feed and
-   agent network graph are driven by real state, not simulated.
+## Request and ownership flow
 
-## 2. LangGraph state machine
+The browser exchanges its legacy guest capability once for a signed, persisted guest session. Registered sessions use the same session table and can be revoked. Every conversation, feedback edit, custom agent, download, comparison, memory lookup, and dashboard query checks the owner. Guest migration clears `session_id` on account conversations and revokes the old guest credential. Existing account JWTs without a session ID require a fresh login.
 
-```
-                         ┌─────────────┐
-                         │   START     │
-                         └──────┬──────┘
-                                ▼
-                       ┌─────────────────┐
-                       │  Orchestrator   │  ← builds/updates Plan
-                       │   (planner)     │
-                       └────────┬────────┘
-                                ▼
-                     ┌─────────────────────┐
-                     │   route_next_task    │  (conditional edge)
-                     └──┬───┬───┬───┬───┬───┘
-             ┌──────────┘   │   │   │   └───────────┐
-             ▼               ▼   ▼   ▼               ▼
-        ┌─────────┐   ┌─────────┐ ┌───────┐   ┌───────────┐
-        │Research │   │  Data   │ │Coding │   │  Writer   │
-        │ Agent   │   │ Agent   │ │Agent  │   │  Agent    │
-        └────┬────┘   └────┬────┘ └───┬───┘   └─────┬─────┘
-             └────────────┬─┴──────────┴──────────────┘
-                          ▼
-                    ┌───────────┐
-                    │  Critic   │  ← reflection / scoring
-                    └─────┬─────┘
-                          ▼
-                 ┌──────────────────┐
-                 │ evaluation_gate   │ (conditional edge)
-                 └──┬─────────────┬─┘
-           needs_retry           passed / max_retries_hit
-                 │                     │
-                 ▼                     ▼
-          (back to originating   ┌───────────┐
-           agent node)           │    END     │
-                                 └───────────┘
-```
+WebSockets accept a transport connection, require an authentication frame within five seconds, and verify conversation ownership before accepting chat messages. Open connections recheck session/ownership on frames and at five-second idle intervals; revocation cancels active work. Tokens never enter socket URLs. `/ws/events` precedes the parameterized route. Dashboard broadcasts are owner scoped and bounded by send deadlines. Socket updates are local to the process; persisted history remains the source of truth after reconnect or across instances.
 
-Every node reads/writes a single shared `AgentState` (TypedDict) that flows through
-the graph — this is the core LangGraph pattern and the thing to be able to whiteboard
-in an interview.
+## Turn execution
 
-## 3. Core state schema (conceptual)
+`services/runs.py` creates a durable run, deduplicates client request IDs, and reserves a unique active conversation. The main API worker admits four foreground turns by default. Provider calls also share six model slots. Owner turn limits use Redis when available, with a bounded local fallback. Deploy one API worker per container; process-local semaphores are not a fleet-wide distributed scheduler.
 
-```python
-class AgentState(TypedDict):
-    user_id: str
-    session_id: str
-    goal: str
-    plan: list[Task]
-    current_task_index: int
-    agent_outputs: dict[str, Any]
-    evaluation: dict | None
-    retry_count: dict[str, int]
-    next_agent: str | None
-    requires_human_approval: bool
-    final_output: str | None
-```
+A turn has a 180-second deadline, a 16-call model budget, bounded output tokens, and a validated plan with at most three unique specialists. Routing currently uses validated DELEGATE/PARALLEL directives, not provider-native structured output. The research→writer dependency is preserved. Final synthesis has no tools. Provider errors propagate as failures, and streamed partial output is preserved on Stop, errors, and timeouts. A disconnected socket cancels its active turn; reconnect loads saved history rather than resuming generation.
 
-## 4. Human-in-the-loop
+History keeps user/assistant roles distinct from system instructions. Plain specialist evidence is passed as untrusted context. Tool results feed a bounded source ledger, with canonical URLs and page-versus-snippet provenance. Critic review runs after response persistence. It has explicit pending/completed/partial/failed states, and truncated evidence cannot receive a numeric score. “Improve answer” creates one new revision on request and preserves the original.
 
-LangGraph's `interrupt` mechanism pauses graph execution before any node flagged as
-sensitive (e.g., "send email", "execute shell command", "commit code"). The FastAPI
-layer surfaces this as a `pending_approval` task in Postgres; the frontend renders an
-approve/reject modal; approval resumes the graph from its checkpoint via LangGraph's
-checkpointer (Postgres-backed `PostgresSaver`).
+## Storage and background work
 
-## 5. Data flow for a single request
+PostgreSQL is required in production. SQLite supports local development with foreign keys enabled. Ordered revisions in `database/migrations.py` are recorded in `schema_revisions`; failures abort startup. PostgreSQL uses a migration advisory lock. The migration adopts legacy tables and preserves legacy custom agents without assigning their private prompts to an arbitrary owner.
 
-1. User submits a goal via chat → FastAPI `/api/chat` → creates `Task` row, publishes
-   to the graph with a fresh `thread_id`.
-2. Orchestrator node calls the LLM with function-calling to produce a `Plan`.
-3. Each task is routed to its agent node; agent emits progress events over WebSocket
-   as it works (tool calls, intermediate reasoning).
-4. Critic scores the output (0–1) against the task's stated goal; below threshold →
-   retry (up to `MAX_RETRIES`, default 2); at/above → proceed.
-5. Writer synthesizes all agent outputs into the final deliverable.
-6. Memory Agent writes a summary embedding to the vector DB and updates Redis
-   short-term state for the session.
-7. Final output + full execution trace persisted to Postgres for the analytics
-   dashboard.
+Runs store status, first-token and total durations, model-call counts, per-stage timings, and token usage when the provider reports it. Tool executions store name/status/duration. The older `TaskExecution` table is retained for compatibility; new execution records use `Run`.
 
-## 6. Why Postgres *and* Redis *and* a vector DB
+Review and embedding jobs persist in SQL. Two workers claim jobs atomically, enforce a queue cap, recover expired leases, and retry bounded failures with delay. Stale foreground runs are marked interrupted after their maximum execution allowance; they are never automatically replayed. Jobs and startup tasks are cancelled on shutdown.
 
-This three-tier storage story is worth stating explicitly to a reviewer:
+Generated files and validated uploaded bytes are stored as owned, expiring database artifacts. This trades database space for durability without requiring another storage account. Files are limited to 5 MB each and a 25 MB owner workspace. Downloads check owner and expiry; HTML downloads are forced attachments with a sandbox policy. An object-store adapter is a future scaling choice, not a prerequisite for this deployment.
 
-- **Postgres**: source of truth, relational integrity, audit trail (users, tasks,
-  executions, reports) — anything you need to query/join/report on.
-- **Redis**: sub-millisecond hot state — current graph checkpoint cache, rate
-  limiting, pub/sub for WebSocket fan-out across multiple backend replicas.
-- **Vector DB (Qdrant)**: semantic recall — "what did we discuss about X last week,"
-  RAG over ingested documents. Wrong tool for transactional data, right tool for
-  similarity search.
+Qdrant uses a new `agentverse_memory_v2` collection with 768-dimensional normalized embeddings. Six overlapping chunks per message bound indexing cost. Every query includes an owner filter and a current SQL conversation-membership filter, so deleted conversations cannot be retrieved from stale vectors. Reindex old authorized messages explicitly using the supplied script. Physical vector deletion can need a retry after a Qdrant outage; SQL authorization prevents stale retrieval meanwhile.
+
+## Tool boundary
+
+The calculator interprets a small bounded arithmetic AST. File tools operate on private database artifacts and never open API-host paths. Web fetching validates every redirect, resolves only public addresses, connects to those checked addresses, and caps time and downloaded bytes. Compressed responses are rejected to avoid decompression expansion.
+
+Generated code has no API-host fallback. `tools/code_sandbox.py` talks to a separately configured execution service. The optional runner launches a fresh container with no network, no mounts/app secrets, a read-only root filesystem, an unprivileged user, and CPU/memory/process/output limits. The runner and its Docker daemon belong on a dedicated host. They must never be mounted into the main API service.
+
+Slack/Linear credentials are restricted to `CONNECTOR_OWNER_ID`. Side-effect execution pauses for a persisted, expiring, exact-payload approval. Authenticated approval consumption is atomic and one-time, with a second exact-argument check inside connector tools. Plain “APPROVED” chat text grants no permission. Uncertain external results are not automatically retried. A successful action is saved into the conversation; the original pipeline is not silently replayed.
+
+## Operational limits
+
+Google keys in a deployment are conservatively treated as one project quota; rotation does not create more quota. Free-host cold starts remain a hosting property. Optional Redis and Qdrant failures degrade availability of their features without exposing credentials. `/health` returns 503 for a failed database; `llm: configured` is configuration status, not a successful model probe.
+
+SMTP recovery, Google OAuth, connectors, isolated execution, backup restore, and production model quality require configured infrastructure and separate staging verification. CI covers offline regressions, dependency scanning, PostgreSQL migrations, frontend checks, and an API Docker build. No automatic quality-repair loop or blanket factual-correctness guarantee is claimed.

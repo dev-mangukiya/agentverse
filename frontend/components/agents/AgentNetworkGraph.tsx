@@ -1,5 +1,7 @@
 "use client";
 
+import { getAuthHeaders } from "@/lib/auth";
+
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -536,7 +538,7 @@ function AgentNetworkGraphInner({ fullscreen }: { fullscreen?: boolean }) {
   useEffect(() => {
     const fetchAgents = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/v1/stats/agents`);
+        const res = await fetch(`${API_URL}/api/v1/stats/agents`, { headers: getAuthHeaders() });
         if (res.ok) {
           const data = await res.json();
           const fixed = (data.agents || []).map((a: AgentData) => ({

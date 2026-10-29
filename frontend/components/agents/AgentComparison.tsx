@@ -44,7 +44,7 @@ export function AgentComparison({ initialAgentId }: { initialAgentId?: string })
     setAgentsError(false);
     const fetchAgents = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/v1/agents`, { signal: controller.signal });
+        const res = await fetch(`${API_URL}/api/v1/agents`, { headers: getAuthHeaders(), signal: controller.signal });
         if (!res.ok) throw new Error("Could not load agents");
         if (res.ok) {
           const data = await res.json();

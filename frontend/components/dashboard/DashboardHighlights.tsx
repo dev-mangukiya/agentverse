@@ -1,5 +1,7 @@
 "use client";
 
+import { getAuthHeaders } from "@/lib/auth";
+
 /**
  * Dashboard Highlights Card — 2-3 derived facts from existing data.
  *
@@ -54,7 +56,7 @@ export function DashboardHighlights() {
   useEffect(() => {
     const fetchHighlights = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/v1/stats/highlights`);
+        const res = await fetch(`${API_URL}/api/v1/stats/highlights`, { headers: getAuthHeaders() });
         if (res.ok) {
           const data = await res.json();
           setHighlights(data.highlights || []);

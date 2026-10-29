@@ -1,5 +1,7 @@
 "use client";
 
+import { getAuthHeaders } from "@/lib/auth";
+
 import { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
@@ -96,7 +98,7 @@ export function AgentAnalytics() {
   useEffect(() => {
     const fetchAnalytics = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/v1/stats/agent-analytics`);
+        const res = await fetch(`${API_URL}/api/v1/stats/agent-analytics`, { headers: getAuthHeaders() });
         if (res.ok) {
           setData(await res.json());
         } else {

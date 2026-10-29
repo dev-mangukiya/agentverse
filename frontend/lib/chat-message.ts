@@ -19,4 +19,5 @@ export interface ChatMessageData {
   feedback?: "up" | "down" | null;
   critic_score?: number | null;
   critic_review?: string | null;
+  review_status?: "not_requested" | "pending" | "completed" | "partial" | "failed" | "unavailable" | "skipped_busy";
 }

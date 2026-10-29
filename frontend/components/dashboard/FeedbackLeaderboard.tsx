@@ -1,5 +1,7 @@
 "use client";
 
+import { getAuthHeaders } from "@/lib/auth";
+
 /**
  * Feedback Leaderboard — agents ranked by thumbs-up ratio.
  *
@@ -36,7 +38,7 @@ export function FeedbackLeaderboard() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/v1/stats/feedback-leaderboard`);
+        const res = await fetch(`${API_URL}/api/v1/stats/feedback-leaderboard`, { headers: getAuthHeaders() });
         if (res.ok) setData(await res.json());
       } catch { /* silent */ }
       finally { setLoading(false); }

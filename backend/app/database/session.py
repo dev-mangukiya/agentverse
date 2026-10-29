@@ -27,12 +27,14 @@ else:
 
 engine = create_async_engine(
     _db_url,
-    echo=_echo,
+    echo=False,
     pool_pre_ping=True if not _db_url.startswith("sqlite") else False,
     connect_args=_connect_args,
 )
 
-async_session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+async_session_factory = async_sessionmaker(
+    engine, expire_on_commit=False, class_=AsyncSession
+)
 
 
 class Base(DeclarativeBase):
@@ -40,57 +42,27 @@ class Base(DeclarativeBase):
 
 
 async def init_db() -> None:
-    """Create all tables. Called once at startup."""
+    from app.database.migrations import upgrade
+
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        # Lightweight migration: add columns if they don't exist
-        # (for databases created before these columns were added)
-        try:
-            from sqlalchemy import text, inspect as sa_inspect
+        if engine.dialect.name == "postgresql":
+            from sqlalchemy import text
 
-            def _check_and_add_columns(sync_conn):
-                inspector = sa_inspect(sync_conn)
-
-                # Conversations table migrations
-                conv_columns = [c["name"] for c in inspector.get_columns("conversations")]
-                if "session_id" not in conv_columns:
-                    sync_conn.execute(text(
-                        "ALTER TABLE conversations ADD COLUMN session_id VARCHAR(64)"
-                    ))
-                if "user_id" not in conv_columns:
-                    sync_conn.execute(text(
-                        "ALTER TABLE conversations ADD COLUMN user_id VARCHAR(12)"
-                    ))
-                if "is_pinned" not in conv_columns:
-                    sync_conn.execute(text(
-                        "ALTER TABLE conversations ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0"
-                    ))
-
-                # Messages table migrations
-                msg_columns = [c["name"] for c in inspector.get_columns("messages")]
-                if "interrupted" not in msg_columns:
-                    sync_conn.execute(text(
-                        "ALTER TABLE messages ADD COLUMN interrupted INTEGER NOT NULL DEFAULT 0"
-                    ))
-                if "feedback" not in msg_columns:
-                    sync_conn.execute(text(
-                        "ALTER TABLE messages ADD COLUMN feedback VARCHAR(10)"
-                    ))
-                if "critic_score" not in msg_columns:
-                    sync_conn.execute(text(
-                        "ALTER TABLE messages ADD COLUMN critic_score INTEGER"
-                    ))
-                if "critic_review" not in msg_columns:
-                    sync_conn.execute(text(
-                        "ALTER TABLE messages ADD COLUMN critic_review TEXT"
-                    ))
-
-            await conn.run_sync(_check_and_add_columns)
-        except Exception:
-            pass  # Column already exists or DB doesn't support inspection
+            await conn.execute(text("SELECT pg_advisory_xact_lock(6291029)"))
+        await conn.run_sync(upgrade)
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency that yields a request-scoped DB session."""
     async with async_session_factory() as session:
         yield session
+
+
+if _db_url.startswith("sqlite"):
+    from sqlalchemy import event
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _foreign_keys(dbapi_connection, _):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()

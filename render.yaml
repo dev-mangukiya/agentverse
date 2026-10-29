@@ -29,10 +29,8 @@ services:
         value: gemini-2.5-flash
       - key: GOOGLE_API_KEY
         sync: false  # Set manually in Render dashboard
-      - key: TAVILY_API_KEY
-        sync: false  # Set manually in Render dashboard
       - key: DATABASE_URL
-        sync: false  # Set manually if using external Postgres
+        sync: false  # Required: durable PostgreSQL; local free-service storage is ephemeral
       - key: REDIS_URL
         sync: false  # Set manually if using external Redis
       - key: QDRANT_URL
@@ -41,3 +39,9 @@ services:
         sync: false
       - key: GOOGLE_OAUTH_CLIENT_ID
         sync: false  # Set manually for Google Sign-In
+      - key: ALLOWED_ORIGINS
+        value: https://agentverse-psi.vercel.app
+      - key: QDRANT_COLLECTION
+        value: agentverse_memory_v2
+      - key: EMBEDDING_MODEL
+        value: gemini-embedding-001

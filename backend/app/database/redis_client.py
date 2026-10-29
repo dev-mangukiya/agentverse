@@ -6,26 +6,36 @@ connection failures — the app works without Redis, just without caching.
 
 from __future__ import annotations
 
+import asyncio
+import time
 import hashlib
 import json
-from typing import Any
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+_retry_at = 0.0
+_connect_lock = asyncio.Lock()
 _redis_client = None
 _redis_available: bool | None = None
 
 
 async def get_redis():
+    async with _connect_lock:
+        return await _connect_redis()
+
+
+async def _connect_redis():
     """Get the shared async Redis client. Returns None if Redis is unavailable."""
-    global _redis_client, _redis_available
+    global _redis_client, _redis_available, _retry_at
 
     if _redis_client is not None:
         return _redis_client
 
+    if time.monotonic() < _retry_at:
+        return None
     try:
         from redis.asyncio import Redis
 
@@ -37,7 +47,7 @@ async def get_redis():
             _redis_available = False
             return None
 
-        logger.info("redis.connecting", url_prefix=url[:20], is_tls=url.startswith("rediss://"))
+        logger.info("redis.connecting", is_tls=url.startswith("rediss://"))
 
         # For rediss:// URLs (TLS), skip certificate verification
         if url.startswith("rediss://"):
@@ -46,7 +56,7 @@ async def get_redis():
                 decode_responses=True,
                 socket_connect_timeout=5,
                 socket_timeout=5,
-                ssl_cert_reqs="none",
+                ssl_cert_reqs="required",
             )
         else:
             _redis_client = Redis.from_url(
@@ -60,10 +70,18 @@ async def get_redis():
         _redis_available = True
         logger.info("redis.connected")
         return _redis_client
+    except asyncio.CancelledError:
+        if _redis_client is not None:
+            await _redis_client.aclose()
+        _redis_client = None
+        raise
     except Exception as exc:
+        _retry_at = time.monotonic() + 30
+        if _redis_client is not None:
+            await _redis_client.aclose()
         _redis_available = False
         _redis_client = None
-        logger.warning("redis.connection_failed", error=str(exc), error_type=type(exc).__name__)
+        logger.warning("redis.connection_failed", error_type=type(exc).__name__)
         return None
 
 
@@ -79,9 +97,12 @@ async def close_redis():
 
 # ── LLM Response Cache ──────────────────────────────────────────────────────
 
+
 def _cache_key(model: str, system_prompt: str, user_input: str) -> str:
     """Generate a deterministic cache key from the LLM call parameters."""
-    payload = f"{model}|{system_prompt[:500]}|{user_input}"
+    from app.security.identity import require_context
+
+    payload = json.dumps([require_context().key, model, system_prompt, user_input])
     digest = hashlib.sha256(payload.encode()).hexdigest()[:16]
     return f"llm_cache:{digest}"
 
@@ -101,7 +122,9 @@ async def cache_get(model: str, system_prompt: str, user_input: str) -> str | No
         return None
 
 
-async def cache_set(model: str, system_prompt: str, user_input: str, response: str) -> None:
+async def cache_set(
+    model: str, system_prompt: str, user_input: str, response: str
+) -> None:
     """Cache an LLM response with TTL."""
     redis = await get_redis()
     if redis is None:
@@ -116,6 +139,7 @@ async def cache_set(model: str, system_prompt: str, user_input: str, response: s
 
 
 # ── Rate Limit Persistence ──────────────────────────────────────────────────
+
 
 async def rate_limit_mark(key_suffix: str, cooldown_seconds: int = 60) -> None:
     """Mark an API key as rate-limited in Redis."""

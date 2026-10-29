@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ChatMessage } from "./ChatMessage";
 import type { ChatMessageData as Message } from "@/lib/chat-message";
 import { getSessionId } from "@/lib/session";
-import { getAuthHeaders } from "@/lib/auth";
+import { getAuthHeaders, useAuth } from "@/lib/auth";
 import { getAgent } from "@/config/agents";
 import { useNotifications } from "@/components/notifications/NotificationProvider";
 import { ExportMenu } from "./ExportMenu";
@@ -18,7 +18,7 @@ import { transition } from "@/config/motion";
 import { WorkspaceIcon } from "@/components/workspace/WorkspaceIcon";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
-const WS_BASE = API_URL.replace("http", "ws");
+const WS_BASE = (process.env.NEXT_PUBLIC_WS_URL || API_URL.replace("http", "ws")).replace(/\/$/, "");
 
 interface ToolActivity {
   tool: string;
@@ -158,9 +158,12 @@ async function readFile(file: File): Promise<AttachedFile> {
 }
 
 export function ChatPanel({ conversationId, onConversationCreated, onMessageSent, onPipelineUpdate, inputRef: externalInputRef }: ChatPanelProps) {
+  const { user } = useAuth();
   const [inputExpanded, setInputExpanded] = useState(false);
   const taskOptionsRef = useDialogFocus(inputExpanded, () => setInputExpanded(false));
   const [messages, setMessages] = useState<Message[]>([]);
+  const [olderCursor, setOlderCursor] = useState<number | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
@@ -471,6 +474,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     setThinkingPhase("");
     setError(null);
     setMessages([]);
+    setOlderCursor(null);
+    setLoadingOlder(false);
     setInput("");
     setAttachedFiles([]);
     setInputExpanded(false);
@@ -484,7 +489,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
           });
           if (!res.ok) throw new Error("Unable to load this conversation. Please retry.");
           const data = await res.json();
-          if (!controller.signal.aborted) setMessages(data.messages || []);
+          if (!controller.signal.aborted) { setMessages(data.messages || []); setOlderCursor(data.next_before ?? null); }
         } catch (err) {
           if (!controller.signal.aborted) setError(err instanceof Error ? err.message : "Unable to load conversation.");
         } finally {
@@ -496,7 +501,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       controller.abort();
       createRequestRef.current?.abort();
     };
-  }, [conversationId, loadAttempt, resetPipeline]);
+  }, [conversationId, loadAttempt, resetPipeline, user?.id]);
 
   // Keep all callbacks in a ref so WS handlers always use the latest version
   // without needing to recreate the WebSocket on every render.
@@ -505,7 +510,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     callbacksRef.current = { onMessageSent, emitPipeline, resetPipeline, updateAgent };
   });
 
-  // WebSocket connection — only re-runs when conversationId changes
+  // Re-authenticate when signing in changes the owner of a guest conversation.
   useEffect(() => {
     if (!conversationId) {
       if (reconnectTimeoutRef.current) { clearTimeout(reconnectTimeoutRef.current); reconnectTimeoutRef.current = null; }
@@ -525,10 +530,11 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
 
       const ws = new WebSocket(`${WS_BASE}/api/v1/chat/ws/${conversationId}`);
+      let sentCredentials = "";
       wsRef.current = ws;
       setWsConnected(false);
 
-      ws.onopen = () => {
+      const onAuthenticated = () => {
         if (destroyed || wsRef.current !== ws) return;
         setWsConnected(true);
         setError(null);
@@ -539,7 +545,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         // Send any pending message immediately — this ref survives re-renders
         if (pendingMessageRef.current) {
           // Include any pending attachments
-          const msg: Record<string, unknown> = { type: "message", content: pendingMessageRef.current };
+          const msg: Record<string, unknown> = { type: "message", request_id: crypto.randomUUID(), content: pendingMessageRef.current };
           if (pendingAttachmentsRef.current.length > 0) {
             msg.attachments = pendingAttachmentsRef.current;
             pendingAttachmentsRef.current = [];
@@ -551,6 +557,12 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         }
       };
 
+      ws.onopen = () => {
+        const headers = getAuthHeaders();
+        sentCredentials = JSON.stringify(headers);
+        ws.send(JSON.stringify({ type: "auth", authorization: headers.Authorization, session_token: headers["X-Session-ID"] }));
+      };
+
       ws.onmessage = (event) => {
         if (destroyed || wsRef.current !== ws) return;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -560,6 +572,9 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         const cb = callbacksRef.current;
 
         switch (data.type) {
+          case "authenticated":
+            onAuthenticated();
+            break;
           case "pipeline_start":
             cb.resetPipeline();
             cb.emitPipeline(true);
@@ -683,7 +698,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             break;
 
           case "message_updated":
-            setMessages(prev => prev.map(m => m.id === data.id ? { ...m, critic_score: data.critic_score, critic_review: data.critic_review } : m));
+            setMessages(prev => prev.map(m => m.id === data.id ? { ...m, critic_score: data.critic_score, critic_review: data.critic_review, review_status: data.review_status } : m));
             break;
 
           case "busy":
@@ -787,7 +802,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         if (destroyed || wsRef.current !== ws) return;
         if (pingInterval) clearInterval(pingInterval);
         setWsConnected(false);
@@ -806,6 +821,10 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         setMessages(prev => prev.filter(m => !m.awaiting).map(m => m.isStreaming ? { ...m, content: m.liveText?.content ?? m.content, liveText: undefined, isStreaming: false, incomplete: true } : m));
         if (toolClearTimeout) clearTimeout(toolClearTimeout);
         callbacksRef.current.emitPipeline(false);
+        if (event.code === 1008 && sentCredentials === JSON.stringify(getAuthHeaders())) {
+          setError("Your session or access to this chat changed. Sign in again or reload to continue.");
+          return;
+        }
         // Reconnect after 3s using the stable `connect` function from this effect's scope
         reconnectTimeoutRef.current = setTimeout(connect, 3000);
       };
@@ -828,7 +847,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversationId]);
+  }, [conversationId, user?.id]);
 
   // ── File handling ───────────────────────────────────────────
   const processFiles = async (files: FileList | File[]) => {
@@ -1035,7 +1054,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     }
 
     if (!pendingMessageRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
-      const msg: Record<string, unknown> = { type: "message", content };
+      const msg: Record<string, unknown> = { type: "message", request_id: crypto.randomUUID(), content };
       if (binaryAttachments.length > 0) msg.attachments = binaryAttachments;
       wsRef.current.send(JSON.stringify(msg));
     } else if (!pendingMessageRef.current && wsRef.current?.readyState === WebSocket.CONNECTING) {
@@ -1082,6 +1101,26 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     : thinkingPhase === "planning" ? "Thinking it through…"
     : thinkingPhase === "synthesizing" ? "Bringing the answer together…"
     : thinkingAgent ? `${getAgent(thinkingAgent.toLowerCase()).displayName} is working…` : "Thinking…";
+
+  const loadOlder = async () => {
+    if (!olderCursor || loadingOlder || !conversationId) return;
+    setLoadingOlder(true);
+    const id = conversationId;
+    const generation = conversationGenerationRef.current;
+    try {
+      const response = await fetch(`${API_URL}/api/v1/chat/conversations/${id}?before=${olderCursor}`, { headers: getAuthHeaders() });
+      if (!response.ok) throw new Error("Could not load earlier messages.");
+      const data = await response.json();
+      if (generation !== conversationGenerationRef.current) return;
+      const area = scrollRef.current;
+      const oldHeight = area?.scrollHeight || 0;
+      const oldTop = area?.scrollTop || 0;
+      setMessages(previous => [...(data.messages || []), ...previous]);
+      setOlderCursor(data.next_before ?? null);
+      requestAnimationFrame(() => { if (area) area.scrollTop = oldTop + area.scrollHeight - oldHeight; });
+    } catch { if (generation === conversationGenerationRef.current) setError("Could not load earlier messages. Please try again."); }
+    finally { if (generation === conversationGenerationRef.current) setLoadingOlder(false); }
+  };
 
   const isEmpty = messages.length === 0 && !isThinking && !loadingConversation;
   useEffect(() => {
@@ -1132,7 +1171,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     <div className="studio-chat flex flex-col h-full min-h-0 min-w-0" style={{ backgroundColor: "var(--bg-base)" }}>
       <div className="chat-topbar">
         <span>{conversationId && !wsConnected ? "Connecting…" : isEmpty ? "A little help for your next idea" : "Your conversation"}</span>
-        {!isEmpty && !isThinking && <ExportMenu messages={messages}/>}
+        {!isEmpty && !isThinking && <ExportMenu messages={messages} conversationId={conversationId}/>}
       </div>
 
       {/* Resize observation follows content growth without token-by-token jumps. */}
@@ -1145,7 +1184,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         ) : (
           /* Message list */
           <div className="conversation-messages">
-            {messages.map(message => <ChatMessage key={message.renderKey ?? `${conversationId}-${message.role}-${message.id}`} message={message} status={message.awaiting || message.isStreaming ? responseStatus : undefined} busy={!!message.content.includes("[APPROVAL_REQUIRED:") && isThinking} onSend={sendFromMessage} onFeedback={saveFeedback}/>)}
+            {olderCursor && <button className="text-sm underline my-3" disabled={loadingOlder} onClick={loadOlder}>{loadingOlder ? "Loading…" : "Load earlier messages"}</button>}
+            {messages.map(message => <ChatMessage key={message.renderKey ?? `${conversationId}-${message.role}-${message.id}`} message={message} status={message.awaiting || message.isStreaming ? responseStatus : undefined} busy={isThinking} onSend={sendFromMessage} onFeedback={saveFeedback}/>)}
           </div>
         )}
         </div>

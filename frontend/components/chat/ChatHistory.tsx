@@ -22,6 +22,8 @@ interface ChatHistoryProps {
 export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger, compact = false }: ChatHistoryProps) {
   const { user } = useAuth();
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
+  const [pageLimit, setPageLimit] = useState(50);
+  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
@@ -49,10 +51,16 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger, com
     setError("");
     (async () => {
       try {
-        const res = await fetch(`${API_URL}/api/v1/chat/conversations`, { headers: getAuthHeaders(), signal: controller.signal });
+        const data: ConversationItem[] = [];
+        for (let offset = 0; offset < pageLimit; offset += 50) {
+        const res = await fetch(`${API_URL}/api/v1/chat/conversations?limit=50&offset=${offset}`, { headers: getAuthHeaders(), signal: controller.signal });
         if (!res.ok) throw new Error("Could not load chats.");
-        const data = await res.json();
-        if (!Array.isArray(data)) throw new Error("Could not load chats.");
+        const page = await res.json();
+        if (!Array.isArray(page)) throw new Error("Could not load chats.");
+        data.push(...page);
+        if (!controller.signal.aborted) setHasMore(page.length === 50);
+        if (page.length < 50) break;
+        }
         if (!controller.signal.aborted && version === listVersion.current) setConversations(data);
       } catch (err) {
         if (!controller.signal.aborted) setError(err instanceof Error ? err.message : "Could not load chats.");
@@ -61,7 +69,7 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger, com
       }
     })();
     return () => controller.abort();
-  }, [refreshTrigger, retry, user?.id]);
+  }, [refreshTrigger, retry, user?.id, pageLimit]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -160,6 +168,7 @@ export function ChatHistory({ activeId, onSelect, onNewChat, refreshTrigger, com
             <button disabled={pending !== null} onClick={() => setDeleteId(null)} className="rounded-lg px-3 py-2">Cancel</button></div>
           </div>}
         </div>)}
+        {hasMore && !query && <button className="p-3 text-sm underline" disabled={loading} onClick={() => setPageLimit(value => value + 50)}>Load more chats</button>}
       </div>
     </section>
   );

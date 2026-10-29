@@ -255,7 +255,7 @@ test('notifications stay within the viewport when opened from the header or near
 test('failed specialist deletion keeps the card visible and shows an actionable error', async () => {
   let removed = false, error, pending;
   const remove = functionFromSource('components/agents/AgentBuilder.tsx', 'handleDelete', {
-    deletingId: null, confirm: () => true, setDeletingId: value => pending = value,
+    getAuthHeaders: () => ({}), deletingId: null, confirm: () => true, setDeletingId: value => pending = value,
     setError: value => error = value, API_URL: 'http://example.invalid',
     fetch: async () => ({ ok: false }), setAgents: () => removed = true,
   });

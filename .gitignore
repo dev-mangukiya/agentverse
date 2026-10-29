@@ -30,3 +30,9 @@ out/
 
 # Local binaries
 .local/
+
+# Local test/build caches and generated benchmark evidence
+.pytest_cache/
+.ruff_cache/
+*.tsbuildinfo
+benchmark-results.json

@@ -1,4 +1,5 @@
 "use client";
+import { getAuthHeaders } from "@/lib/auth";
 
 import { useState, useRef, useEffect } from "react";
 import { transition } from "@/config/motion";
@@ -15,6 +16,7 @@ interface Message {
 }
 
 interface ExportMenuProps {
+  conversationId?: string | null;
   messages: Message[];
   conversationTitle?: string;
 }
@@ -107,8 +109,10 @@ function downloadFile(content: string, filename: string, mimeType: string) {
   URL.revokeObjectURL(url);
 }
 
-export function ExportMenu({ messages, conversationTitle }: ExportMenuProps) {
+export function ExportMenu({ messages, conversationTitle, conversationId }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [error, setError] = useState("");
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -120,23 +124,35 @@ export function ExportMenu({ messages, conversationTitle }: ExportMenuProps) {
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  const handleExport = (format: ExportFormat) => {
+  const handleExport = async (format: ExportFormat) => {
+    if (exporting) return;
+    setExporting(true); setError("");
+    let exportMessages = messages;
+    try {
+    if (conversationId) {
+      const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
+      const response = await fetch(`${base}/api/v1/chat/conversations/${conversationId}/export`, { headers: getAuthHeaders() });
+      if (!response.ok) throw new Error("Could not export the conversation.");
+      const data = await response.json(); exportMessages = data.messages;
+    }
     const title = conversationTitle || "AgentVerse Chat";
     const timestamp = new Date().toISOString().slice(0, 10);
     const safeTitle = title.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 30);
 
     switch (format) {
       case "markdown":
-        downloadFile(generateMarkdown(messages, title), `${safeTitle}_${timestamp}.md`, "text/markdown");
+        downloadFile(generateMarkdown(exportMessages, title), `${safeTitle}_${timestamp}.md`, "text/markdown");
         break;
       case "json":
-        downloadFile(generateJSON(messages, title), `${safeTitle}_${timestamp}.json`, "application/json");
+        downloadFile(generateJSON(exportMessages, title), `${safeTitle}_${timestamp}.json`, "application/json");
         break;
       case "text":
-        downloadFile(generatePlainText(messages, title), `${safeTitle}_${timestamp}.txt`, "text/plain");
+        downloadFile(generatePlainText(exportMessages, title), `${safeTitle}_${timestamp}.txt`, "text/plain");
         break;
     }
     setOpen(false);
+    } catch { setError("Could not export. Please try again."); }
+    finally { setExporting(false); }
   };
 
   if (!messages.length) return null;
@@ -168,6 +184,7 @@ export function ExportMenu({ messages, conversationTitle }: ExportMenuProps) {
         </svg>
       </button>
 
+      {error && <p role="alert">{error}</p>}
       <AnimatePresence>
         {open && (
           <motion.div
@@ -189,6 +206,7 @@ export function ExportMenu({ messages, conversationTitle }: ExportMenuProps) {
             {formats.map((fmt) => (
               <button
                 key={fmt.id}
+                disabled={exporting}
                 onClick={() => handleExport(fmt.id)}
                 className="w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors duration-150"
                 style={{ color: "var(--text-secondary)" }}

@@ -110,6 +110,17 @@ export function AuthModal({ open, onClose, onSuccess }: AuthModalProps) {
     }
   }, [googleLogin, onClose, onSuccess]);
 
+  const recover = async () => {
+    setLoading(true); setError("");
+    try {
+      const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
+      const response = await fetch(`${base}/api/v1/auth/recovery`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) });
+      const data = await response.json();
+      setError(response.ok ? data.status : typeof data.detail === "string" ? data.detail : "Enter a valid email address first.");
+    } catch { setError("Could not request a recovery email. Please try again."); }
+    finally { setLoading(false); }
+  };
+
   // Reset on tab change
   const switchTab = (t: "login" | "register") => {
     setTab(t);
@@ -126,8 +137,8 @@ export function AuthModal({ open, onClose, onSuccess }: AuthModalProps) {
     if (tab === "login") {
       result = await login(email, password);
     } else {
-      if (password.length < 6) {
-        setError("Password must be at least 6 characters");
+      if (password.length < 8) {
+        setError("Password must be at least 8 characters");
         setLoading(false);
         return;
       }
@@ -439,7 +450,8 @@ export function AuthModal({ open, onClose, onSuccess }: AuthModalProps) {
                     "Create Account"
                   )}
                 </button>
-              </form>
+              {tab === "login" && <button type="button" disabled={loading} onClick={recover} className="text-sm underline mt-3">Forgot password?</button>}
+            </form>
               </div>
 
               {/* Footer */}

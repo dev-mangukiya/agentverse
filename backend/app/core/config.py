@@ -28,6 +28,22 @@ def _find_env_file() -> str:
     return ".env"
 
 
+def validate_provider_model(provider: str, model: str):
+    """Reject mismatched families without hard-coding a list of current releases."""
+    normalized = model.removeprefix("models/")
+    if not model.strip() or (
+        provider == "google"
+        and not normalized.startswith("gemini-")
+        or provider == "anthropic"
+        and not normalized.startswith("claude-")
+        or provider == "huggingface"
+        and "/" not in model
+        or provider == "openai"
+        and normalized.startswith(("gemini-", "claude-"))
+    ):
+        raise ValueError("Model name does not match the selected provider")
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=_find_env_file(),
@@ -46,9 +62,13 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
     google_api_key: str | None = None
-    google_api_keys: str | None = None  # Comma-separated list of Google API keys for round-robin
-    huggingface_api_key: str | None = None  # HuggingFace token (HUGGINGFACEHUB_API_TOKEN)
-    # Force google provider to fix Render deployment issue where env vars override
+    google_api_keys: str | None = (
+        None  # Comma-separated list of Google API keys for round-robin
+    )
+    huggingface_api_key: str | None = (
+        None  # HuggingFace token (HUGGINGFACEHUB_API_TOKEN)
+    )
+    # Explicitly selected provider; credentials do not silently change it.
     default_model_provider: str = "google"
     default_model: str = "gemini-2.5-flash"
 
@@ -62,23 +82,22 @@ class Settings(BaseSettings):
         # Add single GOOGLE_API_KEY if not already present
         if self.google_api_key and self.google_api_key not in keys:
             keys.append(self.google_api_key)
-        return keys
+        return list(dict.fromkeys(keys))
 
     # ── PostgreSQL ───────────────────────────────────────
     database_url: str = ""
 
     # ── Redis ────────────────────────────────────────────
-    redis_url: str = "redis://localhost:6379/0"
+    redis_url: str = ""
     redis_cache_ttl: int = 3600  # LLM response cache TTL in seconds
 
     # ── Vector DB ────────────────────────────────────────
-    qdrant_url: str = "http://localhost:6333"
+    qdrant_url: str = ""
     qdrant_api_key: str | None = None
-    qdrant_collection: str = "agentverse_memory"
-    embedding_model: str = "text-embedding-004"
+    qdrant_collection: str = "agentverse_memory_v2"
+    embedding_model: str = "gemini-embedding-001"
 
     # ── Tools ────────────────────────────────────────────
-    tavily_api_key: str | None = None
 
     # ── Auth ─────────────────────────────────────────────
     jwt_algorithm: str = "HS256"
@@ -89,9 +108,7 @@ class Settings(BaseSettings):
     routing_timeout_seconds: float = Field(default=25, gt=0)
     tool_timeout_seconds: float = Field(default=25, gt=0)
     max_parallel_tools: int = Field(default=4, ge=1, le=8)
-    max_retries: int = 2
-    max_plan_steps: int = 10
-    critic_pass_threshold: float = 0.75
+    max_retries: int = Field(default=2, ge=0, le=3)
 
     @property
     def is_production(self) -> bool:
@@ -106,38 +123,90 @@ class Settings(BaseSettings):
                 url = url.replace("postgres://", "postgresql+asyncpg://", 1)
             elif url.startswith("postgresql://"):
                 url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
-            
-            if "sslmode=" in url:
-                url = url.replace("sslmode=", "ssl=")
+
+            from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+
+            parts = urlsplit(url)
+            query = [
+                ("ssl" if key == "sslmode" else key, value)
+                for key, value in parse_qsl(parts.query)
+            ]
+            url = urlunsplit(
+                (
+                    parts.scheme,
+                    parts.netloc,
+                    parts.path,
+                    urlencode(query),
+                    parts.fragment,
+                )
+            )
             return url
         db_path = Path(__file__).resolve().parent.parent.parent / "agentverse.db"
         return f"sqlite+aiosqlite:///{db_path}"
 
     @property
     def llm_configured(self) -> bool:
-        """Check if at least one LLM provider has a key."""
+        """Configuration status for the selected provider, not a health probe."""
         return bool(
-            self.openai_api_key
-            or self.anthropic_api_key
-            or self.google_api_key_list
-            or self.huggingface_api_key
+            {
+                "google": self.google_api_key_list,
+                "openai": self.openai_api_key,
+                "anthropic": self.anthropic_api_key,
+                "huggingface": self.huggingface_api_key,
+            }.get(self.default_model_provider)
         )
 
-    @model_validator(mode="after")
-    def _prefer_google_when_available(self) -> "Settings":
-        """Always prefer Google Gemini when a key is available.
+    allowed_origins: str = (
+        "http://localhost:3000,http://127.0.0.1:3000,https://agentverse-psi.vercel.app"
+    )
+    turn_timeout_seconds: float = Field(default=180, gt=0, le=600)
+    max_concurrent_turns: int = Field(default=4, ge=1, le=32)
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_from: str | None = None
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    public_frontend_url: str | None = None
+    google_quota_group: str = "default-project"
+    max_output_tokens: int = Field(default=4096, ge=256, le=16384)
+    max_model_calls_per_turn: int = Field(default=16, ge=1, le=40)
+    execution_url: str | None = None
+    execution_token: str | None = None
+    connector_owner_id: str | None = None
+    slack_bot_token: str | None = None
+    linear_api_key: str | None = None
+    github_token: str | None = None
+    artifact_ttl_hours: int = Field(default=168, ge=1, le=720)
 
-        Render's env vars may set DEFAULT_MODEL_PROVIDER to 'huggingface',
-        but HuggingFace free tier is extremely slow for large models. When we
-        have a Google API key, force the fast path.
-        """
-        if self.google_api_key and self.default_model_provider != "google":
-            self.default_model_provider = "google"
-            self.default_model = "gemini-2.5-flash"
+    @model_validator(mode="after")
+    def validate_production(self):
+        if self.default_model_provider not in (
+            "google",
+            "openai",
+            "anthropic",
+            "huggingface",
+        ):
+            raise ValueError("Unsupported model provider")
+        if self.jwt_algorithm != "HS256":
+            raise ValueError("Only HS256 is supported")
+        validate_provider_model(self.default_model_provider, self.default_model)
+        if self.is_production and (
+            len(self.secret_key) < 32 or self.secret_key == "change-me"
+        ):
+            raise ValueError(
+                "Production requires a random SECRET_KEY of at least 32 characters"
+            )
+        if self.is_production and not self.database_url:
+            raise ValueError("Production requires a durable DATABASE_URL")
+        if self.is_production and not self.effective_database_url.startswith(
+            "postgresql+asyncpg://"
+        ):
+            raise ValueError("Production requires PostgreSQL storage")
+        if self.is_production and self.app_debug:
+            raise ValueError("APP_DEBUG must be false in production")
         return self
 
 
 @lru_cache
 def get_settings() -> Settings:
-    """Cached settings singleton — import this, not Settings() directly."""
     return Settings()

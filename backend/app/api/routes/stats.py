@@ -1,604 +1,287 @@
-"""Stats endpoint — real-time dashboard metrics from the database."""
+"""Owner-scoped metrics; durations come from completed runs, never timestamp guesses."""
 
 import time
-from datetime import datetime, timezone, timedelta
-
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends
-from sqlalchemy import select, func, text
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.database.models.models import Conversation, Message
+from sqlalchemy import select, func, case
 from app.database.session import get_db
+from app.database.models.models import Conversation, Message, Run, ToolExecution
+from app.security.identity import Owner, get_owner
 from app.core.config import get_settings
-from app.core.logging import get_logger
 
 router = APIRouter(prefix="/stats", tags=["stats"])
-settings = get_settings()
-logger = get_logger(__name__)
-
-# Track server start time
-_START_TIME = time.time()
-
-# Static agent graph positions and metadata (extended by live data)
-# Positions use a spread-out layout to avoid overlap on all screen sizes
-_AGENT_META: dict[str, dict] = {
-    "orchestrator":  {"role": "Planning & Delegation",    "x": 42, "y": 55},
-    "research":      {"role": "Web Search & Analysis",      "x": 18, "y": 25},
-    "data":          {"role": "Data Processing & Viz",      "x": 72, "y": 22},
-    "coding":        {"role": "Code Generation & Debug",    "x": 15, "y": 75},
-    "writer":        {"role": "Content & Reports",          "x": 72, "y": 78},
-    "critic":        {"role": "Quality & Evaluation",       "x": 42, "y": 85},
-    "doc_reader":    {"role": "Document Analysis & Q&A",    "x": 85, "y": 50},
-    "doc_generator": {"role": "Document Generation",        "x": 85, "y": 75},
+_START_TIME = time.monotonic()
+_AGENT_META = {
+    "orchestrator": "Planning & Delegation",
+    "research": "Web Search & Analysis",
+    "coding": "Code Generation & Debug",
+    "writer": "Content & Reports",
+    "critic": "Quality & Evaluation",
+    "data": "Data Processing & Viz",
+    "doc_reader": "Document Analysis",
+    "doc_generator": "Document Generation",
 }
 
 
-@router.get("")
-async def get_stats(db: AsyncSession = Depends(get_db)) -> dict:
-    """Return live dashboard stats derived from the database."""
+def scope(owner):
+    return Message.conversation_id.in_(select(Conversation.id).where(owner.condition()))
 
-    now = datetime.now(timezone.utc)
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    yesterday_start = today_start - timedelta(days=1)
 
-    # Total conversations
-    total_convs = (await db.execute(select(func.count(Conversation.id)))).scalar_one()
-
-    # Today's conversations
-    today_convs = (await db.execute(
-        select(func.count(Conversation.id)).where(Conversation.created_at >= today_start)
-    )).scalar_one()
-
-    # Total messages
-    total_msgs = (await db.execute(select(func.count(Message.id)))).scalar_one()
-
-    # Today's messages
-    today_msgs = (await db.execute(
-        select(func.count(Message.id)).where(Message.created_at >= today_start)
-    )).scalar_one()
-
-    # Yesterday's messages (for trend)
-    yesterday_msgs = (await db.execute(
-        select(func.count(Message.id)).where(
-            Message.created_at >= yesterday_start,
-            Message.created_at < today_start,
-        )
-    )).scalar_one()
-
-    # Agent messages (responses only)
-    agent_msgs_total = (await db.execute(
-        select(func.count(Message.id)).where(Message.role == "agent")
-    )).scalar_one()
-
-    agent_msgs_today = (await db.execute(
-        select(func.count(Message.id)).where(
-            Message.role == "agent",
-            Message.created_at >= today_start,
-        )
-    )).scalar_one()
-
-    # Recent messages for activity feed (last 20 agent/tool messages)
-    recent_msgs_result = await db.execute(
-        select(Message)
-        .where(Message.role.in_(["agent", "tool"]))
-        .order_by(Message.created_at.desc())
-        .limit(20)
+def _format_uptime(seconds):
+    return (
+        f"{seconds // 3600}h {(seconds % 3600) // 60}m"
+        if seconds >= 3600
+        else f"{seconds // 60}m"
     )
-    recent_msgs = recent_msgs_result.scalars().all()
 
-    # Uptime
-    uptime_seconds = int(time.time() - _START_TIME)
-    uptime_str = _format_uptime(uptime_seconds)
 
-    # LLM info
-    llm_provider = settings.default_model_provider or "unknown"
-    llm_model = settings.default_model or "unknown"
-
+@router.get("")
+async def get_stats(db=Depends(get_db), owner: Owner = Depends(get_owner)):
+    today = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    yesterday = today - timedelta(days=1)
+    conv = (
+        await db.execute(
+            select(
+                func.count(Conversation.id),
+                func.count(case((Conversation.created_at >= today, 1))),
+            ).where(owner.condition())
+        )
+    ).one()
+    msg = (
+        await db.execute(
+            select(
+                func.count(Message.id),
+                func.count(case((Message.created_at >= today, 1))),
+                func.count(
+                    case(
+                        (
+                            (Message.created_at >= yesterday)
+                            & (Message.created_at < today),
+                            1,
+                        )
+                    )
+                ),
+                func.count(case((Message.role == "agent", 1))),
+                func.count(
+                    case(((Message.role == "agent") & (Message.created_at >= today), 1))
+                ),
+            ).where(scope(owner))
+        )
+    ).one()
+    recent = (
+        await db.scalars(
+            select(Message)
+            .where(scope(owner), Message.role.in_(["agent", "tool"]))
+            .order_by(Message.id.desc())
+            .limit(20)
+        )
+    ).all()
+    settings = get_settings()
+    uptime = int(time.monotonic() - _START_TIME)
     return {
-        "conversations": {
-            "total": total_convs,
-            "today": today_convs,
-        },
-        "messages": {
-            "total": total_msgs,
-            "today": today_msgs,
-            "yesterday": yesterday_msgs,
-            "agent_total": agent_msgs_total,
-            "agent_today": agent_msgs_today,
-        },
-        "uptime": uptime_str,
-        "uptime_seconds": uptime_seconds,
+        "conversations": {"total": conv[0], "today": conv[1]},
+        "messages": dict(
+            zip(["total", "today", "yesterday", "agent_total", "agent_today"], msg)
+        ),
+        "uptime": _format_uptime(uptime),
+        "uptime_seconds": uptime,
         "llm": {
-            "provider": llm_provider,
-            "model": llm_model,
+            "provider": settings.default_model_provider,
+            "model": settings.default_model,
             "configured": settings.llm_configured,
         },
         "recent_activity": [
             {
                 "agent": m.agent_name or "Agent",
-                "content": m.content[:120] + "…" if len(m.content) > 120 else m.content,
+                "content": m.content[:120],
                 "role": m.role,
-                "created_at": m.created_at.isoformat() if m.created_at else None,
+                "created_at": m.created_at.isoformat(),
             }
-            for m in recent_msgs
+            for m in recent
         ],
     }
 
 
-def _format_uptime(seconds: int) -> str:
-    if seconds < 60:
-        return f"{seconds}s"
-    if seconds < 3600:
-        return f"{seconds // 60}m"
-    if seconds < 86400:
-        return f"{seconds // 3600}h {(seconds % 3600) // 60}m"
-    return f"{seconds // 86400}d {(seconds % 86400) // 3600}h"
-
-
 @router.get("/agents")
-async def get_agents(db: AsyncSession = Depends(get_db)) -> dict:
-    """Return live agent roster derived from message history."""
-    import math
-
-    # Get distinct agent names with message counts and last seen
-    result = await db.execute(
-        select(
-            Message.agent_name,
-            func.count(Message.id).label("msg_count"),
-            func.max(Message.created_at).label("last_seen"),
+async def get_agents(db=Depends(get_db), owner: Owner = Depends(get_owner)):
+    rows = (
+        await db.execute(
+            select(
+                Message.agent_name, func.count(Message.id), func.max(Message.created_at)
+            )
+            .where(scope(owner), Message.role == "agent")
+            .group_by(Message.agent_name)
         )
-        .where(Message.role == "agent", Message.agent_name.isnot(None))
-        .group_by(Message.agent_name)
+    ).all()
+    lookup = {r[0]: (r[1], r[2]) for r in rows if r[0]}
+    active = set(
+        (
+            await db.scalars(
+                select(Run.agent_name).where(
+                    Run.owner_key == owner.key, Run.status == "running"
+                )
+            )
+        ).all()
     )
-    rows = result.all()
-
-    # Always include orchestrator even if no messages yet
-    seen_names = {r.agent_name.lower() for r in rows}
     agents = []
-
-    # Build agents list from DB + static meta
-    all_names = list(seen_names | set(_AGENT_META.keys()))
-
-    for name in all_names:
-        meta = _AGENT_META.get(name, {
-            "role": "Agent",
-            "x": 50,
-            "y": 50,
-        })
-        row = next((r for r in rows if r.agent_name and r.agent_name.lower() == name), None)
-        msg_count = row.msg_count if row else 0
-        last_seen = row.last_seen.isoformat() if row and row.last_seen else None
-
-        # Determine status based on last_seen recency
-        if last_seen:
-            from datetime import datetime, timezone
-            delta = (datetime.now(timezone.utc) - row.last_seen.replace(tzinfo=timezone.utc)).total_seconds()
-            status = "working" if delta < 300 else ("active" if msg_count > 0 else "idle")
-        else:
-            status = "idle" if name != "orchestrator" else "active"
-
-        agents.append({
-            "id": name,
-            "label": name.replace("_", " ").title() + " Agent" if name != "orchestrator" else "Chief Orchestrator",
-            "role": meta["role"],
-            "status": status,
-            "x": meta["x"],
-            "y": meta["y"],
-            "message_count": msg_count,
-            "last_seen": last_seen,
-        })
-
-    # Static edges (orchestrator → all, plus critic connections)
-    edges = [
-        {"from": "orchestrator", "to": n}
-        for n in ["research", "data", "coding", "writer", "critic"]
-        if n in all_names
-    ] + [
-        {"from": "coding", "to": "critic"},
-        {"from": "writer", "to": "critic"},
-    ]
-
-    return {"agents": agents, "edges": edges}
+    for i, name in enumerate(sorted(set(_AGENT_META) | set(lookup))):
+        count, last = lookup.get(name, (0, None))
+        agents.append(
+            {
+                "id": name,
+                "label": name.replace("_", " ").title(),
+                "role": _AGENT_META.get(name, "Custom Agent"),
+                "status": "working"
+                if name in active
+                else "active"
+                if count
+                else "idle",
+                "x": 20 + (i % 3) * 30,
+                "y": 20 + (i // 3) * 30,
+                "message_count": count,
+                "last_seen": last.isoformat() if last else None,
+            }
+        )
+    return {
+        "agents": agents,
+        "edges": [
+            {"from": "orchestrator", "to": a["id"]}
+            for a in agents
+            if a["id"] != "orchestrator"
+        ],
+    }
 
 
 @router.get("/agent-analytics")
-async def get_agent_analytics(db: AsyncSession = Depends(get_db)) -> dict:
-    """Per-agent performance metrics for the analytics dashboard."""
-
-    now = datetime.now(timezone.utc)
-
-    # Per-agent message counts
-    agent_stats_result = await db.execute(
-        select(
-            Message.agent_name,
-            func.count(Message.id).label("total_messages"),
-            func.max(Message.created_at).label("last_active"),
-            func.min(Message.created_at).label("first_seen"),
-        )
-        .where(Message.role == "agent", Message.agent_name.isnot(None))
-        .group_by(Message.agent_name)
-    )
-    agent_rows = agent_stats_result.all()
-
-    # ── Minimum samples to compute meaningful percentiles ──
-    MIN_PERCENTILE_SAMPLES = 20
-
-    agents = []
-    for row in agent_rows:
-        name = row.agent_name
-        meta = _AGENT_META.get(name, {"color": "#9aa0a6", "role": "Agent"})
-
-        # Compute response time stats from user→agent message timestamp pairs.
-        # These are wall-clock diffs (includes orchestration + network), not pure LLM latency.
-        avg_response_ms = None
-        p50_response_ms = None
-        p95_response_ms = None
-        sample_count = 0
-
-        try:
-            dialect = db.bind.dialect.name if db.bind else "sqlite"
-
-            if dialect == "postgresql":
-                # PostgreSQL: use PERCENTILE_CONT for p50/p95 in one query
-                sql = text("""
-                    WITH diffs AS (
-                        SELECT EXTRACT(EPOCH FROM (a.created_at - u.created_at)) * 1000 AS ms
-                        FROM messages a
-                        JOIN messages u ON a.conversation_id = u.conversation_id
-                            AND u.role = 'user'
-                            AND u.created_at < a.created_at
-                        WHERE a.role = 'agent' AND a.agent_name = :name
-                        AND u.created_at = (
-                            SELECT MAX(u2.created_at) FROM messages u2
-                            WHERE u2.conversation_id = a.conversation_id
-                            AND u2.role = 'user'
-                            AND u2.created_at < a.created_at
-                        )
-                    )
-                    SELECT
-                        COUNT(*) AS n,
-                        AVG(ms) AS avg_ms,
-                        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ms) AS p50_ms,
-                        PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY ms) AS p95_ms
-                    FROM diffs
-                """)
-                result = await db.execute(sql, {"name": name})
-                r = result.first()
-                if r and r.n:
-                    sample_count = int(r.n)
-                    avg_response_ms = int(r.avg_ms) if r.avg_ms else None
-                    if sample_count >= MIN_PERCENTILE_SAMPLES:
-                        p50_response_ms = int(r.p50_ms) if r.p50_ms else None
-                        p95_response_ms = int(r.p95_ms) if r.p95_ms else None
-            else:
-                # SQLite: no PERCENTILE_CONT, fetch sorted diffs and compute manually
-                sql = text("""
-                    SELECT (julianday(a.created_at) - julianday(u.created_at)) * 86400000 AS ms
-                    FROM messages a
-                    JOIN messages u ON a.conversation_id = u.conversation_id
-                        AND u.role = 'user'
-                        AND u.created_at < a.created_at
-                    WHERE a.role = 'agent' AND a.agent_name = :name
-                    AND u.created_at = (
-                        SELECT MAX(u2.created_at) FROM messages u2
-                        WHERE u2.conversation_id = a.conversation_id
-                        AND u2.role = 'user'
-                        AND u2.created_at < a.created_at
-                    )
-                    ORDER BY ms
-                """)
-                result = await db.execute(sql, {"name": name})
-                vals = [r[0] for r in result.all() if r[0] is not None and r[0] > 0]
-                sample_count = len(vals)
-                if vals:
-                    avg_response_ms = int(sum(vals) / len(vals))
-                    if sample_count >= MIN_PERCENTILE_SAMPLES:
-                        p50_idx = int(len(vals) * 0.5)
-                        p95_idx = min(int(len(vals) * 0.95), len(vals) - 1)
-                        p50_response_ms = int(vals[p50_idx])
-                        p95_response_ms = int(vals[p95_idx])
-        except Exception:
-            pass
-
-        agents.append({
-            "name": name,
-            "label": meta.get("role", name.replace("_", " ").title()),
-            "total_messages": row.total_messages,
-            "last_active": row.last_active.isoformat() if row.last_active else None,
-            "first_seen": row.first_seen.isoformat() if row.first_seen else None,
-            "avg_response_ms": avg_response_ms,
-            "p50_response_ms": p50_response_ms,
-            "p95_response_ms": p95_response_ms,
-            "response_sample_count": sample_count,
-        })
-
-    # Daily message counts for the last 7 days
-    daily = []
-    for i in range(6, -1, -1):
-        day_start = (now - timedelta(days=i)).replace(hour=0, minute=0, second=0, microsecond=0)
-        day_end = day_start + timedelta(days=1)
-        count_result = await db.execute(
-            select(func.count(Message.id)).where(
-                Message.created_at >= day_start,
-                Message.created_at < day_end,
+async def get_agent_analytics(db=Depends(get_db), owner: Owner = Depends(get_owner)):
+    rows = (
+        await db.execute(
+            select(
+                Message.agent_name,
+                func.count(Message.id),
+                func.min(Message.created_at),
+                func.max(Message.created_at),
             )
+            .where(scope(owner), Message.role == "agent", Message.interrupted == 0)
+            .group_by(Message.agent_name)
         )
-        daily.append({
-            "date": day_start.strftime("%Y-%m-%d"),
-            "label": day_start.strftime("%a"),
-            "count": count_result.scalar_one(),
-        })
-
-    # Tool usage breakdown (from tool messages)
-    tool_result = await db.execute(
-        select(
-            Message.tool_name,
-            func.count(Message.id).label("usage_count"),
+    ).all()
+    runs = (
+        await db.execute(
+            select(Run.agent_name, Run.duration_ms)
+            .where(
+                Run.owner_key == owner.key,
+                Run.status == "completed",
+                Run.duration_ms.isnot(None),
+            )
+            .order_by(Run.created_at.desc())
+            .limit(10000)
         )
-        .where(Message.role == "tool", Message.tool_name.isnot(None))
-        .group_by(Message.tool_name)
-        .order_by(func.count(Message.id).desc())
-        .limit(10)
-    )
-    tool_usage = [
-        {"tool": r.tool_name, "count": r.usage_count}
-        for r in tool_result.all()
+    ).all()
+    samples = {}
+    for name, ms in runs:
+        samples.setdefault(name, []).append(ms)
+    agents = []
+    for name, count, first, last in rows:
+        values = sorted(samples.get(name, []))
+        n = len(values)
+        agents.append(
+            {
+                "name": name,
+                "label": _AGENT_META.get(name, name),
+                "total_messages": count,
+                "first_seen": first.isoformat(),
+                "last_active": last.isoformat(),
+                "avg_response_ms": round(sum(values) / n) if n else None,
+                "p50_response_ms": values[int((n - 1) * 0.5)] if n >= 20 else None,
+                "p95_response_ms": values[int((n - 1) * 0.95)] if n >= 20 else None,
+                "response_sample_count": n,
+            }
+        )
+    start = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    ) - timedelta(days=6)
+    daily_rows = (
+        await db.execute(
+            select(func.date(Message.created_at), func.count(Message.id))
+            .where(scope(owner), Message.created_at >= start)
+            .group_by(func.date(Message.created_at))
+        )
+    ).all()
+    counts = {str(day): count for day, count in daily_rows}
+    daily = [
+        {
+            "date": (start + timedelta(days=i)).strftime("%Y-%m-%d"),
+            "label": (start + timedelta(days=i)).strftime("%a"),
+            "count": counts.get((start + timedelta(days=i)).strftime("%Y-%m-%d"), 0),
+        }
+        for i in range(7)
     ]
-
+    tools = (
+        await db.execute(
+            select(ToolExecution.name, func.count(ToolExecution.id))
+            .join(Run)
+            .where(Run.owner_key == owner.key)
+            .group_by(ToolExecution.name)
+            .order_by(func.count(ToolExecution.id).desc())
+            .limit(10)
+        )
+    ).all()
     return {
         "agents": agents,
         "daily_messages": daily,
-        "tool_usage": tool_usage,
+        "tool_usage": [{"tool": name, "count": count} for name, count in tools],
     }
 
 
 @router.get("/feedback-leaderboard")
-async def get_feedback_leaderboard(db: AsyncSession = Depends(get_db)) -> dict:
-    """Agent leaderboard ranked by thumbs-up ratio from messages.feedback.
-
-    Source: messages.feedback ('up'/'down'/null), messages.agent_name
-    Minimum sample threshold: agents below MIN_FEEDBACK get low_sample=true
-    and are returned but de-emphasized in the UI.
-    """
-    MIN_FEEDBACK = 5
-
-    try:
-        dialect = db.bind.dialect.name if db.bind else "sqlite"
-
-        if dialect == "postgresql":
-            sql = text("""
-                SELECT
-                    agent_name,
-                    COUNT(*) FILTER (WHERE feedback = 'up') AS thumbs_up,
-                    COUNT(*) FILTER (WHERE feedback = 'down') AS thumbs_down,
-                    COUNT(*) FILTER (WHERE feedback IS NOT NULL) AS total_feedback
-                FROM messages
-                WHERE role = 'agent' AND agent_name IS NOT NULL
-                GROUP BY agent_name
-                HAVING COUNT(*) FILTER (WHERE feedback IS NOT NULL) > 0
-                ORDER BY COUNT(*) FILTER (WHERE feedback = 'up')::float
-                    / GREATEST(COUNT(*) FILTER (WHERE feedback IS NOT NULL), 1) DESC
-            """)
-        else:
-            # SQLite: no FILTER syntax
-            sql = text("""
-                SELECT
-                    agent_name,
-                    SUM(CASE WHEN feedback = 'up' THEN 1 ELSE 0 END) AS thumbs_up,
-                    SUM(CASE WHEN feedback = 'down' THEN 1 ELSE 0 END) AS thumbs_down,
-                    SUM(CASE WHEN feedback IS NOT NULL THEN 1 ELSE 0 END) AS total_feedback
-                FROM messages
-                WHERE role = 'agent' AND agent_name IS NOT NULL
-                GROUP BY agent_name
-                HAVING SUM(CASE WHEN feedback IS NOT NULL THEN 1 ELSE 0 END) > 0
-                ORDER BY CAST(SUM(CASE WHEN feedback = 'up' THEN 1 ELSE 0 END) AS FLOAT)
-                    / MAX(SUM(CASE WHEN feedback IS NOT NULL THEN 1 ELSE 0 END), 1) DESC
-            """)
-
-        result = await db.execute(sql)
-        rows = result.all()
-
-        agents = []
-        for r in rows:
-            total = int(r.total_feedback)
-            up = int(r.thumbs_up)
-            down = int(r.thumbs_down)
-            approval = round(up / total, 3) if total > 0 else 0
-            agents.append({
-                "agent_name": r.agent_name,
-                "thumbs_up": up,
-                "thumbs_down": down,
-                "total_feedback": total,
-                "approval_rate": approval,
-                "low_sample": total < MIN_FEEDBACK,
-            })
-
-        return {
-            "agents": agents,
-            "min_threshold": MIN_FEEDBACK,
-            "has_data": len(agents) > 0,
+async def get_feedback_leaderboard(
+    db=Depends(get_db), owner: Owner = Depends(get_owner)
+):
+    rows = (
+        await db.execute(
+            select(
+                Message.agent_name,
+                func.count(case((Message.feedback == "up", 1))),
+                func.count(case((Message.feedback == "down", 1))),
+            )
+            .where(scope(owner), Message.role == "agent", Message.feedback.isnot(None))
+            .group_by(Message.agent_name)
+        )
+    ).all()
+    agents = [
+        {
+            "agent_name": name,
+            "thumbs_up": up,
+            "thumbs_down": down,
+            "total_feedback": up + down,
+            "approval_rate": round(up / (up + down), 3),
+            "low_sample": up + down < 5,
         }
-    except Exception as e:
-        logger.warning("feedback_leaderboard.error", error=str(e)[:200])
-        return {"agents": [], "min_threshold": MIN_FEEDBACK, "has_data": False}
+        for name, up, down in rows
+        if up + down
+    ]
+    agents.sort(key=lambda a: a["approval_rate"], reverse=True)
+    return {"agents": agents, "min_threshold": 5, "has_data": bool(agents)}
 
 
 @router.get("/highlights")
-async def get_highlights(db: AsyncSession = Depends(get_db)) -> dict:
-    """Dashboard highlights — 2-3 derived facts from existing data.
-
-    Each fact includes its source table.column for verification traceability.
-    Facts with insufficient data are returned with available=false and omitted
-    in the UI — never overstated.
-    """
-    now = datetime.now(timezone.utc)
+async def get_highlights(db=Depends(get_db), owner: Owner = Depends(get_owner)):
+    analytics = await get_agent_analytics(db, owner)
+    eligible = [a for a in analytics["agents"] if a["response_sample_count"] >= 20]
     highlights = []
-
-    # ── 1. Fastest agent by avg response time ──
-    # Source: messages.created_at (user→agent timestamp pairs)
-    try:
-        dialect = db.bind.dialect.name if db.bind else "sqlite"
-
-        if dialect == "postgresql":
-            sql = text("""
-                WITH diffs AS (
-                    SELECT a.agent_name,
-                        EXTRACT(EPOCH FROM (a.created_at - u.created_at)) * 1000 AS ms
-                    FROM messages a
-                    JOIN messages u ON a.conversation_id = u.conversation_id
-                        AND u.role = 'user' AND u.created_at < a.created_at
-                    WHERE a.role = 'agent' AND a.agent_name IS NOT NULL
-                    AND u.created_at = (
-                        SELECT MAX(u2.created_at) FROM messages u2
-                        WHERE u2.conversation_id = a.conversation_id
-                        AND u2.role = 'user' AND u2.created_at < a.created_at
-                    )
-                )
-                SELECT agent_name, AVG(ms) AS avg_ms, COUNT(*) AS n
-                FROM diffs
-                GROUP BY agent_name
-                HAVING COUNT(*) >= 3
-                ORDER BY AVG(ms) ASC
-                LIMIT 1
-            """)
-        else:
-            sql = text("""
-                WITH diffs AS (
-                    SELECT a.agent_name,
-                        (julianday(a.created_at) - julianday(u.created_at)) * 86400000 AS ms
-                    FROM messages a
-                    JOIN messages u ON a.conversation_id = u.conversation_id
-                        AND u.role = 'user' AND u.created_at < a.created_at
-                    WHERE a.role = 'agent' AND a.agent_name IS NOT NULL
-                    AND u.created_at = (
-                        SELECT MAX(u2.created_at) FROM messages u2
-                        WHERE u2.conversation_id = a.conversation_id
-                        AND u2.role = 'user' AND u2.created_at < a.created_at
-                    )
-                )
-                SELECT agent_name, AVG(ms) AS avg_ms, COUNT(*) AS n
-                FROM diffs
-                GROUP BY agent_name
-                HAVING COUNT(*) >= 3
-                ORDER BY AVG(ms) ASC
-                LIMIT 1
-            """)
-        result = await db.execute(sql)
-        row = result.first()
-        if row and row.avg_ms:
-            avg_s = row.avg_ms / 1000
-            highlights.append({
+    if eligible:
+        fastest = min(eligible, key=lambda a: a["avg_response_ms"])
+        highlights.append(
+            {
                 "id": "fastest_agent",
-                "label": "Fastest avg response",
-                "value": row.agent_name,
-                "detail": f"{avg_s:.1f}s avg ({row.n} samples)",
-                "source": "messages.created_at (user→agent pairs)",
+                "label": "Fastest agent",
+                "value": fastest["name"],
+                "detail": f"{fastest['avg_response_ms'] / 1000:.1f}s average across {fastest['response_sample_count']} runs",
+                "source": "runs.duration_ms",
                 "available": True,
-            })
-        else:
-            highlights.append({
-                "id": "fastest_agent",
-                "label": "Fastest avg response",
-                "value": None,
-                "detail": "Need ≥3 response samples per agent",
-                "source": "messages.created_at (user→agent pairs)",
-                "available": False,
-            })
-    except Exception:
-        highlights.append({"id": "fastest_agent", "available": False})
-
-    # ── 2. Busiest day from last 7 days ──
-    # Source: messages.created_at grouped by date
-    try:
-        best_day = None
-        best_count = 0
-        for i in range(6, -1, -1):
-            day_start = (now - timedelta(days=i)).replace(hour=0, minute=0, second=0, microsecond=0)
-            day_end = day_start + timedelta(days=1)
-            count_result = await db.execute(
-                select(func.count(Message.id)).where(
-                    Message.created_at >= day_start,
-                    Message.created_at < day_end,
-                )
-            )
-            count = count_result.scalar_one()
-            if count > best_count:
-                best_count = count
-                best_day = day_start
-
-        if best_day and best_count > 0:
-            highlights.append({
-                "id": "busiest_day",
-                "label": "Most active day (7d)",
-                "value": best_day.strftime("%A"),
-                "detail": f"{best_count} messages",
-                "source": "messages.created_at grouped by date",
-                "available": True,
-            })
-        else:
-            highlights.append({
-                "id": "busiest_day",
-                "label": "Most active day (7d)",
-                "value": None,
-                "detail": "No messages in the last 7 days",
-                "source": "messages.created_at grouped by date",
-                "available": False,
-            })
-    except Exception:
-        highlights.append({"id": "busiest_day", "available": False})
-
-    # ── 3. Highest rated agent by feedback ──
-    # Source: messages.feedback per messages.agent_name
-    try:
-        # Reuse the same query pattern as the leaderboard
-        if dialect == "postgresql":
-            sql = text("""
-                SELECT agent_name,
-                    COUNT(*) FILTER (WHERE feedback = 'up') AS up,
-                    COUNT(*) FILTER (WHERE feedback IS NOT NULL) AS total
-                FROM messages
-                WHERE role = 'agent' AND agent_name IS NOT NULL
-                GROUP BY agent_name
-                HAVING COUNT(*) FILTER (WHERE feedback IS NOT NULL) >= 5
-                ORDER BY COUNT(*) FILTER (WHERE feedback = 'up')::float
-                    / GREATEST(COUNT(*) FILTER (WHERE feedback IS NOT NULL), 1) DESC
-                LIMIT 1
-            """)
-        else:
-            sql = text("""
-                SELECT agent_name,
-                    SUM(CASE WHEN feedback = 'up' THEN 1 ELSE 0 END) AS up,
-                    SUM(CASE WHEN feedback IS NOT NULL THEN 1 ELSE 0 END) AS total
-                FROM messages
-                WHERE role = 'agent' AND agent_name IS NOT NULL
-                GROUP BY agent_name
-                HAVING SUM(CASE WHEN feedback IS NOT NULL THEN 1 ELSE 0 END) >= 5
-                ORDER BY CAST(SUM(CASE WHEN feedback = 'up' THEN 1 ELSE 0 END) AS FLOAT)
-                    / MAX(SUM(CASE WHEN feedback IS NOT NULL THEN 1 ELSE 0 END), 1) DESC
-                LIMIT 1
-            """)
-        result = await db.execute(sql)
-        row = result.first()
-        if row:
-            pct = round(int(row.up) / int(row.total) * 100) if row.total else 0
-            highlights.append({
-                "id": "highest_rated",
-                "label": "Highest rated",
-                "value": row.agent_name,
-                "detail": f"{pct}% approval ({row.total} ratings)",
-                "source": "messages.feedback per messages.agent_name",
-                "available": True,
-            })
-        else:
-            highlights.append({
-                "id": "highest_rated",
-                "label": "Highest rated",
-                "value": None,
-                "detail": "Need ≥5 ratings per agent",
-                "source": "messages.feedback per messages.agent_name",
-                "available": False,
-            })
-    except Exception:
-        highlights.append({"id": "highest_rated", "available": False})
-
+            }
+        )
     return {"highlights": highlights}

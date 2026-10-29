@@ -6,18 +6,17 @@ Provides per-IP rate limiting with tiered limits:
 - General API: 60 requests per minute
 - Health/static: no limit
 
-Uses in-memory sliding window by default. When Redis is available,
-uses Redis for shared state across workers.
+HTTP limits use a bounded in-process fallback. Turn admission also checks owner identity.
 """
 
 from __future__ import annotations
 
 import time
-import asyncio
+import math
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from fastapi import Request, WebSocket, HTTPException
+from fastapi import Request, WebSocket
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
@@ -28,9 +27,11 @@ logger = get_logger(__name__)
 
 # ── Rate limit tiers ──────────────────────────────────────────────────────────
 
+
 @dataclass
 class RateLimit:
     """Rate limit configuration: max requests per window_seconds."""
+
     max_requests: int
     window_seconds: int = 60
 
@@ -41,21 +42,21 @@ RATE_LIMITS: list[tuple[str, RateLimit]] = [
     ("/api/v1/chat/ws/", RateLimit(max_requests=20, window_seconds=60)),
     ("/api/v1/chat/compare", RateLimit(max_requests=10, window_seconds=60)),
     ("/api/v1/chat/conversations", RateLimit(max_requests=40, window_seconds=60)),
-
     # Auth — brute force protection
     ("/api/v1/auth/login", RateLimit(max_requests=10, window_seconds=60)),
     ("/api/v1/auth/register", RateLimit(max_requests=5, window_seconds=60)),
     ("/api/v1/auth/google", RateLimit(max_requests=10, window_seconds=60)),
-
+    ("/api/v1/auth/recovery", RateLimit(max_requests=3, window_seconds=60)),
+    ("/api/v1/auth/reset-password", RateLimit(max_requests=5, window_seconds=60)),
+    ("/api/v1/auth/guest", RateLimit(max_requests=15, window_seconds=60)),
     # Agent management
     ("/api/v1/agents", RateLimit(max_requests=30, window_seconds=60)),
-
     # General API fallback
     ("/api/", RateLimit(max_requests=60, window_seconds=60)),
 ]
 
 # Paths that are never rate-limited
-EXEMPT_PATHS = {"/health", "/", "/docs", "/openapi.json", "/redoc"}
+EXEMPT_PATHS = {"/health", "/live", "/", "/docs", "/openapi.json", "/redoc"}
 
 
 def _get_limit(path: str) -> RateLimit | None:
@@ -70,18 +71,17 @@ def _get_limit(path: str) -> RateLimit | None:
 
 def _get_client_ip(request: Request) -> str:
     """Extract client IP, respecting X-Forwarded-For from reverse proxies."""
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        # Take the first IP (original client) from the chain
-        return forwarded.split(",")[0].strip()
+    # Trust only ASGI's client address. Configure trusted proxy IPs in Uvicorn.
     return request.client.host if request.client else "unknown"
 
 
 # ── In-memory sliding window tracker ─────────────────────────────────────────
 
+
 @dataclass
 class _SlidingWindow:
     """Thread-safe sliding window counter for a single key."""
+
     timestamps: list[float] = field(default_factory=list)
 
     def count_and_add(self, now: float, window: int) -> int:
@@ -115,8 +115,14 @@ class InMemoryRateLimiter:
         if now - self._last_cleanup > self._cleanup_interval:
             self._cleanup(now)
 
+        if key not in self._windows and len(self._windows) >= 10000:
+            self._cleanup(now)
+            if len(self._windows) >= 10000:
+                return False, limit.max_requests, 0
         window = self._windows[key]
         count = window.count_and_add(now, limit.window_seconds)
+        if count > limit.max_requests:
+            window.timestamps.pop()
         remaining = max(0, limit.max_requests - count)
         return count <= limit.max_requests, count, remaining
 
@@ -130,7 +136,19 @@ class InMemoryRateLimiter:
         for key in stale_keys:
             del self._windows[key]
         if stale_keys:
-            logger.info("rate_limiter.cleanup", removed=len(stale_keys), remaining=len(self._windows))
+            logger.info(
+                "rate_limiter.cleanup",
+                removed=len(stale_keys),
+                remaining=len(self._windows),
+            )
+
+    def retry_after(self, key: str, limit: RateLimit) -> int:
+        window = self._windows.get(key)
+        if not window or not window.timestamps:
+            return limit.window_seconds
+        return max(
+            1, math.ceil(window.timestamps[0] + limit.window_seconds - time.monotonic())
+        )
 
 
 # Global singleton
@@ -138,6 +156,7 @@ _limiter = InMemoryRateLimiter()
 
 
 # ── FastAPI Middleware ────────────────────────────────────────────────────────
+
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """HTTP middleware that enforces per-IP rate limits.
@@ -153,7 +172,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         limit = _get_limit(path)
 
         # No limit for exempt paths
-        if limit is None:
+        if limit is None or request.method == "OPTIONS":
             return await call_next(request)
 
         ip = _get_client_ip(request)
@@ -169,6 +188,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         allowed, count, remaining = _limiter.is_allowed(key, limit)
 
         if not allowed:
+            retry_after = _limiter.retry_after(key, limit)
             logger.warning(
                 "rate_limiter.blocked",
                 ip=ip,
@@ -181,12 +201,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 status_code=429,
                 content={
                     "detail": "Too many requests. Please slow down.",
-                    "retry_after": limit.window_seconds,
+                    "retry_after": retry_after,
                 },
                 headers={
                     "X-RateLimit-Limit": str(limit.max_requests),
                     "X-RateLimit-Remaining": "0",
-                    "Retry-After": str(limit.window_seconds),
+                    "Retry-After": str(retry_after),
                 },
             )
 
@@ -198,14 +218,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 # ── WebSocket rate check (called manually since middleware doesn't cover WS) ──
 
+
 def check_ws_rate_limit(websocket: WebSocket) -> bool:
     """Check rate limit for WebSocket connections. Returns True if allowed."""
-    ip = "unknown"
-    forwarded = websocket.headers.get("x-forwarded-for")
-    if forwarded:
-        ip = forwarded.split(",")[0].strip()
-    elif websocket.client:
-        ip = websocket.client.host
+    ip = websocket.client.host if websocket.client else "unknown"
 
     limit = RateLimit(max_requests=20, window_seconds=60)
     key = f"{ip}:/api/v1/chat/ws/"
@@ -217,6 +233,7 @@ def check_ws_rate_limit(websocket: WebSocket) -> bool:
 
 
 # ── Per-message rate limit for chat (prevent spam within a single WS session) ──
+
 
 class MessageRateLimiter:
     """Per-connection message rate limiter for WebSocket chat.
@@ -235,6 +252,8 @@ class MessageRateLimiter:
         now = time.monotonic()
         cutoff = now - self.window_seconds
         self._timestamps = [t for t in self._timestamps if t > cutoff]
+        if len(self._timestamps) >= self.max_messages:
+            return False, 0
         self._timestamps.append(now)
         remaining = max(0, self.max_messages - len(self._timestamps))
         return len(self._timestamps) <= self.max_messages, remaining

@@ -4,13 +4,7 @@ Each tool is a plain async function decorated with @tool so LangChain can
 bind it to the LLM's function-calling interface.
 """
 
-import ast
-import io
-import subprocess
-import sys
-import webbrowser
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import datetime
 
 from langchain_core.tools import tool
 
@@ -32,17 +26,20 @@ async def web_search(query: str) -> str:
     Args:
         query: The search query string.
     """
-    logger.info("tool.web_search", query=query)
+    logger.info("tool.web_search", query_chars=len(query))
 
     import asyncio
 
     def _search():
         from ddgs import DDGS
+
         results = []
         with DDGS(timeout=12) as ddgs:
             for r in ddgs.text(query, max_results=6):
-                date_info = f"\nPublished: {r['date']}" if r.get('date') else ""
-                results.append(f"**{r['title']}**\n{r['body']}{date_info}\nSource: {r['href']}")
+                date_info = f"\nPublished: {r['date']}" if r.get("date") else ""
+                results.append(
+                    f"**{r['title']}**\n{r['body']}{date_info}\nSource: {r['href']}"
+                )
         return results
 
     try:
@@ -64,70 +61,28 @@ async def fetch_url(url: str) -> str:
     Args:
         url: The full URL to fetch content from (e.g., 'https://example.com/article').
     """
-    logger.info("tool.fetch_url", url=url)
-
+    from app.security.fetch import fetch_public
     import asyncio
 
-    if not url.startswith(("http://", "https://")):
-        url = "https://" + url
-
-    def _fetch():
-        import urllib.request
-        import ssl
-
-        # Generous but bounded timeout
-        ctx = ssl.create_default_context()
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; AgentVerse/1.0)"})
-        try:
-            with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
-                # Bound downloads while allowing space for page headers/scripts
-                # before the article body (50KB often captured only navigation).
-                raw = resp.read(500_000)
-                html = raw.decode("utf-8", errors="replace")
-        except Exception as exc:
-            return f"Failed to fetch URL: {exc}"
-
-        # Try trafilatura first (best at extracting article text)
-        try:
-            import trafilatura
-            text = trafilatura.extract(
-                html,
-                include_comments=False,
-                include_tables=True,
-                favor_recall=True,
-            )
-            if text and len(text.strip()) > 100:
-                # Truncate to keep context window manageable
-                if len(text) > 8000:
-                    text = text[:8000] + "\n\n[Content truncated — 8000 char limit]"
-                return f"Content from {url}:\n\n{text}"
-        except ImportError:
-            pass
-        except Exception:
-            pass
-
-        # Fallback: basic tag stripping
-        import re as _re
-        text = _re.sub(r'<script[^>]*>.*?</script>', '', html, flags=_re.DOTALL | _re.IGNORECASE)
-        text = _re.sub(r'<style[^>]*>.*?</style>', '', html, flags=_re.DOTALL | _re.IGNORECASE)
-        text = _re.sub(r'<[^>]+>', ' ', text)
-        text = _re.sub(r'\s+', ' ', text).strip()
-        if len(text) > 8000:
-            text = text[:8000] + "\n\n[Content truncated — 8000 char limit]"
-        if len(text) > 100:
-            return f"Content from {url}:\n\n{text}"
-        return f"Could not extract meaningful text from {url}. The page may require JavaScript or login."
-
     try:
-        return await asyncio.to_thread(_fetch)
-    except Exception as exc:
-        return f"Error fetching {url}: {exc}"
+        final_url, html = await fetch_public(url)
+        import trafilatura
+
+        text = await asyncio.to_thread(
+            trafilatura.extract, html, include_comments=False, include_tables=True
+        )
+        return (
+            f"Source: {final_url}\n{text[:8000]}"
+            if text
+            else "No readable text was found. Do not infer page contents."
+        )
+    except Exception:
+        return "This URL could not be safely retrieved. Do not invent its contents."
 
 
 @tool
 async def open_url(url: str) -> str:
-    """Open a URL in the user's default web browser. Use this when the user asks
-    to open a website, navigate to a page, or visit a link.
+    """Return a web link the user can open. This does not control the browser.
 
     Args:
         url: The full URL to open (e.g., 'https://youtube.com').
@@ -148,10 +103,9 @@ async def open_url(url: str) -> str:
 
 @tool
 async def run_code(code: str, language: str = "python") -> str:
-    """Execute code in a secure sandbox and return the output. Supports Python,
+    """Execute code in an isolated runner when configured and return the output. Supports Python,
     JavaScript, and Bash. The code runs in an isolated temporary directory with
-    a 30-second timeout. Always test your code using this tool before returning
-    it to the user.
+    a 30-second timeout. If execution is unavailable, clearly say the code was not tested.
 
     Args:
         code: The source code to execute.
@@ -175,40 +129,26 @@ async def calculate(expression: str) -> str:
     Args:
         expression: A math expression like '2 + 2', 'sqrt(16)', '3.14 * (5**2)'.
     """
-    logger.info("tool.calculate", expression=expression)
-
-    import math
-
-    allowed_names = {
-        k: v for k, v in math.__dict__.items()
-        if not k.startswith("_")
-    }
-    allowed_names.update({"abs": abs, "round": round, "min": min, "max": max, "sum": sum})
+    from app.security.arithmetic import evaluate
 
     try:
-        tree = ast.parse(expression, mode="eval")
-        # Only allow safe node types
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.Call,)):
-                if isinstance(node.func, ast.Name) and node.func.id not in allowed_names:
-                    return f"Error: Function '{node.func.id}' is not allowed."
-        result = eval(compile(tree, "<calc>", "eval"), {"__builtins__": {}}, allowed_names)  # noqa: S307
-        return f"Result: {result}"
-    except Exception as exc:
-        return f"Error evaluating '{expression}': {exc}"
+        return f"Result: {evaluate(expression)}"
+    except (ValueError, SyntaxError, ArithmeticError, RecursionError) as exc:
+        return f"Error: {exc}"
 
 
 @tool
-async def get_current_time() -> str:
-    """Get the current date and time. Use this when the user asks about the
-    current time, date, or when time-awareness is needed.
-    """
-    now = datetime.now(timezone.utc)
-    local = datetime.now()
-    return (
-        f"Current UTC time: {now.strftime('%Y-%m-%d %H:%M:%S %Z')}\n"
-        f"Local time: {local.strftime('%Y-%m-%d %H:%M:%S')}"
-    )
+async def get_current_time(timezone_name: str = "UTC") -> str:
+    """Return current time in an IANA timezone supplied by the user; default UTC."""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        if len(timezone_name) > 80:
+            raise ValueError("Invalid timezone")
+        zone = ZoneInfo(timezone_name)
+    except (ValueError, ZoneInfoNotFoundError):
+        return "Unknown timezone. Ask for an IANA timezone such as Asia/Kolkata."
+    return datetime.now(zone).isoformat() + " (" + timezone_name + ")"
 
 
 @tool
@@ -218,18 +158,9 @@ async def read_file(file_path: str) -> str:
     Args:
         file_path: Path to the file to read.
     """
-    logger.info("tool.read_file", path=file_path)
-    path = Path(file_path).resolve()
-    if not path.exists():
-        return f"Error: File '{file_path}' does not exist."
-    if not path.is_file():
-        return f"Error: '{file_path}' is not a file."
-    if path.stat().st_size > 50_000:
-        return f"Error: File is too large ({path.stat().st_size} bytes). Max 50KB."
-    try:
-        return path.read_text(encoding="utf-8")
-    except Exception as exc:
-        return f"Error reading file: {exc}"
+    from app.services.files import read_private_file
+
+    return await read_private_file(file_path)
 
 
 @tool
@@ -240,18 +171,27 @@ async def write_file(file_path: str, content: str) -> str:
         file_path: Path where the file will be created/overwritten.
         content: The text content to write.
     """
-    logger.info("tool.write_file", path=file_path, length=len(content))
-    try:
-        path = Path(file_path).resolve()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
-        return f"Successfully wrote {len(content)} characters to {file_path}"
-    except Exception as exc:
-        return f"Error writing file: {exc}"
+    from app.services.files import save_artifact
+
+    record = await save_artifact(file_path, content.encode(), "text/plain")
+    return f"Saved {record.filename}. [DOWNLOAD_LINK:{record.id}:{record.filename}]"
 
 
 # ── Tool collections per agent role ──────────────────────
 
 RESEARCH_TOOLS = [web_search, fetch_url, open_url, get_current_time, search_memory]
 CODING_TOOLS = [run_code, read_file, write_file, calculate, request_user_approval]
-GENERAL_TOOLS = [web_search, open_url, run_code, calculate, get_current_time, read_file, write_file, request_user_approval, search_github_repos, create_linear_issue, send_slack_message, search_memory]
+GENERAL_TOOLS = [
+    web_search,
+    open_url,
+    run_code,
+    calculate,
+    get_current_time,
+    read_file,
+    write_file,
+    request_user_approval,
+    search_github_repos,
+    create_linear_issue,
+    send_slack_message,
+    search_memory,
+]

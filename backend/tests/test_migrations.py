@@ -34,7 +34,18 @@ async def legacy_upgrade(engine):
             "background_jobs",
             "access_sessions",
             "schema_revisions",
+            "memory_deletions",
         } <= set(names)
+        # Rehearse upgrading a database already stamped with the first revision.
+        await connection.execute(text("DROP TABLE memory_deletions"))
+        await connection.execute(
+            text("DELETE FROM schema_revisions WHERE version='20261029_02'")
+        )
+        await connection.run_sync(upgrade)
+        await connection.run_sync(upgrade)
+        assert (
+            await connection.execute(text("SELECT COUNT(*) FROM schema_revisions"))
+        ).scalar() == 2
 
 
 @pytest.mark.asyncio

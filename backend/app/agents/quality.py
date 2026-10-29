@@ -33,6 +33,7 @@ def build_review_prompt(
                 "[Middle omitted",
                 "[Evidence truncated",
                 "[Document text truncated",
+                "[Visual evidence omitted",
             )
         )
     )
@@ -73,7 +74,7 @@ def parse_review(raw: str, partial: bool = False) -> tuple[int | None, str]:
         raise ValueError("Critic returned no explanation")
     if partial:
         review = (
-            "Partial review — some context exceeded the review limit; no score assigned.\n\n"
+            "Partial review — some context or source material was unavailable; no score assigned.\n\n"
             + review
         )
     return (None if partial else score), review

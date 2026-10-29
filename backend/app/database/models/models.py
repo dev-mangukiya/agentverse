@@ -325,6 +325,21 @@ class RecoveryToken(Base):
     consumed = Column(Integer, nullable=False, default=0)
 
 
+class MemoryDeletion(Base):
+    """Deletion outbox intentionally survives conversation and account deletion."""
+
+    __tablename__ = "memory_deletions"
+    __table_args__ = (UniqueConstraint("conversation_id", "collection"),)
+    id = Column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    conversation_id = Column(String(12), nullable=False)
+    collection = Column(String(255), nullable=False)
+    attempts = Column(Integer, nullable=False, default=0)
+    available_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    lease_until = Column(DateTime(timezone=True), nullable=True)
+    lease_token = Column(String(32), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
 # Count summaries in SQL without loading every message body.
 from sqlalchemy.orm import column_property
 from sqlalchemy import select, func

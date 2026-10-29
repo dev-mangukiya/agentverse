@@ -421,6 +421,13 @@ async def delete_account(
     ):
         raise HTTPException(401, "Confirm your password before deleting the account")
     # Explicitly remove conversations first; legacy FKs may use SET NULL.
+    from app.services.memory_cleanup import schedule_deletion
+
+    ids = await db.scalars(
+        select(Conversation.id).where(Conversation.user_id == user.id)
+    )
+    for conversation_id in ids:
+        await schedule_deletion(db, conversation_id)
     await db.execute(delete(Conversation).where(Conversation.user_id == user.id))
     for model in (CustomAgent, Artifact, BackgroundJob):
         await db.execute(delete(model).where(model.owner_key == owner.key))

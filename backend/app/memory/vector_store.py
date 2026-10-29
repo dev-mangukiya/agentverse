@@ -96,7 +96,9 @@ async def store_message(
             )
         ):
             return False
-    if len(content.strip()) < 10 or not await ensure_collection():
+    if len(content.strip()) < 10:
+        return True  # A successful no-op must not consume all background retries.
+    if not await ensure_collection():
         return False
     client = await _get_qdrant()
     from qdrant_client.models import PointStruct
@@ -122,7 +124,24 @@ async def store_message(
                 "timestamp": time.time(),
             },
         )
-        await client.upsert(get_settings().qdrant_collection, points=[point])
+        # Avoid continuing indexing after deletion or a change in ownership.
+        async with async_session_factory() as db:
+            if not await db.scalar(
+                select(Conversation.id).where(
+                    Conversation.id == conversation_id, owner.condition()
+                )
+            ):
+                return True
+        await client.upsert(get_settings().qdrant_collection, points=[point], wait=True)
+        async with async_session_factory() as db:
+            if not await db.scalar(
+                select(Conversation.id).where(Conversation.id == conversation_id)
+            ):
+                from app.services.memory_cleanup import schedule_deletion
+
+                await schedule_deletion(db, conversation_id)
+                await db.commit()
+                return True
     return True
 
 
@@ -163,8 +182,10 @@ async def search_memory(query, top_k=5, conversation_id=None):
         return []
 
 
-async def delete_conversation_memory(conversation_id):
+async def delete_conversation_memory(conversation_id, *, collection=None):
     client = await _get_qdrant()
+    if not client:
+        return False
     if client:
         from qdrant_client.models import (
             Filter,
@@ -173,8 +194,11 @@ async def delete_conversation_memory(conversation_id):
             FilterSelector,
         )
 
-        await client.delete(
-            get_settings().qdrant_collection,
+        collection = collection or get_settings().qdrant_collection
+        if not await client.collection_exists(collection):
+            return True
+        result = await client.delete(
+            collection,
             points_selector=FilterSelector(
                 filter=Filter(
                     must=[
@@ -185,4 +209,6 @@ async def delete_conversation_memory(conversation_id):
                     ]
                 )
             ),
+            wait=True,
         )
+        return result.status == "completed"

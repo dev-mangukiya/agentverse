@@ -4,6 +4,12 @@ import asyncio
 import base64
 import binascii
 import io
+import json
+from datetime import datetime, timezone
+
+from sqlalchemy import select, func
+from app.database.models.models import Artifact, Conversation
+from app.security.identity import current_owner
 from app.services.files import save_artifact
 
 
@@ -51,3 +57,77 @@ async def persist_attachments(attachments):
         record = await save_artifact(name or "attachment", raw, mime)
         records.append({"id": record.id, "name": record.filename, "content_type": mime})
     return records
+
+
+async def historical_images(db, conversation_id, messages):
+    """Restore only recent, live, owned uploads; never trust JSON metadata as access."""
+    owner = current_owner.get()
+    if owner is None:
+        return {}
+    references = []
+    # messages are newest first; favor the latest images within a 3-image budget.
+    for message in messages:
+        if message.role != "user":
+            continue
+        try:
+            metadata = json.loads(message.attachments_json or "[]")
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(metadata, list):
+            continue
+        for item in metadata[:3]:
+            if (
+                isinstance(item, dict)
+                and isinstance(item.get("id"), str)
+                and str(item.get("content_type", "")).startswith("image/")
+            ):
+                references.append((message.id, item["id"]))
+    ids = list(dict.fromkeys(artifact_id for _, artifact_id in references))[:3]
+    if not ids:
+        return {}
+    records = (
+        await db.scalars(
+            select(Artifact)
+            .join(Conversation)
+            .where(
+                Artifact.id.in_(ids),
+                Artifact.conversation_id == conversation_id,
+                Artifact.owner_key == owner.key,
+                owner.condition(),
+                Artifact.expires_at > datetime.now(timezone.utc),
+                Artifact.content_type.in_(["image/png", "image/jpeg", "image/webp"]),
+                func.length(Artifact.data) <= 2 * 1024 * 1024,
+            )
+        )
+    ).all()
+    by_id = {record.id: record for record in records}
+    result = {}
+    for message_id, artifact_id in references:
+        parts = result.setdefault(message_id, [])
+        record = by_id.pop(artifact_id, None)
+        if record:
+            parts.extend(
+                [
+                    {
+                        "type": "text",
+                        "text": "Previously uploaded image: " + record.filename,
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": "data:"
+                            + record.content_type
+                            + ";base64,"
+                            + base64.b64encode(record.data).decode()
+                        },
+                    },
+                ]
+            )
+        else:
+            parts.append(
+                {
+                    "type": "text",
+                    "text": "[Earlier image unavailable or omitted by the image limit. Ask for it again if needed; do not infer its contents.]",
+                }
+            )
+    return result

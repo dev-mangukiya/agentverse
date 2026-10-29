@@ -4,9 +4,25 @@ from sqlalchemy import inspect, text
 from app.database.session import Base
 
 REVISION = "20261029_01"
+MEMORY_REVISION = "20261029_02"
 
 
 def upgrade(connection):
+    _upgrade_base(connection)
+    if not connection.execute(
+        text("SELECT version FROM schema_revisions WHERE version=:v"),
+        {"v": MEMORY_REVISION},
+    ).first():
+        from app.database.models.models import MemoryDeletion
+
+        MemoryDeletion.__table__.create(connection, checkfirst=True)
+        connection.execute(
+            text("INSERT INTO schema_revisions (version) VALUES (:v)"),
+            {"v": MEMORY_REVISION},
+        )
+
+
+def _upgrade_base(connection):
     from app.database.models import models  # register models
 
     Base.metadata.create_all(connection)

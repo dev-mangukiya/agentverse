@@ -263,6 +263,11 @@ async def supervised_worker():
 
 
 async def start():
+    from app.services.memory_cleanup import worker as cleanup_worker
+
+    cleanup = asyncio.create_task(cleanup_worker())
+    _tasks.add(cleanup)
+    cleanup.add_done_callback(_tasks.discard)
     for _ in range(2):
         task = asyncio.create_task(supervised_worker())
         _tasks.add(task)

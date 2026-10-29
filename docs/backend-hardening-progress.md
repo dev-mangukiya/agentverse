@@ -1,6 +1,14 @@
 # Backend hardening — implementation and rollout status
 
-Updated 29 October 2026. This implements the core security, correctness, persistence, and execution-control work from the backend audit against `9b88c416`. Validation below was performed locally before publishing these changes. No production migration or deployment has been verified.
+Updated 29 October 2026. This implements the core security, correctness, persistence, and execution-control work from the backend audit against `9b88c416`. The published baseline is `5f7327d`; this follow-up adds durable vector cleanup and saved-image context. No production database migration or live backend behavior has been verified.
+
+## Follow-up after the first push
+
+GitHub [CI run 40916148790](https://github.com/dev-mangukiya/agentverse/actions/runs/40916148790) passed for `5f7327d`, including the PostgreSQL migration suite, backend Docker build, dependency audit, and frontend tests/build. Vercel also reported a successful deployment for that commit. These statuses do not verify Render readiness or a production data migration. Confirm the follow-up commit passes remote CI before rollout.
+
+The follow-up stores vector-deletion requests in the same transaction as chat/account deletion, waits for in-flight indexing to finish, and retries cleanup with leases and capped backoff until Qdrant confirms completion. Pending cleanup survives restart and account deletion. A late index write schedules another sweep. This applies to new deletions; it does not reconstruct previously lost deletion requests.
+
+Follow-up messages now restore up to three recent saved images from the same owned conversation. Expired, foreign, oversized, or missing artifacts are excluded. Current uploads take priority within the shared image limit. Specialist handoffs preserve message roles and image parts when adding research. Text-only critic reviews explicitly withhold numeric scores when visual evidence is unavailable.
 
 ## Implemented
 
@@ -26,16 +34,16 @@ Responsibilities are extracted into security/services and routing/context/source
 
 | Check | Result |
 | --- | --- |
-| Backend tests | **87 passed, 1 skipped**; PostgreSQL test skipped locally. |
+| Backend tests | **95 passed, 1 skipped** after the follow-up; PostgreSQL test skipped locally. |
 | Real-process lifecycle | Startup, private session/chat creation, clean shutdown, restart, persisted access, and unauthorized denial verified against isolated SQLite. |
-| Frontend tests | **29 passed**. |
-| TypeScript / Next.js production build | Passed. |
+| Frontend tests | **29 passed** on the published baseline; frontend unchanged in this follow-up. |
+| TypeScript / Next.js production build | Passed locally and in baseline CI; frontend unchanged in this follow-up. |
 | Ruff | Passed for application, runner, scripts, and tests. |
 | Python dependency consistency | No broken requirements. |
 | Locked backend dependency audit | No known vulnerabilities reported by the local pip-audit run; a point-in-time package scan. |
 | Diff whitespace | git diff --check passed. |
 
-Tests use isolated fixtures and do not send production chat or connector writes. They cover cross-owner access, revoked/forged sessions, open-socket revocation, approvals/recovery, custom-agent migration collisions, documents, private files, URL/calculator restrictions, streaming/Stop, roles, jobs, pagination/export, legacy SQLite migration, and restart.
+Tests use isolated fixtures and do not send production chat or connector writes. They cover cross-owner access, revoked/forged sessions, open-socket revocation, approvals/recovery, custom-agent migration collisions, documents, private files, URL/calculator restrictions, streaming/Stop, roles, jobs, pagination/export, legacy SQLite migration, restart, transactional cleanup, vector outages/indexing races, and image-context ownership/expiry/budgets.
 
 No live model benchmark, production database operation, visual browser check, Docker build, or execution-host isolation test was performed locally. Offline tests do not establish faster live responses or higher factual quality.
 
@@ -58,8 +66,8 @@ This environment lacks live provider credentials, a PostgreSQL server, Docker da
 | Provider-native routing schema / complete chat-module split | Bounded directives validated; separation partial. |
 | Resumable generation / cross-instance event replay | Disconnect cancels; saved history reloads. Live delivery remains process-local. |
 | Fleet-wide concurrency / daily token or monetary quotas | Redis owner admission and per-process concurrency; usage recorded, no billing/daily-budget system. |
-| Per-user memory preferences, retention UI, durable vector-deletion retries | SQL membership blocks stale/foreign retrieval; physical Qdrant deletion is best effort during outages. |
-| Object-store adapter / richer dataset-image follow-up | Bounded SQL artifacts persist originals; image bytes are not automatically re-injected into later turns. |
+| Per-user memory preferences and retention UI | SQL membership blocks stale/foreign retrieval; durable physical-deletion retries are implemented in this follow-up. User controls remain work. |
+| Object-store adapter / richer dataset follow-up | Bounded SQL artifacts persist originals; recent image follow-ups are implemented. Rich dataset handling remains work. |
 | Per-user connector OAuth / full account-settings UI | Restricted shared credentials and account lifecycle APIs; recovery has a page, other account actions do not have dedicated settings screens. |
 | Local-account verification emails | Google verified claims enforced; password-created email verification remains separate. |
 | Runner plot/file export / richer report layouts | Runner files temporary; document tools create durable downloads. Full font/language/layout coverage is not claimed. |

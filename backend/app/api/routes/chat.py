@@ -380,15 +380,11 @@ async def delete_conversation(
         )
     # Database cascade removes messages, runs, artifacts, approvals, and jobs.
     from sqlalchemy import delete
+    from app.services.memory_cleanup import schedule_deletion
 
+    await schedule_deletion(db, conversation_id)
     await db.execute(delete(Conversation).where(Conversation.id == conversation_id))
     await db.commit()
-    try:
-        from app.memory.vector_store import delete_conversation_memory
-
-        await asyncio.wait_for(delete_conversation_memory(conversation_id), 2)
-    except Exception:
-        logger.warning("memory.cleanup_deferred")
     logger.info("chat.conversation.deleted", id=conversation_id)
     return {"deleted": True}
 
@@ -1467,10 +1463,12 @@ async def _process_user_message_inner(
                 # Include original user content so sub-agents see file attachments
                 full_task = f"User's original message:\n{content}\n\nYour specific task:\n{task}"
                 start = time.time()
+                from app.agents.context import with_support
+
                 result = await _run_agent_with_streaming(
                     agent,
                     full_task,
-                    history + supporting_context,
+                    with_support(history, supporting_context),
                     websocket,
                     attachments=attachments,
                     stream=visible,
@@ -1848,7 +1846,15 @@ async def _process_user_message_inner(
                     "agent_name": final_agent_name,
                     "user_content": content,
                     "answer": final_response,
-                    "context": history,
+                    "context": str(history)
+                    + (
+                        "\n[Visual evidence omitted from text-only review]"
+                        if any(
+                            attachment.get("type") == "image"
+                            for attachment in (attachments or [])
+                        )
+                        else ""
+                    ),
                     "evidence": getattr(websocket, "evidence", []),
                 },
             )
@@ -2309,6 +2315,7 @@ async def _get_conversation_context(conversation_id: str) -> str:
         from app.agents.context import ConversationContext
 
         remaining = 15000
+        selected = []
         for msg in reversed(messages[:-1]):
             role = (
                 "User"
@@ -2319,6 +2326,7 @@ async def _get_conversation_context(conversation_id: str) -> str:
                 role += " [interrupted answer]"
             text, cut = excerpt(msg.content, max(0, remaining - len(role) - 4))
             parts.append(f"{role}: {text}")
+            selected.append(msg)
             role_messages.append(
                 HumanMessage(content=text)
                 if msg.role == "user"
@@ -2327,12 +2335,23 @@ async def _get_conversation_context(conversation_id: str) -> str:
             remaining -= len(parts[-1]) + 2
             if cut or remaining < 200:
                 break
+        from app.services.attachments import historical_images
+
+        images = await historical_images(db, conversation_id, selected)
+        for msg, role_message in zip(selected, role_messages):
+            if msg.id in images:
+                role_message.content = [
+                    {"type": "text", "text": role_message.content},
+                    *images[msg.id],
+                ]
         summary = (
             "Previous conversation (most recent available messages):\n"
             + "\n\n".join(reversed(parts))
             if parts
             else ""
         )
+        if images:
+            summary += "\n[Visual evidence omitted from text-only review]"
         return ConversationContext(summary, list(reversed(role_messages)))
 
 
@@ -2371,8 +2390,6 @@ async def _run_agent_with_streaming(
         )
         from app.agents.context import build_messages
 
-        messages = build_messages(prompt_builder, context, user_input)
-
         # PDFs are converted to text before this function is called. Keep image
         # attachments multimodal for vision-capable providers.
         binary_attachments = [
@@ -2380,6 +2397,12 @@ async def _run_agent_with_streaming(
             for a in (attachments or [])
             if a.get("type") == "image" and a.get("data", "").startswith("data:")
         ]
+        messages = build_messages(
+            prompt_builder,
+            context,
+            user_input,
+            image_budget=max(0, 3 - len(binary_attachments)),
+        )
 
         if binary_attachments:
             # Multimodal message: text + binary files

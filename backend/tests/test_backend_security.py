@@ -19,6 +19,7 @@ from app.database.models.models import (
     Approval,
     Run,
     BackgroundJob,
+    MemoryDeletion,
 )
 from app.security.identity import (
     Owner,
@@ -32,7 +33,7 @@ from app.security.identity import (
 async def api(monkeypatch):
     from app.main import create_app
     from app.api.routes import chat, custom_agents
-    from app.services import files, approvals, jobs
+    from app.services import files, approvals, jobs, memory_cleanup
     from app.memory import vector_store
     from app.database import session
     from app.core import rate_limiter
@@ -46,7 +47,16 @@ async def api(monkeypatch):
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
-    for module in (chat, custom_agents, files, approvals, jobs, vector_store, session):
+    for module in (
+        chat,
+        custom_agents,
+        files,
+        approvals,
+        jobs,
+        vector_store,
+        session,
+        memory_cleanup,
+    ):
         monkeypatch.setattr(module, "async_session_factory", factory)
     monkeypatch.setattr(rate_limiter, "_limiter", rate_limiter.InMemoryRateLimiter())
 
@@ -1037,3 +1047,335 @@ def test_production_configuration_rejects_mismatched_provider_and_ephemeral_stor
             secret_key="x" * 40,
             database_url="sqlite+aiosqlite:///:memory:",
         )
+
+
+@pytest.mark.asyncio
+async def test_memory_deletion_survives_outage_and_removes_only_confirmed_intent(
+    api, monkeypatch
+):
+    from app.services import memory_cleanup
+    from app.memory import vector_store
+    from sqlalchemy import update
+
+    headers = await api.guest()
+    conv = (
+        await api.client.post("/api/v1/chat/conversations", headers=headers, json={})
+    ).json()
+    assert (
+        await api.client.delete(
+            "/api/v1/chat/conversations/" + conv["id"], headers=headers
+        )
+    ).status_code == 200
+    async with api.factory() as db:
+        row = await db.scalar(select(MemoryDeletion))
+        assert row.conversation_id == conv["id"]
+        assert await db.get(Conversation, conv["id"]) is None
+        assert row.available_at.replace(tzinfo=timezone.utc) > datetime.now(
+            timezone.utc
+        )
+        await db.execute(
+            update(MemoryDeletion).values(
+                available_at=datetime.now(timezone.utc) - timedelta(seconds=1)
+            )
+        )
+        await db.commit()
+        row_id = row.id
+    cleanup = AsyncMock(side_effect=RuntimeError("offline"))
+    monkeypatch.setattr(vector_store, "delete_conversation_memory", cleanup)
+    assert await memory_cleanup.process_one()
+    async with api.factory() as db:
+        row = await db.get(MemoryDeletion, row_id)
+        assert row.attempts == 1 and row.lease_token is None
+        assert row.available_at.replace(tzinfo=timezone.utc) > datetime.now(
+            timezone.utc
+        )
+        await db.execute(
+            update(MemoryDeletion).values(
+                available_at=datetime.now(timezone.utc) - timedelta(seconds=1)
+            )
+        )
+        await db.commit()
+    cleanup.side_effect = None
+    cleanup.return_value = True
+    # A fresh worker uses the durable intent, not a process-local queue.
+    assert await memory_cleanup.process_one()
+    async with api.factory() as db:
+        assert await db.get(MemoryDeletion, row_id) is None
+    assert cleanup.call_args.args == (conv["id"],)
+
+
+@pytest.mark.asyncio
+async def test_account_deletion_persists_memory_cleanup_for_every_chat(api):
+    response = await api.client.post(
+        "/api/v1/auth/register",
+        json={"email": "delete-memory@example.com", "password": "Long-test-password"},
+    )
+    headers = {"Authorization": "Bearer " + response.json()["token"]}
+    ids = [
+        (
+            await api.client.post(
+                "/api/v1/chat/conversations", headers=headers, json={}
+            )
+        ).json()["id"]
+        for _ in range(2)
+    ]
+    response = await api.client.request(
+        "DELETE",
+        "/api/v1/auth/account",
+        headers=headers,
+        json={"password": "Long-test-password"},
+    )
+    assert response.status_code == 200, response.text
+    async with api.factory() as db:
+        assert set(
+            (await db.scalars(select(MemoryDeletion.conversation_id))).all()
+        ) == set(ids)
+        assert (await db.scalars(select(Conversation))).all() == []
+
+
+@pytest.mark.asyncio
+async def test_cleanup_lease_recovery_and_new_intent_are_not_lost(api, monkeypatch):
+    from app.services import memory_cleanup
+    from app.memory import vector_store
+
+    now = datetime.now(timezone.utc)
+    async with api.factory() as db:
+        row = MemoryDeletion(
+            conversation_id="deleted",
+            collection="test",
+            available_at=now - timedelta(minutes=2),
+            lease_token="dead-worker",
+            lease_until=now - timedelta(seconds=1),
+            attempts=3,
+        )
+        db.add(row)
+        await db.commit()
+        row_id = row.id
+    monkeypatch.setattr(
+        memory_cleanup,
+        "get_settings",
+        lambda: SimpleNamespace(qdrant_collection="test"),
+    )
+
+    async def deletion_with_late_index_write(*args, **kwargs):
+        async with api.factory() as db:
+            await memory_cleanup.schedule_deletion(db, "deleted")
+            await db.commit()
+        return True
+
+    monkeypatch.setattr(
+        vector_store, "delete_conversation_memory", deletion_with_late_index_write
+    )
+    assert await memory_cleanup.process_one()
+    async with api.factory() as db:
+        row = await db.get(MemoryDeletion, row_id)
+        assert row is not None and row.lease_token is None
+        assert row.attempts == 4
+        assert row.available_at.replace(tzinfo=timezone.utc) > datetime.now(
+            timezone.utc
+        )
+
+
+@pytest.mark.asyncio
+async def test_cleanup_does_not_confirm_unavailable_vector_store(monkeypatch):
+    from app.memory import vector_store
+
+    monkeypatch.setattr(vector_store, "_get_qdrant", AsyncMock(return_value=None))
+    assert await vector_store.delete_conversation_memory("test") is False
+    client = SimpleNamespace(
+        collection_exists=AsyncMock(return_value=True),
+        delete=AsyncMock(return_value=SimpleNamespace(status="completed")),
+    )
+    monkeypatch.setattr(vector_store, "_get_qdrant", AsyncMock(return_value=client))
+    assert await vector_store.delete_conversation_memory(
+        "test", collection="original-collection"
+    )
+    assert client.delete.call_args.args == ("original-collection",)
+    assert client.delete.call_args.kwargs["wait"] is True
+    assert (
+        client.delete.call_args.kwargs["points_selector"].filter.must[0].match.value
+        == "test"
+    )
+    client.delete.return_value = SimpleNamespace(status="acknowledged")
+    assert await vector_store.delete_conversation_memory("test") is False
+
+
+@pytest.mark.asyncio
+async def test_cleanup_intent_rolls_back_with_deletion_and_respects_active_lease(
+    api, monkeypatch
+):
+    from app.services import memory_cleanup
+    from app.memory import vector_store
+
+    async with api.factory() as db:
+        await memory_cleanup.schedule_deletion(db, "rolled-back")
+        await db.rollback()
+    async with api.factory() as db:
+        assert (await db.scalars(select(MemoryDeletion))).all() == []
+        now = datetime.now(timezone.utc)
+        db.add(
+            MemoryDeletion(
+                conversation_id="leased",
+                collection="test",
+                available_at=now - timedelta(minutes=1),
+                lease_until=now + timedelta(seconds=30),
+                lease_token="active-worker",
+            )
+        )
+        await db.commit()
+    deletion = AsyncMock(return_value=True)
+    monkeypatch.setattr(vector_store, "delete_conversation_memory", deletion)
+    assert not await memory_cleanup.process_one()
+    deletion.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_index_write_racing_deletion_schedules_another_cleanup(api, monkeypatch):
+    from app.memory import vector_store
+    from sqlalchemy import delete
+
+    headers = await api.guest()
+    conv = (
+        await api.client.post("/api/v1/chat/conversations", headers=headers, json={})
+    ).json()
+    async with api.factory() as db:
+        owner = await resolve_owner(db, guest_token=headers["X-Session-ID"])
+
+    async def upsert(*args, **kwargs):
+        async with api.factory() as db:
+            await db.execute(delete(Conversation).where(Conversation.id == conv["id"]))
+            await db.commit()
+
+    client = SimpleNamespace(upsert=AsyncMock(side_effect=upsert))
+    monkeypatch.setattr(vector_store, "ensure_collection", AsyncMock(return_value=True))
+    monkeypatch.setattr(vector_store, "_get_qdrant", AsyncMock(return_value=client))
+    monkeypatch.setattr(
+        vector_store, "_async_embed", AsyncMock(return_value=[0.1] * 768)
+    )
+    token = current_owner.set(owner)
+    try:
+        assert await vector_store.store_message(
+            conv["id"], "user", "x" * 7000, message_id=1
+        )
+    finally:
+        current_owner.reset(token)
+    client.upsert.assert_awaited_once()
+    async with api.factory() as db:
+        assert (await db.scalar(select(MemoryDeletion))).conversation_id == conv["id"]
+
+
+@pytest.mark.asyncio
+async def test_saved_images_reach_followups_with_roles_and_specialist_context(api):
+    import base64
+    from app.api.routes.chat import _get_conversation_context
+    from app.agents.context import build_messages, with_support
+    from app.agents.quality import build_review_prompt
+    from langchain_core.messages import HumanMessage, AIMessage
+
+    headers = await api.guest()
+    conv = (
+        await api.client.post("/api/v1/chat/conversations", headers=headers, json={})
+    ).json()
+    async with api.factory() as db:
+        owner = await resolve_owner(db, guest_token=headers["X-Session-ID"])
+        image = Artifact(
+            owner_key=owner.key,
+            conversation_id=conv["id"],
+            filename="photo.png",
+            content_type="image/png",
+            data=b"fixture-image",
+            expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+        )
+        db.add(image)
+        await db.flush()
+        metadata = json.dumps([{"id": image.id, "content_type": "image/png"}])
+        db.add_all(
+            [
+                Message(
+                    conversation_id=conv["id"],
+                    role="user",
+                    content="What is in this image?",
+                    attachments_json=metadata,
+                ),
+                Message(conversation_id=conv["id"], role="agent", content="A diagram."),
+                Message(
+                    conversation_id=conv["id"],
+                    role="user",
+                    content="Describe the arrow.",
+                ),
+            ]
+        )
+        await db.commit()
+    token = current_owner.set(owner)
+    try:
+        context = await _get_conversation_context(conv["id"])
+    finally:
+        current_owner.reset(token)
+    model_messages = build_messages(
+        lambda _: "System instructions",
+        with_support(context, "\nAdditional research"),
+        "Describe the arrow.",
+    )
+    assert isinstance(model_messages[1], HumanMessage)
+    assert isinstance(model_messages[2], AIMessage)
+    assert model_messages[3].content.endswith("Additional research")
+    image_part = next(p for p in model_messages[1].content if p["type"] == "image_url")
+    assert (
+        base64.b64decode(image_part["image_url"]["url"].split(",")[1])
+        == b"fixture-image"
+    )
+    assert "fixture-image" not in str(context)
+    assert build_review_prompt("Describe", "Answer", context)[1] is True
+    bounded = build_messages(lambda _: "System", context, "New images", image_budget=0)
+    assert not any(p.get("type") == "image_url" for p in bounded[1].content)
+    # Trimming this invocation must not mutate shared history used by parallel agents.
+    assert any(p.get("type") == "image_url" for p in context.messages[0].content)
+
+
+@pytest.mark.asyncio
+async def test_image_history_rejects_foreign_expired_and_cross_conversation_handles(
+    api,
+):
+    from app.services.attachments import historical_images
+
+    a, b = await api.guest(), await api.guest()
+    conv_a = (
+        await api.client.post("/api/v1/chat/conversations", headers=a, json={})
+    ).json()
+    conv_b = (
+        await api.client.post("/api/v1/chat/conversations", headers=a, json={})
+    ).json()
+    async with api.factory() as db:
+        owner = await resolve_owner(db, guest_token=a["X-Session-ID"])
+        foreign = await resolve_owner(db, guest_token=b["X-Session-ID"])
+        records = []
+        for key, conv, days in (
+            (foreign.key, conv_a["id"], 1),
+            (owner.key, conv_b["id"], 1),
+            (owner.key, conv_a["id"], -1),
+        ):
+            item = Artifact(
+                owner_key=key,
+                conversation_id=conv,
+                filename="private.png",
+                content_type="image/png",
+                data=b"never-leak",
+                expires_at=datetime.now(timezone.utc) + timedelta(days=days),
+            )
+            db.add(item)
+            records.append(item)
+        await db.flush()
+        message = SimpleNamespace(
+            id=1,
+            role="user",
+            attachments_json=json.dumps(
+                [{"id": item.id, "content_type": "image/png"} for item in records]
+            ),
+        )
+        token = current_owner.set(owner)
+        try:
+            restored = await historical_images(db, conv_a["id"], [message])
+        finally:
+            current_owner.reset(token)
+        assert all(part["type"] == "text" for part in restored[1])
+        assert "never-leak" not in str(restored)

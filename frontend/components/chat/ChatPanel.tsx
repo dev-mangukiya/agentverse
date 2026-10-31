@@ -14,11 +14,12 @@ import { WorkspaceWelcome } from "@/components/workspace/WorkspaceWelcome";
 import { useDialogFocus } from "@/hooks/useDialogFocus";
 import { createLiveText } from "@/lib/chat-motion";
 import { useChatScroll } from "@/hooks/useChatScroll";
+import { chatSocketUrl } from "@/lib/chat-connection";
 import { transition } from "@/config/motion";
 import { WorkspaceIcon } from "@/components/workspace/WorkspaceIcon";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
-const WS_BASE = (process.env.NEXT_PUBLIC_WS_URL || API_URL.replace("http", "ws")).replace(/\/$/, "");
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL;
 
 interface ToolActivity {
   tool: string;
@@ -368,6 +369,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const [thinkingPhase, setThinkingPhase] = useState<string>("");
   const [toolActivity, setToolActivity] = useState<ToolActivity | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
+  const [connectionFailed, setConnectionFailed] = useState(false);
+  const [connectionAttempt, setConnectionAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [activeAgents, setActiveAgents] = useState<string[]>([]);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
@@ -402,9 +405,11 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const streamRef = useRef<MediaStream | null>(null);
   useEffect(() => () => { streamRef.current?.getTracks().forEach(track => track.stop()); }, []);
   const wsRef = useRef<WebSocket | null>(null);
+  const authenticatedSocketRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const thinkingAgentRef = useRef("");
   const pendingMessageRef = useRef<string | null>(null);
+  const unsentDraftRef = useRef<{ messageId: number; input: string; files: AttachedFile[]; requestId: string } | null>(null);
   const pendingAttachmentsRef = useRef<Array<{name: string; type: string; data: string}>>([]);
   const skipNextLoadRef = useRef(false);
   const dragCounterRef = useRef(0);
@@ -463,6 +468,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     }
     pendingMessageRef.current = null;
     pendingAttachmentsRef.current = [];
+    unsentDraftRef.current = null;
     streamingMessageRef.current?.buffer.cancel();
     streamingMessageRef.current = null;
     setIsStopping(false);
@@ -510,8 +516,23 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     callbacksRef.current = { onMessageSent, emitPipeline, resetPipeline, updateAgent };
   });
 
+  const restoreUnsentDraft = () => {
+    const draft = unsentDraftRef.current;
+    unsentDraftRef.current = null;
+    pendingMessageRef.current = null;
+    pendingAttachmentsRef.current = [];
+    if (!draft) return;
+    setInput(current => current ? [draft.input, current].filter(Boolean).join("\n\n") : draft.input);
+    setAttachedFiles(current => [...draft.files, ...current.filter(file => !draft.files.some(saved => saved.id === file.id))]);
+    setMessages(prev => prev.filter(message => message.id !== draft.messageId && message.id !== `pending-${draft.messageId}`));
+    sendingRef.current = false;
+    setIsThinking(false);
+  };
+
   // Re-authenticate when signing in changes the owner of a guest conversation.
   useEffect(() => {
+    authenticatedSocketRef.current = null;
+    setConnectionFailed(false);
     if (!conversationId) {
       if (reconnectTimeoutRef.current) { clearTimeout(reconnectTimeoutRef.current); reconnectTimeoutRef.current = null; }
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
@@ -523,19 +544,53 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     let destroyed = false;
     let streamSequence = 0;
     let toolClearTimeout: ReturnType<typeof setTimeout> | null = null;
+    let connectionTimeout: ReturnType<typeof setTimeout> | null = null;
+    let attempts = 0;
+
+    const failConnection = (message: string) => {
+      if (destroyed) return;
+      if (connectionTimeout) { clearTimeout(connectionTimeout); connectionTimeout = null; }
+      if (reconnectTimeoutRef.current) { clearTimeout(reconnectTimeoutRef.current); reconnectTimeoutRef.current = null; }
+      const ws = wsRef.current;
+      wsRef.current = null;
+      authenticatedSocketRef.current = null;
+      ws?.close();
+      setWsConnected(false);
+      setConnectionFailed(true);
+      restoreUnsentDraft();
+      setError(message);
+    };
+
+    const startConnectionDeadline = () => {
+      if (!connectionTimeout) connectionTimeout = setTimeout(() => {
+        failConnection("Could not connect to the server. Your unsent message is in the composer. Please retry.");
+      }, 45000);
+    };
 
     const connect = () => {
       if (destroyed) return;
       if (reconnectTimeoutRef.current) { clearTimeout(reconnectTimeoutRef.current); reconnectTimeoutRef.current = null; }
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
 
-      const ws = new WebSocket(`${WS_BASE}/api/v1/chat/ws/${conversationId}`);
+      attempts += 1;
+      startConnectionDeadline();
+      authenticatedSocketRef.current = null;
+      let ws: WebSocket;
+      try {
+        ws = new WebSocket(chatSocketUrl(API_URL, WS_URL, conversationId));
+      } catch {
+        failConnection("Could not open the chat connection. Your unsent message is in the composer. Please retry.");
+        return;
+      }
       let sentCredentials = "";
       wsRef.current = ws;
       setWsConnected(false);
 
       const onAuthenticated = () => {
-        if (destroyed || wsRef.current !== ws) return;
+        if (destroyed || wsRef.current !== ws || authenticatedSocketRef.current === ws) return;
+        authenticatedSocketRef.current = ws;
+        attempts = 0;
+        if (connectionTimeout) { clearTimeout(connectionTimeout); connectionTimeout = null; }
         setWsConnected(true);
         setError(null);
         if (pingInterval) clearInterval(pingInterval);
@@ -545,7 +600,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         // Send any pending message immediately — this ref survives re-renders
         if (pendingMessageRef.current) {
           // Include any pending attachments
-          const msg: Record<string, unknown> = { type: "message", request_id: crypto.randomUUID(), content: pendingMessageRef.current };
+          const msg: Record<string, unknown> = { type: "message", request_id: unsentDraftRef.current?.requestId ?? crypto.randomUUID(), content: pendingMessageRef.current };
           if (pendingAttachmentsRef.current.length > 0) {
             msg.attachments = pendingAttachmentsRef.current;
             pendingAttachmentsRef.current = [];
@@ -554,10 +609,12 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
           setIsThinking(true);
           ws.send(JSON.stringify(msg));
           pendingMessageRef.current = null;
+          unsentDraftRef.current = null;
         }
       };
 
       ws.onopen = () => {
+        if (destroyed || wsRef.current !== ws) return;
         const headers = getAuthHeaders();
         sentCredentials = JSON.stringify(headers);
         ws.send(JSON.stringify({ type: "auth", authorization: headers.Authorization, session_token: headers["X-Session-ID"] }));
@@ -804,6 +861,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
       ws.onclose = (event) => {
         if (destroyed || wsRef.current !== ws) return;
+        authenticatedSocketRef.current = null;
         if (pingInterval) clearInterval(pingInterval);
         setWsConnected(false);
         setIsStopping(false);
@@ -818,13 +876,18 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         streamingMessageRef.current?.buffer.flush();
         streamingMessageRef.current?.buffer.cancel();
         streamingMessageRef.current = null;
-        setMessages(prev => prev.filter(m => !m.awaiting).map(m => m.isStreaming ? { ...m, content: m.liveText?.content ?? m.content, liveText: undefined, isStreaming: false, incomplete: true } : m));
+        setMessages(prev => prev.filter(m => pendingMessageRef.current || !m.awaiting).map(m => m.isStreaming ? { ...m, content: m.liveText?.content ?? m.content, liveText: undefined, isStreaming: false, incomplete: true } : m));
         if (toolClearTimeout) clearTimeout(toolClearTimeout);
         callbacksRef.current.emitPipeline(false);
         if (event.code === 1008 && sentCredentials === JSON.stringify(getAuthHeaders())) {
-          setError("Your session or access to this chat changed. Sign in again or reload to continue.");
+          failConnection("Your session or access to this chat changed. Your unsent message is in the composer. Sign in again or reload to continue.");
           return;
         }
+        if (attempts >= 3) {
+          failConnection("Could not connect to the server. Your unsent message is in the composer. Please retry.");
+          return;
+        }
+        startConnectionDeadline();
         // Reconnect after 3s using the stable `connect` function from this effect's scope
         reconnectTimeoutRef.current = setTimeout(connect, 3000);
       };
@@ -839,6 +902,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
     return () => {
       destroyed = true;
+      authenticatedSocketRef.current = null;
+      if (connectionTimeout) clearTimeout(connectionTimeout);
       if (stopTimeoutRef.current) { clearTimeout(stopTimeoutRef.current); stopTimeoutRef.current = null; }
       streamingMessageRef.current?.buffer.cancel();
       if (toolClearTimeout) clearTimeout(toolClearTimeout);
@@ -847,7 +912,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversationId, user?.id]);
+  }, [conversationId, user?.id, connectionAttempt]);
 
   // ── File handling ───────────────────────────────────────────
   const processFiles = async (files: FileList | File[]) => {
@@ -1017,6 +1082,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     resetPipeline();
 
     const userMsg: Message = { id: Date.now(), role: "user", animateIn: true, content, created_at: new Date().toISOString() };
+    unsentDraftRef.current = { messageId: userMsg.id as number, input: rawContent, files: filesToSend, requestId: crypto.randomUUID() };
     setMessages((prev) => [...prev, userMsg, { id: `pending-${userMsg.id}`, renderKey: `pending-${userMsg.id}`, role: "agent", content: "", awaiting: true, animateIn: true }]);
     setIsThinking(true);
 
@@ -1048,24 +1114,22 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
         setInput(current => current || rawContent);
         setAttachedFiles(current => current.length ? current : filesToSend);
         sendingRef.current = false;
+        unsentDraftRef.current = null;
         setIsThinking(false);
         return;
       }
     }
 
-    if (!pendingMessageRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
-      const msg: Record<string, unknown> = { type: "message", request_id: crypto.randomUUID(), content };
+    if (!pendingMessageRef.current && wsRef.current?.readyState === WebSocket.OPEN && authenticatedSocketRef.current === wsRef.current) {
+      const msg: Record<string, unknown> = { type: "message", request_id: unsentDraftRef.current!.requestId, content };
       if (binaryAttachments.length > 0) msg.attachments = binaryAttachments;
       wsRef.current.send(JSON.stringify(msg));
-    } else if (!pendingMessageRef.current && wsRef.current?.readyState === WebSocket.CONNECTING) {
+      unsentDraftRef.current = null;
+    } else if (!pendingMessageRef.current) {
       pendingMessageRef.current = content;
       pendingAttachmentsRef.current = binaryAttachments;
-    } else if (!pendingMessageRef.current) {
-      setError("Not connected. Reconnecting...");
-      if (activeConvId) {
-        pendingMessageRef.current = content;
-        pendingAttachmentsRef.current = binaryAttachments;
-        if (wsRef.current) { wsRef.current.close(); }
+      if (!wsRef.current || wsRef.current.readyState >= WebSocket.CLOSING) {
+        setConnectionAttempt(n => n + 1);
       }
     }
   };
@@ -1074,11 +1138,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     if (!sendingRef.current || isStopping || stopTimeoutRef.current) return;
     if (createRequestRef.current && !conversationId) createRequestRef.current.abort();
     if (pendingMessageRef.current || !conversationId) {
-      pendingMessageRef.current = null;
-      pendingAttachmentsRef.current = [];
-      sendingRef.current = false;
-      setIsThinking(false);
-      setMessages(prev => prev.map(m => m.awaiting ? { ...m, awaiting: false, interrupted: true } : m));
+      restoreUnsentDraft();
       return;
     }
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -1170,7 +1230,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   return (
     <div className="studio-chat flex flex-col h-full min-h-0 min-w-0" style={{ backgroundColor: "var(--bg-base)" }}>
       <div className="chat-topbar">
-        <span>{conversationId && !wsConnected ? "Connecting…" : isEmpty ? "A little help for your next idea" : "Your conversation"}</span>
+        <span>{conversationId && !wsConnected ? connectionFailed ? "Connection unavailable" : "Connecting…" : isEmpty ? "A little help for your next idea" : "Your conversation"}</span>
+        {connectionFailed && <button className="text-sm underline" onClick={() => setConnectionAttempt(n => n + 1)}>Reconnect</button>}
         {!isEmpty && !isThinking && <ExportMenu messages={messages} conversationId={conversationId}/>}
       </div>
 
@@ -1205,7 +1266,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             }}
           >
             <span role="alert">{error}</span>
-            {conversationId && messages.length === 0 && <button className="ml-3 underline" onClick={() => setLoadAttempt(n => n + 1)}>Retry</button>}
+            {conversationId && !connectionFailed && messages.length === 0 && <button className="ml-3 underline" onClick={() => setLoadAttempt(n => n + 1)}>Retry</button>}
             <button aria-label="Dismiss error" onClick={() => setError(null)} className="ml-3 transition-colors hover:opacity-70">✕</button>
           </motion.div>
         </div>

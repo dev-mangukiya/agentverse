@@ -142,10 +142,156 @@ function sendHarness(fetch) {
     setMessages: update => state.messages = update(state.messages), setIsThinking: value => state.thinking = value,
     conversationId: null, AbortController, createRequestRef: { current: null }, fetch, API_URL: 'http://example.invalid',
     getAuthHeaders: () => ({}), pendingMessageRef: { current: null }, pendingAttachmentsRef: { current: [] },
+    unsentDraftRef: { current: null }, authenticatedSocketRef: { current: null }, crypto: require('node:crypto').webcrypto,
+    WebSocket: { OPEN: 1, CONNECTING: 0, CLOSING: 2 }, setConnectionAttempt() {},
     skipNextLoadRef: { current: false }, onConversationCreated: id => state.created.push(id), wsRef: { current: null },
   };
   return { state, context, send: functionFromSource('components/chat/ChatPanel.tsx', 'handleSend', context) };
 }
+
+test('chat URLs accept the production legacy /ws setting and canonical socket bases', () => {
+  const { chatSocketUrl } = load('lib/chat-connection');
+  const api = 'https://agentverse-oxco.onrender.com';
+  const expected = 'wss://agentverse-oxco.onrender.com/api/v1/chat/ws/chat-123';
+  for (const configured of [undefined, '', api, api + '/', api + '/ws', 'wss://agentverse-oxco.onrender.com/ws/', api + '/api/v1/chat/ws/']) {
+    assert.equal(chatSocketUrl(api, configured, 'chat-123'), expected);
+  }
+  assert.equal(chatSocketUrl('http://localhost:8000', undefined, 'a/b'), 'ws://localhost:8000/api/v1/chat/ws/a%2Fb');
+  assert.equal(chatSocketUrl(api, 'https://proxy.example/backend/ws', 'chat'), 'wss://proxy.example/backend/api/v1/chat/ws/chat');
+  assert.throws(() => chatSocketUrl(api, 'ftp://example.com', 'chat'));
+});
+
+function connectionHarness() {
+  const h = sendHarness(() => assert.fail('existing chats must not be recreated'));
+  const { state, context } = h;
+  let now = 0, nextTimer = 0;
+  const timers = new Map(), sockets = [];
+  function schedule(fn, delay, interval = false) {
+    const id = ++nextTimer;
+    timers.set(id, { fn, at: now + delay, interval, delay });
+    return id;
+  }
+  class Socket {
+    static CONNECTING = 0; static OPEN = 1; static CLOSING = 2; static CLOSED = 3;
+    readyState = 0; frames = [];
+    constructor(url) { this.url = url; sockets.push(this); }
+    open() { this.readyState = 1; this.onopen?.(); }
+    receive(data) { this.onmessage?.({ data: JSON.stringify(data) }); }
+    send(frame) { assert.equal(this.readyState, 1); this.frames.push(JSON.parse(frame)); }
+    close(code = 1006) { if (this.readyState === 3) return; this.readyState = 3; this.onclose?.({ code }); }
+  }
+  Object.assign(context, {
+    conversationId: 'existing-chat', WS_URL: 'wss://agentverse-oxco.onrender.com/ws', WebSocket: Socket,
+    chatSocketUrl: load('lib/chat-connection').chatSocketUrl,
+    setWsConnected: value => state.connected = value, setConnectionFailed: value => state.connectionFailed = value,
+    setConnectionAttempt: () => state.reconnectRequested = true,
+    reconnectTimeoutRef: { current: null }, stopTimeoutRef: { current: null }, streamingMessageRef: { current: null },
+    setIsStopping() {}, setToolActivity() {}, setActiveAgents() {}, callbacksRef: { current: { emitPipeline() {} } },
+    setTimeout: (fn, delay) => schedule(fn, delay), clearTimeout: id => timers.delete(id),
+    setInterval: (fn, delay) => schedule(fn, delay, true), clearInterval: id => timers.delete(id),
+  });
+  context.restoreUnsentDraft = functionFromSource('components/chat/ChatPanel.tsx', 'restoreUnsentDraft', context);
+  const tree = ast('components/chat/ChatPanel.tsx');
+  let effect;
+  walk(tree, node => {
+    if (ts.isCallExpression(node) && node.expression.getText(tree) === 'useEffect' && node.arguments[0].getText(tree).includes('new WebSocket')) effect = node.arguments[0].getText(tree);
+  });
+  assert.ok(effect);
+  const js = ts.transpileModule(`(${effect})`, { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;
+  const start = vm.runInNewContext(js, context);
+  const cleanup = start();
+  function tick(ms) {
+    const end = now + ms;
+    while (true) {
+      const next = [...timers].filter(([, timer]) => timer.at <= end).sort((a, b) => a[1].at - b[1].at)[0];
+      if (!next) break;
+      const [id, timer] = next; now = timer.at;
+      if (timer.interval) timer.at += timer.delay; else timers.delete(id);
+      timer.fn();
+    }
+    now = end;
+  }
+  return { ...h, sockets, tick, cleanup, start, timers };
+}
+
+test('an open socket queues the message until authentication and sends it only once', async () => {
+  const h = connectionHarness(), ws = h.sockets[0];
+  assert.equal(ws.url, 'wss://agentverse-oxco.onrender.com/api/v1/chat/ws/existing-chat');
+  ws.open();
+  await h.send();
+  assert.deepEqual(ws.frames.map(f => f.type), ['auth']);
+  const requestId = h.context.unsentDraftRef.current.requestId;
+  ws.receive({ type: 'authenticated' });
+  ws.receive({ type: 'authenticated' });
+  assert.deepEqual(ws.frames.map(f => f.type), ['auth', 'message']);
+  assert.equal(ws.frames[1].request_id, requestId);
+  assert.equal(h.context.pendingMessageRef.current, null);
+  assert.equal(h.context.unsentDraftRef.current, null);
+  h.tick(46000);
+  assert.equal(h.state.connectionFailed, false);
+  h.cleanup();
+  assert.equal(h.timers.size, 0);
+});
+
+test('a stalled authentication restores the unsent draft and files without losing a new draft', async () => {
+  const h = connectionHarness();
+  h.sockets[0].open();
+  await h.send();
+  h.state.input = 'A follow-up draft';
+  h.state.attachedFiles = [{ id: 'new', name: 'new.txt' }];
+  h.tick(45000);
+  assert.equal(h.state.connectionFailed, true);
+  assert.equal(h.state.thinking, false);
+  assert.equal(h.context.sendingRef.current, false);
+  assert.equal(h.state.input, 'Keep my draft\n\nA follow-up draft');
+  assert.deepEqual(Array.from(h.state.attachedFiles, f => f.name), ['note.txt', 'new.txt']);
+  assert.equal(h.state.messages.length, 0);
+  assert.equal(h.context.pendingMessageRef.current, null);
+  assert.match(h.state.error, /Please retry/);
+  h.tick(120000);
+  assert.equal(h.sockets.length, 1);
+  h.cleanup();
+});
+
+test('connection rejection stops after three attempts and a manual reconnect can recover', async () => {
+  const h = connectionHarness();
+  await h.send();
+  for (let i = 0; i < 3; i++) { h.sockets[i].close(); h.tick(3000); }
+  assert.equal(h.state.connectionFailed, true);
+  assert.equal(h.state.thinking, false);
+  assert.equal(h.state.input, 'Keep my draft');
+  h.tick(120000);
+  assert.equal(h.sockets.length, 3);
+  h.cleanup();
+  const cleanup = h.start();
+  const ws = h.sockets[3]; ws.open(); ws.receive({ type: 'authenticated' });
+  await h.send();
+  assert.equal(ws.frames.filter(f => f.type === 'message').length, 1);
+  cleanup();
+});
+
+test('authentication rejection releases the composer and stale callbacks cannot send a queued draft', async () => {
+  const h = connectionHarness(), ws = h.sockets[0];
+  ws.open(); await h.send(); ws.close(1008);
+  assert.equal(h.state.thinking, false);
+  assert.equal(h.state.connectionFailed, true);
+  assert.match(h.state.error, /session/);
+  h.cleanup();
+  ws.receive({ type: 'authenticated' });
+  h.tick(120000);
+  assert.deepEqual(ws.frames.map(f => f.type), ['auth']);
+  assert.equal(h.sockets.length, 1);
+});
+
+test('disconnecting after dispatch never automatically replays a possibly saved message', async () => {
+  const h = connectionHarness(), ws = h.sockets[0];
+  ws.open(); ws.receive({ type: 'authenticated' }); await h.send(); ws.close();
+  h.tick(3000);
+  const replacement = h.sockets[1]; replacement.open(); replacement.receive({ type: 'authenticated' });
+  assert.deepEqual(replacement.frames.map(f => f.type), ['auth']);
+  assert.equal(h.state.thinking, false);
+  h.cleanup();
+});
 
 test('failed conversation creation restores the draft and attachment instead of losing them', async () => {
   const { state, context, send } = sendHarness(async () => ({ ok: false }));

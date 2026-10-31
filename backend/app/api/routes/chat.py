@@ -1920,6 +1920,8 @@ async def _process_user_message_inner(
                 )
         try:
             err_lower = err_str.lower()
+            from app.agents.base import _is_model_unavailable_error
+
             if (
                 "429" in err_str
                 or "RESOURCE_EXHAUSTED" in err_str
@@ -1935,6 +1937,15 @@ async def _process_user_message_inner(
                         "type": "error",
                         "message": partial_message,
                         "content": "Both primary and fallback APIs are temporarily unavailable. Please wait ~30 seconds and try again.",
+                    },
+                )
+            elif _is_model_unavailable_error(exc):
+                await _send_ws(
+                    websocket,
+                    {
+                        "type": "error",
+                        "message": partial_message,
+                        "content": "The configured AI model is not available from the enabled providers. Update the backend model configuration or enable a supported provider.",
                     },
                 )
             elif "Fallback LLM" in err_str and "timed out" in err_str:

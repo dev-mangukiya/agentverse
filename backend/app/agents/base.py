@@ -193,7 +193,7 @@ def get_llm(
                 huggingfacehub_api_token=settings.huggingface_api_key,
                 timeout=120,
             )
-            llm = ChatHuggingFace(llm=endpoint, verbose=False)
+            llm = ChatHuggingFace(llm=endpoint, temperature=temperature, verbose=False)
             _cache_model(cache_key, llm)
         except ImportError:
             raise RuntimeError("langchain-huggingface not installed.")
@@ -239,7 +239,7 @@ def get_llm(
                 huggingfacehub_api_token=settings.huggingface_api_key,
                 timeout=120,
             )
-            llm = ChatHuggingFace(llm=endpoint, verbose=False)
+            llm = ChatHuggingFace(llm=endpoint, temperature=temperature, verbose=False)
         except Exception:
             pass
 
@@ -287,6 +287,19 @@ def _is_transient_error(exc: Exception) -> bool:
     )
 
 
+def _is_model_unavailable_error(exc: Exception) -> bool:
+    """Recognize HF's explicit unavailable-model response, not arbitrary 400s."""
+    response = getattr(exc, "response", None)
+    if getattr(response, "status_code", None) != 400:
+        return False
+    try:
+        body = response.json()
+        error = body.get("error", body)
+        return isinstance(error, dict) and error.get("code") == "model_not_supported"
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
 def _get_fallback_llm(temperature: float = 0.3) -> BaseChatModel | None:
     """Get a fallback LLM — try next Google key first, then HuggingFace."""
     settings = get_settings()
@@ -313,7 +326,7 @@ def _get_fallback_llm(temperature: float = 0.3) -> BaseChatModel | None:
                 huggingfacehub_api_token=settings.huggingface_api_key,
                 timeout=120,
             )
-            llm = ChatHuggingFace(llm=endpoint, verbose=False)
+            llm = ChatHuggingFace(llm=endpoint, temperature=temperature, verbose=False)
             return _cache_model(cache_key, llm)
         except Exception as exc:
             logger.warning("llm.hf_fallback_unavailable", error=str(exc))
@@ -376,19 +389,26 @@ async def _invoke_with_retry(
                             return response
                     except Exception as exc:
                         error = exc
-                if not _is_transient_error(error) or attempt == attempts:
+                unavailable_model = _is_model_unavailable_error(error)
+                if (
+                    not (_is_transient_error(error) or unavailable_model)
+                    or attempt == attempts
+                ):
                     raise error
                 model = _underlying_model(current)
                 key = getattr(model, "google_api_key", None)
-                if key is not None:
+                if key is not None and not unavailable_model:
                     _google_key_manager.mark_rate_limited(key)
                 logger.warning(
-                    "llm.transient_error",
+                    "llm.model_unavailable"
+                    if unavailable_model
+                    else "llm.transient_error",
                     attempt=attempt + 1,
                     error_type=type(error).__name__,
                 )
+                temperature = getattr(model, "temperature", None)
                 replacement = _get_fallback_llm(
-                    temperature=getattr(model, "temperature", 0.3)
+                    temperature=temperature if temperature is not None else 0.3
                 )
                 if replacement is None or id(_underlying_model(replacement)) in seen:
                     raise error

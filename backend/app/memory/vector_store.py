@@ -15,6 +15,8 @@ logger = get_logger(__name__)
 _qdrant_client = None
 _retry_at = 0.0
 _lock = asyncio.Lock()
+_index_lock = asyncio.Lock()
+_indexed_collections = set()
 
 
 async def _get_qdrant():
@@ -48,6 +50,7 @@ async def close_qdrant():
     if _qdrant_client:
         await _qdrant_client.close()
         _qdrant_client = None
+    _indexed_collections.clear()
 
 
 async def _async_embed(text):
@@ -79,10 +82,34 @@ async def ensure_collection():
 
     name = get_settings().qdrant_collection
     if not await client.collection_exists(name):
+        _indexed_collections.discard((id(client), name))
         await client.create_collection(
             name, vectors_config=VectorParams(size=768, distance=Distance.COSINE)
         )
+    await _ensure_filter_indexes(client, name)
     return True
+
+
+async def _ensure_filter_indexes(client, collection):
+    """Cloud strict mode requires indexes for both reads and filtered deletes."""
+    from qdrant_client.models import PayloadSchemaType
+
+    key = (id(client), collection)
+    async with _index_lock:
+        if key in _indexed_collections:
+            return
+        info = await client.get_collection(collection)
+        for field in ("owner_key", "conversation_id"):
+            if field not in info.payload_schema:
+                result = await client.create_payload_index(
+                    collection,
+                    field_name=field,
+                    field_schema=PayloadSchemaType.KEYWORD,
+                    wait=True,
+                )
+                if result.status != "completed":
+                    raise RuntimeError("Memory filter index is not ready")
+        _indexed_collections.add(key)
 
 
 async def store_message(
@@ -160,6 +187,8 @@ async def search_memory(query, top_k=5, conversation_id=None):
     from qdrant_client.models import Filter, FieldCondition, MatchAny, MatchValue
 
     try:
+        if not await ensure_collection():
+            return []
         vector = await _async_embed(query[:3500])
         if vector is None:
             return []
@@ -196,7 +225,9 @@ async def delete_conversation_memory(conversation_id, *, collection=None):
 
         collection = collection or get_settings().qdrant_collection
         if not await client.collection_exists(collection):
+            _indexed_collections.discard((id(client), collection))
             return True
+        await _ensure_filter_indexes(client, collection)
         result = await client.delete(
             collection,
             points_selector=FilterSelector(

@@ -838,6 +838,7 @@ async def test_memory_never_searches_without_owner_or_database_membership(
 
     client = SimpleNamespace(search=AsyncMock(return_value=[]))
     monkeypatch.setattr(vector_store, "_get_qdrant", AsyncMock(return_value=client))
+    monkeypatch.setattr(vector_store, "ensure_collection", AsyncMock(return_value=True))
     monkeypatch.setattr(
         vector_store, "_async_embed", AsyncMock(return_value=[0.1] * 768)
     )
@@ -1184,6 +1185,10 @@ async def test_cleanup_does_not_confirm_unavailable_vector_store(monkeypatch):
     assert await vector_store.delete_conversation_memory("test") is False
     client = SimpleNamespace(
         collection_exists=AsyncMock(return_value=True),
+        get_collection=AsyncMock(return_value=SimpleNamespace(payload_schema={})),
+        create_payload_index=AsyncMock(
+            return_value=SimpleNamespace(status="completed")
+        ),
         delete=AsyncMock(return_value=SimpleNamespace(status="completed")),
     )
     monkeypatch.setattr(vector_store, "_get_qdrant", AsyncMock(return_value=client))

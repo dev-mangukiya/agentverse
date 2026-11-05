@@ -19,6 +19,7 @@ def test_startup_and_restart_preserve_private_session(tmp_path):
         {
             "APP_ENV": "development",
             "APP_DEBUG": "false",
+            "RENDER_GIT_COMMIT": "f" * 40,
             "SECRET_KEY": secrets.token_hex(32),
             "DATABASE_URL": "sqlite+aiosqlite:///" + str(tmp_path / "smoke.db"),
             "PYTHONPATH": str(backend),
@@ -65,6 +66,11 @@ def test_startup_and_restart_preserve_private_session(tmp_path):
                         assert time.monotonic() < deadline, log_path.read_text()
                         time.sleep(0.1)
                     assert response.json()["services"]["llm"] == "no_api_key"
+                    assert response.json()["revision"] == "f" * 40
+                    assert client.get("/live").json() == {
+                        "status": "alive",
+                        "revision": "f" * 40,
+                    }
                     if iteration == 0:
                         response = client.post("/api/v1/auth/guest", json={})
                         assert response.status_code == 200

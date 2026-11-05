@@ -12,7 +12,7 @@ router = APIRouter(tags=["health"])
 
 @router.api_route("/live", methods=["GET", "HEAD"])
 async def liveness():
-    return {"status": "alive"}
+    return {"status": "alive", "revision": get_settings().render_git_commit or None}
 
 
 @router.api_route("/health", methods=["GET", "HEAD"])
@@ -63,6 +63,7 @@ async def health_check(db=Depends(get_db)):
             if status[label] == "ok" and settings.llm_configured
             else "degraded",
             "services": status,
+            "revision": settings.render_git_commit or None,
         },
         status_code=200 if status[label] == "ok" else 503,
     )

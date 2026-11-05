@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     app_name: str = "AgentVerse"
     app_env: str = "development"
     app_debug: bool = True
+    # Set automatically by Render so deploy verification can identify the code running.
+    render_git_commit: str = ""
     secret_key: str = "change-me"
     api_v1_prefix: str = "/api/v1"
 

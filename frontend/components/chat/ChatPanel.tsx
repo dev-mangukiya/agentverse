@@ -7,7 +7,6 @@ import type { ChatMessageData as Message } from "@/lib/chat-message";
 import { getSessionId } from "@/lib/session";
 import { getAuthHeaders, useAuth } from "@/lib/auth";
 import { getAgent } from "@/config/agents";
-import { useNotifications } from "@/components/notifications/NotificationProvider";
 import { ExportMenu } from "./ExportMenu";
 import { PromptTemplates } from "./PromptTemplates";
 import { WorkspaceWelcome } from "@/components/workspace/WorkspaceWelcome";
@@ -379,11 +378,6 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const cameraDialogRef = useDialogFocus(cameraOpen, () => closeCamera());
   const [showTemplates, setShowTemplates] = useState(false);
 
-  // Notifications
-  const { addNotification } = useNotifications();
-  const notifyRef = useRef(addNotification);
-  notifyRef.current = addNotification;
-
   // Pipeline state
   const pipelineAgentsRef = useRef<PipelineAgent[]>([]);
   const delegationsRef = useRef<DelegationEvent[]>([]);
@@ -410,6 +404,8 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
   const thinkingAgentRef = useRef("");
   const pendingMessageRef = useRef<string | null>(null);
   const unsentDraftRef = useRef<{ messageId: number; input: string; files: AttachedFile[]; requestId: string } | null>(null);
+  // Keep the draft until the server accepts or explicitly rejects the turn.
+  const awaitingSaveRef = useRef<typeof unsentDraftRef.current>(null);
   const pendingAttachmentsRef = useRef<Array<{name: string; type: string; data: string}>>([]);
   const skipNextLoadRef = useRef(false);
   const dragCounterRef = useRef(0);
@@ -516,8 +512,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
     callbacksRef.current = { onMessageSent, emitPipeline, resetPipeline, updateAgent };
   });
 
-  const restoreUnsentDraft = () => {
-    const draft = unsentDraftRef.current;
+  const restoreUnsentDraft = (draft = unsentDraftRef.current) => {
     unsentDraftRef.current = null;
     pendingMessageRef.current = null;
     pendingAttachmentsRef.current = [];
@@ -609,6 +604,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
           setIsThinking(true);
           ws.send(JSON.stringify(msg));
           pendingMessageRef.current = null;
+          awaitingSaveRef.current = unsentDraftRef.current;
           unsentDraftRef.current = null;
         }
       };
@@ -751,15 +747,12 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             break;
 
           case "message_saved":
+            awaitingSaveRef.current = null;
             cb.onMessageSent();
             break;
 
           case "message_updated":
             setMessages(prev => prev.map(m => m.id === data.id ? { ...m, critic_score: data.critic_score, critic_review: data.critic_review, review_status: data.review_status } : m));
-            break;
-
-          case "busy":
-            setError(data.content);
             break;
 
           case "cancelled":
@@ -783,7 +776,10 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             cb.onMessageSent();
             break;
 
+          case "busy":
           case "error":
+            if (data.type === "busy" || data.accepted === false) restoreUnsentDraft(awaitingSaveRef.current);
+            awaitingSaveRef.current = null;
             setIsStopping(false);
             if (stopTimeoutRef.current) { clearTimeout(stopTimeoutRef.current); stopTimeoutRef.current = null; }
             sendingRef.current = false;
@@ -793,19 +789,12 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
             setMessages(prev => prev.filter(m => !m.awaiting).map(m => m.isStreaming ? { ...m, ...data.message, renderKey: m.renderKey, content: data.message?.content ?? m.liveText?.content ?? m.content, liveText: undefined, isStreaming: false, incomplete: true } : m));
             setActiveAgents([]);
             setThinkingAgent("");
+            thinkingAgentRef.current = "";
             setThinkingPhase("");
             setIsThinking(false);
             setToolActivity(null);
             setError(data.content);
             cb.emitPipeline(false);
-            // Fire error notification
-            if (notifyRef.current) {
-              notifyRef.current({
-                type: "error",
-                title: "Error",
-                message: data.content?.slice(0, 120),
-              });
-            }
             break;
 
           case "pong":
@@ -902,6 +891,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
 
     return () => {
       destroyed = true;
+      awaitingSaveRef.current = null;
       authenticatedSocketRef.current = null;
       if (connectionTimeout) clearTimeout(connectionTimeout);
       if (stopTimeoutRef.current) { clearTimeout(stopTimeoutRef.current); stopTimeoutRef.current = null; }
@@ -1124,6 +1114,7 @@ export function ChatPanel({ conversationId, onConversationCreated, onMessageSent
       const msg: Record<string, unknown> = { type: "message", request_id: unsentDraftRef.current!.requestId, content };
       if (binaryAttachments.length > 0) msg.attachments = binaryAttachments;
       wsRef.current.send(JSON.stringify(msg));
+      awaitingSaveRef.current = unsentDraftRef.current;
       unsentDraftRef.current = null;
     } else if (!pendingMessageRef.current) {
       pendingMessageRef.current = content;

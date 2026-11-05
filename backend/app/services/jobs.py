@@ -5,6 +5,7 @@ import json
 import time
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, update, delete, func, case, text
+from sqlalchemy.exc import SQLAlchemyError
 from app.database.session import async_session_factory
 from app.database.models.models import BackgroundJob, Message, Run, Artifact, Approval
 from app.security.identity import (
@@ -28,6 +29,19 @@ async def enqueue(kind, conversation_id, payload):
         settings = get_settings()
         if not settings.qdrant_url or not settings.google_api_key_list:
             return False
+    # Chat messages are already durable. A side job may be skipped, but must
+    # never prevent a saved answer from reaching its reader.
+    try:
+        async with asyncio.timeout(4):
+            return await _insert_job(kind, conversation_id, payload, owner)
+    except (TimeoutError, SQLAlchemyError) as exc:
+        logger.warning(
+            "jobs.enqueue_unavailable", kind=kind, error_type=type(exc).__name__
+        )
+        return False
+
+
+async def _insert_job(kind, conversation_id, payload, owner):
     async with async_session_factory() as db:
         if db.bind.dialect.name == "postgresql":
             await db.execute(text("SELECT pg_advisory_xact_lock(629102901)"))
@@ -49,6 +63,12 @@ async def enqueue(kind, conversation_id, payload):
                 )
                 await db.commit()
             return False
+        if kind == "review":
+            await db.execute(
+                update(Message)
+                .where(Message.id == payload["message_id"])
+                .values(review_status="pending")
+            )
         db.add(
             BackgroundJob(
                 kind=kind,

@@ -83,6 +83,7 @@ async def run_turn(process, socket, conversation_id, content, attachments, facto
             await socket.send_json(
                 {
                     "type": "error",
+                    "accepted": False,
                     "content": "Please wait a moment before sending another message.",
                 }
             )

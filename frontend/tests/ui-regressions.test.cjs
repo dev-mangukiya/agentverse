@@ -142,7 +142,7 @@ function sendHarness(fetch) {
     setMessages: update => state.messages = update(state.messages), setIsThinking: value => state.thinking = value,
     conversationId: null, AbortController, createRequestRef: { current: null }, fetch, API_URL: 'http://example.invalid',
     getAuthHeaders: () => ({}), pendingMessageRef: { current: null }, pendingAttachmentsRef: { current: [] },
-    unsentDraftRef: { current: null }, authenticatedSocketRef: { current: null }, crypto: require('node:crypto').webcrypto,
+    unsentDraftRef: { current: null }, awaitingSaveRef: { current: null }, authenticatedSocketRef: { current: null }, crypto: require('node:crypto').webcrypto,
     WebSocket: { OPEN: 1, CONNECTING: 0, CLOSING: 2 }, setConnectionAttempt() {},
     skipNextLoadRef: { current: false }, onConversationCreated: id => state.created.push(id), wsRef: { current: null },
   };
@@ -186,7 +186,8 @@ function connectionHarness() {
     setWsConnected: value => state.connected = value, setConnectionFailed: value => state.connectionFailed = value,
     setConnectionAttempt: () => state.reconnectRequested = true,
     reconnectTimeoutRef: { current: null }, stopTimeoutRef: { current: null }, streamingMessageRef: { current: null },
-    setIsStopping() {}, setToolActivity() {}, setActiveAgents() {}, callbacksRef: { current: { emitPipeline() {} } },
+    setIsStopping() {}, setToolActivity() {}, setActiveAgents() {}, setThinkingPhase() {}, setThinkingAgent() {}, thinkingAgentRef: {current: ''},
+    callbacksRef: { current: { emitPipeline() {}, onMessageSent() {} } },
     setTimeout: (fn, delay) => schedule(fn, delay), clearTimeout: id => timers.delete(id),
     setInterval: (fn, delay) => schedule(fn, delay, true), clearInterval: id => timers.delete(id),
   });
@@ -304,6 +305,25 @@ test('failed conversation creation restores the draft and attachment instead of 
   assert.equal(context.pendingMessageRef.current, null);
   assert.equal(state.created.length, 0);
   assert.match(state.error, /draft has been restored/);
+});
+
+test('a rejected turn restores the draft and unlocks the composer, while a saved prompt stays in history on error', async () => {
+  const h = connectionHarness(), ws = h.sockets[0];
+  ws.open(); ws.receive({ type: 'authenticated' });
+  await h.send();
+  ws.receive({ type: 'busy', content: 'Another reply is in progress.' });
+  assert.equal(h.state.thinking, false);
+  assert.equal(h.state.input, 'Keep my draft');
+  assert.equal(h.state.attachedFiles[0].name, 'note.txt');
+  assert.equal(h.state.messages.length, 0);
+  await h.send();
+  ws.receive({ type: 'message_saved', message: { id: 1 } });
+  ws.receive({ type: 'error', content: 'The AI provider has run out of credits.' });
+  assert.equal(h.state.thinking, false);
+  assert.equal(h.state.input, '');
+  assert.equal(h.state.messages.length, 1);
+  assert.equal(h.state.error, 'The AI provider has run out of credits.');
+  h.cleanup();
 });
 
 test('double submission creates only one conversation', async () => {
@@ -464,7 +484,7 @@ function streamHarness() {
     setMessages(update) { state.messages = update(state.messages); state.updates++; },
     setIsThinking(value) { state.thinking = value; }, setToolActivity() {}, setThinkingAgent() {},
     thinkingAgentRef: { current: '' }, setThinkingPhase() {}, setActiveAgents() {}, setError() {},
-    pipelineAgentsRef: { current: [] }, notifyRef: { current: null }, conversationId: 'chat-1',
+    pipelineAgentsRef: { current: [] }, awaitingSaveRef: { current: null }, conversationId: 'chat-1',
     setIsStopping() {}, stopTimeoutRef: { current: null }, clearTimeout() {},
   };
   const js = ts.transpileModule(`(${handler})`, { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;

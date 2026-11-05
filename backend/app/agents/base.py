@@ -117,6 +117,24 @@ def get_google_key_manager() -> GoogleKeyManager:
 
 # ── LLM instance cache ─────────────────────────────────────────────────────
 _llm_cache: dict[tuple, BaseChatModel] = {}
+# A 402 applies to the HF account, including other models under the same token.
+# Allow a later request to probe again after credits might have been restored.
+_hf_credit_retry_at = 0.0
+_HF_CREDIT_COOLDOWN_SECONDS = 300
+
+
+class HuggingFaceCreditsExhausted(RuntimeError):
+    """Inference credits ran out before the provider accepted the request."""
+
+
+def _is_huggingface(model):
+    return getattr(model, "_llm_type", None) == "huggingface-chat-wrapper"
+
+
+def _http_status(exc):
+    return getattr(exc, "status_code", None) or getattr(
+        getattr(exc, "response", None), "status_code", None
+    )
 
 
 def _cache_model(key, model):
@@ -257,9 +275,7 @@ def _is_transient_error(exc: Exception) -> bool:
     Covers: rate limits (429), quota exhaustion, server overload (503),
     and Gemini-specific UNAVAILABLE errors.
     """
-    status = getattr(exc, "status_code", None) or getattr(
-        getattr(exc, "response", None), "status_code", None
-    )
+    status = _http_status(exc)
     if isinstance(status, int):
         return status == 429 or 500 <= status < 600
     if isinstance(exc, (TimeoutError, ConnectionError)):
@@ -296,7 +312,7 @@ def _is_model_unavailable_error(exc: Exception) -> bool:
         body = response.json()
         error = body.get("error", body)
         return isinstance(error, dict) and error.get("code") == "model_not_supported"
-    except (ValueError, AttributeError, TypeError):
+    except (ValueError, AttributeError, TypeError, RuntimeError):
         return False
 
 
@@ -312,7 +328,7 @@ def _get_fallback_llm(temperature: float = 0.3) -> BaseChatModel | None:
             return _create_google_llm(key, settings.default_model, temperature)
 
     # Fall back to HuggingFace
-    if settings.huggingface_api_key:
+    if settings.huggingface_api_key and time.monotonic() >= _hf_credit_retry_at:
         cache_key = ("huggingface", "Qwen/Qwen2.5-Coder-32B-Instruct", temperature)
         if cache_key in _llm_cache:
             return _llm_cache[cache_key]
@@ -362,10 +378,28 @@ def _preserve_bindings(original, replacement, tools=None):
     return replacement.bind(**bindings) if bindings else replacement
 
 
+def _model_temperature(model):
+    temperature = getattr(model, "temperature", None)
+    return temperature if temperature is not None else 0.3
+
+
+def available_model(llm, tools):
+    """Route subsequent turns and tool rounds around a known credit outage."""
+    model = _underlying_model(llm)
+    if not _is_huggingface(model) or time.monotonic() >= _hf_credit_retry_at:
+        return llm
+    if get_settings().max_retries:
+        replacement = _get_fallback_llm(temperature=_model_temperature(model))
+        if replacement is not None:
+            return _preserve_bindings(llm, replacement, tools)
+    raise HuggingFaceCreditsExhausted("Hugging Face inference credits exhausted")
+
+
 async def _invoke_with_retry(
     llm, messages, max_retries=None, *, initial_error=None, tools=None
 ):
     """Bound fallback time and preserve tools; never replay a known failed stream."""
+    global _hf_credit_retry_at
     attempts = get_settings().max_retries if max_retries is None else max_retries
     current = llm
     error = initial_error
@@ -389,28 +423,43 @@ async def _invoke_with_retry(
                             return response
                     except Exception as exc:
                         error = exc
+                model = _underlying_model(current)
+                billing_failure = _is_huggingface(model) and _http_status(error) == 402
+                if billing_failure:
+                    _hf_credit_retry_at = time.monotonic() + _HF_CREDIT_COOLDOWN_SECONDS
+                    logger.warning("llm.huggingface_credits_exhausted")
+                    if attempt == attempts:
+                        raise HuggingFaceCreditsExhausted(
+                            "Hugging Face inference credits exhausted"
+                        ) from error
                 unavailable_model = _is_model_unavailable_error(error)
                 if (
-                    not (_is_transient_error(error) or unavailable_model)
+                    not (
+                        billing_failure
+                        or _is_transient_error(error)
+                        or unavailable_model
+                    )
                     or attempt == attempts
                 ):
                     raise error
-                model = _underlying_model(current)
                 key = getattr(model, "google_api_key", None)
-                if key is not None and not unavailable_model:
+                if key is not None and (
+                    _http_status(error) == 429
+                    or "quota" in str(error).lower()
+                    or "resource_exhausted" in str(error).lower()
+                ):
                     _google_key_manager.mark_rate_limited(key)
                 logger.warning(
-                    "llm.model_unavailable"
-                    if unavailable_model
-                    else "llm.transient_error",
+                    "llm.fallback",
                     attempt=attempt + 1,
                     error_type=type(error).__name__,
                 )
-                temperature = getattr(model, "temperature", None)
-                replacement = _get_fallback_llm(
-                    temperature=temperature if temperature is not None else 0.3
-                )
+                replacement = _get_fallback_llm(temperature=_model_temperature(model))
                 if replacement is None or id(_underlying_model(replacement)) in seen:
+                    if billing_failure:
+                        raise HuggingFaceCreditsExhausted(
+                            "Hugging Face inference credits exhausted"
+                        ) from error
                     raise error
                 seen.add(id(_underlying_model(replacement)))
                 current = _preserve_bindings(llm, replacement, tools)

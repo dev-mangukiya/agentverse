@@ -895,6 +895,7 @@ async def chat_websocket(websocket: WebSocket, conversation_id: str):
                         websocket,
                         {
                             "type": "error",
+                            "accepted": False,
                             "content": "Message or attachments exceed the allowed limits.",
                         },
                     )
@@ -919,6 +920,7 @@ async def chat_websocket(websocket: WebSocket, conversation_id: str):
                         websocket,
                         {
                             "type": "error",
+                            "accepted": False,
                             "content": "You're sending messages too quickly. Please wait a moment before trying again.",
                         },
                     )
@@ -997,6 +999,7 @@ async def _process_user_message_inner(
         # turns all share the same document context. Passing a PDF as an
         # ``image_url`` is not portable across the supported LLM providers.
         from app.services.attachments import persist_attachments
+        from app.services.jobs import enqueue
 
         attachment_records = await persist_attachments(attachments)
         content = await asyncio.to_thread(
@@ -1027,14 +1030,6 @@ async def _process_user_message_inner(
                     "type": "message_saved",
                     "message": user_msg.to_dict(),
                 },
-            )
-
-            from app.services.jobs import enqueue
-
-            await enqueue(
-                "memory",
-                conversation_id,
-                {"role": "user", "content": content, "message_id": user_msg.id},
             )
 
         revision = re.search(r"\[Improve answer:(\d+)\]", content)
@@ -1076,80 +1071,24 @@ async def _process_user_message_inner(
                     )
                 )
 
-        # Check LLM
-        if not settings.llm_configured:
-            websocket.failed = True
-            await _send_ws(
-                websocket,
-                {
-                    "type": "error",
-                    "content": "No LLM API key configured. Add GOOGLE_API_KEY to your .env file and restart the server.",
-                },
-            )
-            return
+        from app.agents.quick_replies import needs_conversation_context, quick_reply
 
-        # ── Fast-path for trivial greetings ──────────────────────
-        # Skip the full orchestrator pipeline for messages that don't need it.
-        trivial_lower = content.strip().lower().rstrip("!?.,:;")
-        GREETINGS = {
-            "hi",
-            "hey",
-            "hello",
-            "hola",
-            "yo",
-            "sup",
-            "hii",
-            "hiii",
-            "good morning",
-            "good afternoon",
-            "good evening",
-            "good night",
-            "gm",
-            "thanks",
-            "thank you",
-            "thx",
-            "ty",
-            "bye",
-            "goodbye",
-            "see you",
-            "test",
-            "ping",
-        }
-        if (
-            trivial_lower in GREETINGS
-            and not attachments
-            and not await _get_conversation_context(conversation_id)
-        ):
+        fast_response = quick_reply(content) if not attachments else None
+        if fast_response:
+            async with async_session_factory() as db:
+                previous_reply = await db.scalar(
+                    select(Message.content)
+                    .where(
+                        Message.conversation_id == conversation_id,
+                        Message.role == "agent",
+                    )
+                    .order_by(Message.id.desc())
+                    .limit(1)
+                )
+            if needs_conversation_context(previous_reply):
+                fast_response = None
+        if fast_response:
             fast_start = time.time()
-            FAST_RESPONSES = {
-                "hi": "Hello! How can I help you today?",
-                "hey": "Hey there! What can I do for you?",
-                "hello": "Hello! How can I help you today?",
-                "hola": "Hola! How can I help you?",
-                "yo": "Hey! What's up?",
-                "sup": "Hey! What's on your mind?",
-                "hii": "Hello! How can I help you today?",
-                "hiii": "Hello! How can I help you today?",
-                "good morning": "Good morning! How can I help you today?",
-                "good afternoon": "Good afternoon! How can I help you?",
-                "good evening": "Good evening! What can I do for you?",
-                "good night": "Good night! Let me know if you need anything before you go.",
-                "gm": "Good morning! How can I help you today?",
-                "thanks": "You're welcome! Let me know if you need anything else.",
-                "thank you": "You're welcome! Happy to help.",
-                "thx": "You're welcome!",
-                "ty": "You're welcome!",
-                "ok": "Got it! Let me know what you'd like to work on.",
-                "okay": "Got it! Let me know what you'd like to work on.",
-                "bye": "Goodbye! Feel free to come back anytime.",
-                "goodbye": "Goodbye! Have a great day!",
-                "see you": "See you later!",
-                "test": "I'm here and working. Ask me anything.",
-                "ping": "Pong! System is online and ready.",
-            }
-            fast_response = FAST_RESPONSES.get(
-                trivial_lower, "Hello! How can I help you today?"
-            )
             fast_duration = int((time.time() - fast_start) * 1000)
 
             # Send minimal pipeline events
@@ -1212,6 +1151,12 @@ async def _process_user_message_inner(
                     },
                 )
             return
+
+        await enqueue(
+            "memory",
+            conversation_id,
+            {"role": "user", "content": user_msg.content, "message_id": user_msg.id},
+        )
 
         # ── Fast-path: on-demand critic review ────────────────────
         _critic_request_kw = [
@@ -1307,6 +1252,18 @@ async def _process_user_message_inner(
                         "pipeline_duration_ms": fast_duration,
                     },
                 )
+            return
+
+        # Check LLM
+        if not settings.llm_configured:
+            websocket.failed = True
+            await _send_ws(
+                websocket,
+                {
+                    "type": "error",
+                    "content": "The AI provider is not configured. The service owner needs to configure a model key.",
+                },
+            )
             return
 
         # ── Pipeline Start Event ─────────────────────────────────
@@ -1791,19 +1748,6 @@ async def _process_user_message_inner(
             # Background: embed agent response into Qdrant semantic memory
             if isinstance(websocket, _TurnSocket):
                 websocket.record_saved_response(agent_msg.to_dict())
-            from app.services.jobs import enqueue
-
-            await enqueue(
-                "memory",
-                conversation_id,
-                {
-                    "role": "agent",
-                    "content": final_response,
-                    "agent_name": final_agent_name,
-                    "message_id": agent_msg.id,
-                },
-            )
-
             # Pipeline complete event
             all_contributors = contributing_agents or []
             await _send_ws(
@@ -1830,14 +1774,18 @@ async def _process_user_message_inner(
                 },
             )
 
+        await enqueue(
+            "memory",
+            conversation_id,
+            {
+                "role": "agent",
+                "content": final_response,
+                "agent_name": final_agent_name,
+                "message_id": agent_msg.id,
+            },
+        )
+
         if should_review:
-            async with async_session_factory() as db:
-                await db.execute(
-                    update(Message)
-                    .where(Message.id == agent_msg.id)
-                    .values(review_status="pending")
-                )
-                await db.commit()
             await enqueue(
                 "review",
                 conversation_id,
@@ -1906,8 +1854,7 @@ async def _process_user_message_inner(
         )
     except Exception as exc:
         websocket.failed = True
-        err_str = str(exc)
-        logger.error("ws.process_error", error=err_str)
+        logger.error("ws.process_error", error_type=type(exc).__name__, error=str(exc))
         partial_message = None
         if isinstance(websocket, _TurnSocket):
             try:
@@ -1918,65 +1865,39 @@ async def _process_user_message_inner(
                 logger.warning(
                     "ws.partial_save_failed", conversation_id=conversation_id
                 )
-        try:
-            err_lower = err_str.lower()
-            from app.agents.base import _is_model_unavailable_error
+        await _send_ws(
+            websocket,
+            {
+                "type": "error",
+                "message": partial_message,
+                "content": _reply_error_message(exc),
+            },
+        )
 
-            if (
-                "429" in err_str
-                or "RESOURCE_EXHAUSTED" in err_str
-                or "quota" in err_lower
-                or "rate limit" in err_lower
-                or "503" in err_str
-                or "unavailable" in err_lower
-                or "high demand" in err_lower
-            ):
-                await _send_ws(
-                    websocket,
-                    {
-                        "type": "error",
-                        "message": partial_message,
-                        "content": "Both primary and fallback APIs are temporarily unavailable. Please wait ~30 seconds and try again.",
-                    },
-                )
-            elif _is_model_unavailable_error(exc):
-                await _send_ws(
-                    websocket,
-                    {
-                        "type": "error",
-                        "message": partial_message,
-                        "content": "The configured AI model is not available from the enabled providers. Update the backend model configuration or enable a supported provider.",
-                    },
-                )
-            elif "Fallback LLM" in err_str and "timed out" in err_str:
-                await _send_ws(
-                    websocket,
-                    {
-                        "type": "error",
-                        "message": partial_message,
-                        "content": "Fallback model (HuggingFace) timed out. The model may be cold-starting — please try again in a moment.",
-                    },
-                )
-            elif "API_KEY_INVALID" in err_str or "API key not valid" in err_str:
-                await _send_ws(
-                    websocket,
-                    {
-                        "type": "error",
-                        "message": partial_message,
-                        "content": "Invalid API key. Please check your API key configuration.",
-                    },
-                )
-            else:
-                await _send_ws(
-                    websocket,
-                    {
-                        "type": "error",
-                        "message": partial_message,
-                        "content": "The reply could not be completed. Please try again.",
-                    },
-                )
-        except Exception:
-            pass
+
+def _reply_error_message(exc: Exception) -> str:
+    """Give users a next step without exposing provider payloads or credentials."""
+    from app.agents.base import HuggingFaceCreditsExhausted, _is_model_unavailable_error
+
+    if isinstance(exc, HuggingFaceCreditsExhausted):
+        return "The AI provider has run out of credits. The service owner needs to restore credits or enable another model provider."
+    if _is_model_unavailable_error(exc):
+        return "The configured AI model is unavailable. The service owner needs to select a supported model."
+    reason = str(exc).lower()
+    if "timed out" in reason or isinstance(exc, TimeoutError):
+        return "The AI provider took too long to reply. Please try again."
+    if any(
+        marker in reason
+        for marker in ("429", "resource_exhausted", "quota", "rate limit")
+    ):
+        return "The AI provider has reached its request limit. Please try again in a minute."
+    if any(marker in reason for marker in ("503", "unavailable", "high demand")):
+        return "The AI provider is temporarily unavailable. Please try again shortly."
+    if "api_key_invalid" in reason or "api key not valid" in reason:
+        return "The AI provider rejected its API key. The service owner needs to update the key."
+    run_id = current_run.get()
+    reference = f" Reference {run_id[:8]}." if run_id else ""
+    return "The reply could not be completed. Please try again." + reference
 
 
 async def _review_saved_response(
@@ -2390,7 +2311,7 @@ async def _run_agent_with_streaming(
     they are included as image_url parts in the HumanMessage for Gemini vision.
     """
     from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
-    from app.agents.base import _invoke_with_retry, _underlying_model
+    from app.agents.base import available_model, _invoke_with_retry, _underlying_model
     from functools import partial
 
     async def _execute() -> str:
@@ -2448,9 +2369,9 @@ async def _run_agent_with_streaming(
                     )
                 )
             round_llm = _underlying_model(llm) if final_round else llm
-            invoke = partial(
-                _invoke_with_retry, tools=[] if routing or final_round else agent.tools
-            )
+            tools = [] if routing or final_round else agent.tools
+            round_llm = available_model(round_llm, tools)
+            invoke = partial(_invoke_with_retry, tools=tools)
             if final_round:
                 messages.append(
                     HumanMessage(

@@ -128,6 +128,94 @@ async def test_real_tokens_arrive_before_model_finishes():
 
 
 @pytest.mark.asyncio
+async def test_unanswered_chat_recovers_with_starter_clarification_and_followup_greeting(
+    database, monkeypatch
+):
+    monkeypatch.setattr(chat, "settings", SimpleNamespace(llm_configured=False))
+    async with database() as db:
+        db.add(Conversation(id="stranded", session_id="fixture-guest"))
+        await db.flush()
+        db.add(
+            Message(
+                conversation_id="stranded",
+                role="user",
+                content="An earlier failed prompt",
+            )
+        )
+        await db.commit()
+    for prompt, expected in [
+        (
+            "Help me research a topic and explain the key findings with sources. My topic is:",
+            "What topic",
+        ),
+        ("hi", "Hello!"),
+    ]:
+        ws = Socket()
+        await chat._process_user_message(chat._TurnSocket(ws), "stranded", prompt)
+        assert [e["type"] for e in ws.events].count("response") == 1
+        assert not any(e["type"] == "error" for e in ws.events)
+        reply = next(e for e in ws.events if e["type"] == "response")
+        assert reply["content"].startswith(expected)
+        async with database() as db:
+            assert (await db.get(Message, reply["message"]["id"])).content == reply[
+                "content"
+            ]
+
+
+@pytest.mark.asyncio
+async def test_a_greeting_used_as_task_input_keeps_its_context(database, monkeypatch):
+    async with database() as db:
+        db.add(Conversation(id="translation", session_id="fixture-guest"))
+        await db.flush()
+        db.add(
+            Message(
+                conversation_id="translation",
+                role="agent",
+                content="Which word should I translate into French?",
+            )
+        )
+        await db.commit()
+    run = AsyncMock(return_value="Salut")
+    monkeypatch.setattr(chat, "_run_agent_with_streaming", run)
+    ws = Socket()
+    await chat._process_user_message(chat._TurnSocket(ws), "translation", "hi")
+    run.assert_awaited_once()
+    assert (await ws.wait_for("response"))["content"] == "Salut"
+
+
+@pytest.mark.asyncio
+async def test_optional_job_outage_still_delivers_and_saves_answer(
+    database, monkeypatch
+):
+    from sqlalchemy.exc import OperationalError
+    from app.services import jobs
+    import app.core.config as config
+
+    settings = config.get_settings().model_copy(
+        update={"qdrant_url": "test", "google_api_key": "test"}
+    )
+    monkeypatch.setattr(config, "get_settings", lambda: settings)
+    insert = AsyncMock(
+        side_effect=OperationalError("test", {}, Exception("queue offline"))
+    )
+    monkeypatch.setattr(jobs, "_insert_job", insert)
+    monkeypatch.setattr(
+        chat,
+        "_run_agent_with_streaming",
+        AsyncMock(side_effect=["DELEGATE: writer | Write a poem", "A poem."]),
+    )
+    ws = Socket()
+    await chat._process_user_message(chat._TurnSocket(ws), "queue-down", "Write a poem")
+    assert not any(e["type"] == "error" for e in ws.events)
+    response = await ws.wait_for("response")
+    assert response["content"] == "A poem."
+    async with database() as db:
+        answer = await db.get(Message, response["message"]["id"])
+        assert answer.content == "A poem." and answer.review_status != "pending"
+    assert {call.args[0] for call in insert.await_args_list} == {"memory", "review"}
+
+
+@pytest.mark.asyncio
 async def test_tool_arguments_are_accumulated_but_never_shown():
     ws = Socket()
 

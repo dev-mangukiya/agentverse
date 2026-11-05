@@ -1714,6 +1714,10 @@ async def _process_user_message_inner(
 
         # Save the answer immediately. Quality review runs independently and
         # updates this message by id, without locking the next user turn.
+        if isinstance(websocket, _TurnSocket) and (
+            final_agent_name == "research" or "research" in contributing_agents
+        ):
+            final_response = websocket.sources.link_citations(final_response)
         should_review = final_agent_name != "critic" and (
             final_agent_name != "orchestrator" or bool(contributing_agents)
         )
@@ -2365,7 +2369,7 @@ async def _run_agent_with_streaming(
                     HumanMessage(
                         content="Retrieved source ledger:\n"
                         + websocket.sources.text()
-                        + "\nCite sources once at relevant claims. Do not append repeated raw URLs."
+                        + "\nCite relevant claims with inline Markdown links to the retrieved URLs."
                     )
                 )
             round_llm = _underlying_model(llm) if final_round else llm

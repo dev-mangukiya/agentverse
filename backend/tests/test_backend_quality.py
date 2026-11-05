@@ -17,6 +17,50 @@ from test_chat_experience import database, Socket
 real_get_context = chat._get_conversation_context
 
 
+@pytest.mark.asyncio
+async def test_research_saves_clickable_citations_to_the_page_actually_fetched(
+    database, monkeypatch
+):
+    url = "https://science.nasa.gov/moon/facts/"
+
+    async def run(agent, prompt, context, socket, **kwargs):
+        if kwargs.get("routing"):
+            return "DELEGATE: research | Read NASA's Moon facts."
+        socket.record_evidence(
+            "research",
+            {"name": "fetch_url", "args": {"url": url}},
+            f"Source: {url}\nThe page also mentions https://example.com/other.",
+        )
+        return "One orbit takes about 27 days [1]."
+
+    monkeypatch.setattr(chat, "_run_agent_with_streaming", run)
+    ws = Socket()
+    await chat._process_user_message(
+        chat._TurnSocket(ws), "moon", "Research the Moon with a NASA link."
+    )
+    reply = next(event for event in ws.events if event["type"] == "response")
+    assert reply["content"] == f"One orbit takes about 27 days [1](<{url}>)."
+    async with database() as db:
+        assert (await db.get(Message, reply["message"]["id"])).content == reply[
+            "content"
+        ]
+
+
+def test_numbered_citations_preserve_code_links_and_unknown_sources():
+    from app.agents.sources import SourceLedger
+
+    ledger = SourceLedger()
+    ledger.add("fetch_url", "Source: https://a.org/\nhttps://unread.example/article")
+    ledger.add(
+        "web_search", "Snippet\nSource: https://b.org/\nSource: https://[malformed"
+    )
+    assert len(ledger.sources) == 2
+    answer = "Two facts [1, 2]. Compare `a[1]`, [2](https://example.org/) and [3].\n\n```\n[1]\n```"
+    assert ledger.link_citations(answer) == answer.replace(
+        "[1, 2]", "[1](<https://a.org/>), [2](<https://b.org/>)"
+    )
+
+
 def test_review_receives_full_request_answer_context_and_evidence():
     request = (
         "Follow these instructions: " + "x" * 1500 + " Final constraint: Spanish only."

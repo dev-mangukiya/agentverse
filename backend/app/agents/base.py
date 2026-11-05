@@ -10,6 +10,7 @@ import asyncio
 import time
 import threading
 
+import httpx
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 
@@ -278,7 +279,7 @@ def _is_transient_error(exc: Exception) -> bool:
     status = _http_status(exc)
     if isinstance(status, int):
         return status == 429 or 500 <= status < 600
-    if isinstance(exc, (TimeoutError, ConnectionError)):
+    if isinstance(exc, (TimeoutError, ConnectionError, httpx.TransportError)):
         return True
     err = str(exc).lower()
     return any(
@@ -299,6 +300,8 @@ def _is_transient_error(exc: Exception) -> bool:
             "temporarily",
             "high demand",
             "capacity",
+            "timed out",
+            "deadline exceeded",
         ]
     )
 
@@ -356,6 +359,25 @@ def _underlying_model(llm):
     return llm
 
 
+def routing_model(llm):
+    """Apply routing controls to the actual provider, including replacements."""
+    model = str(getattr(_underlying_model(llm), "model", ""))
+    if model.removeprefix("models/") in ("gemini-2.5-flash", "gemini-2.5-flash-lite"):
+        return llm.bind(thinking_budget=0)
+    return llm
+
+
+def model_attempt_timeout(routing=False):
+    """Leave room for recovery inside the routing deadline, including overhead."""
+    settings = get_settings()
+    timeout = settings.model_attempt_timeout_seconds
+    if routing:
+        timeout = min(
+            timeout, settings.routing_timeout_seconds * 0.8 / (settings.max_retries + 1)
+        )
+    return timeout
+
+
 def _preserve_bindings(original, replacement, tools=None):
     # Tool schemas and routing options live on RunnableBinding, not the model.
     # Losing these on fallback turns a tool-using request into an ungrounded answer.
@@ -396,12 +418,12 @@ def available_model(llm, tools):
 
 
 async def _invoke_with_retry(
-    llm, messages, max_retries=None, *, initial_error=None, tools=None
+    llm, messages, max_retries=None, *, initial_error=None, tools=None, routing=False
 ):
     """Bound fallback time and preserve tools; never replay a known failed stream."""
     global _hf_credit_retry_at
     attempts = get_settings().max_retries if max_retries is None else max_retries
-    current = llm
+    current = routing_model(llm) if routing else llm
     error = initial_error
     seen = {id(_underlying_model(llm))}
     try:
@@ -415,7 +437,10 @@ async def _invoke_with_retry(
                         count_model_call()
                         from app.services.provider_limits import model_slot
 
-                        async with model_slot(current):
+                        async with (
+                            asyncio.timeout(model_attempt_timeout(routing)),
+                            model_slot(current),
+                        ):
                             response = await current.ainvoke(messages)
                             from app.agents.telemetry import record_usage
 
@@ -463,9 +488,13 @@ async def _invoke_with_retry(
                     raise error
                 seen.add(id(_underlying_model(replacement)))
                 current = _preserve_bindings(llm, replacement, tools)
+                if routing:
+                    current = routing_model(current)
                 error = None
     except asyncio.TimeoutError:
-        raise RuntimeError("LLM request timed out after 120 seconds.") from None
+        raise TimeoutError(
+            "The AI provider did not respond within its time budget."
+        ) from None
 
 
 class BaseAgent:

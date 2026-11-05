@@ -2315,8 +2315,25 @@ async def _run_agent_with_streaming(
     they are included as image_url parts in the HumanMessage for Gemini vision.
     """
     from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
-    from app.agents.base import available_model, _invoke_with_retry, _underlying_model
+    from app.agents.base import (
+        available_model,
+        _invoke_with_retry,
+        _underlying_model,
+        routing_model,
+    )
     from functools import partial
+
+    answering = False
+
+    async def emit(event):
+        nonlocal answering, agent_timeout
+        if routing and not answering and event["type"] == "stream_start":
+            # The router sometimes answers directly. Once it starts responding,
+            # use the answer budget instead of cutting it off at 25 seconds.
+            answering = True
+            agent_timeout = 120.0
+            stage_deadline.reschedule(asyncio.get_running_loop().time() + agent_timeout)
+        await _send_ws(websocket, event)
 
     async def _execute() -> str:
         prompt_builder = (
@@ -2375,7 +2392,9 @@ async def _run_agent_with_streaming(
             round_llm = _underlying_model(llm) if final_round else llm
             tools = [] if routing or final_round else agent.tools
             round_llm = available_model(round_llm, tools)
-            invoke = partial(_invoke_with_retry, tools=tools)
+            if routing:
+                round_llm = routing_model(round_llm)
+            invoke = partial(_invoke_with_retry, tools=tools, routing=routing)
             if final_round:
                 messages.append(
                     HumanMessage(
@@ -2390,7 +2409,7 @@ async def _run_agent_with_streaming(
                 response = await stream_model_response(
                     round_llm,
                     messages,
-                    lambda event: _send_ws(websocket, event),
+                    emit,
                     agent.name,
                     invoke,
                     routing=routing,
@@ -2458,10 +2477,13 @@ async def _run_agent_with_streaming(
             if routing
             else max(120.0, getattr(agent, "max_tool_rounds", 5) * 18.0)
         )
-        result = await asyncio.wait_for(_execute(), timeout=agent_timeout)
+        async with asyncio.timeout(agent_timeout) as stage_deadline:
+            result = await _execute()
         stage_status = "completed"
         return result
     except asyncio.TimeoutError:
+        if not stage_deadline.expired():
+            raise  # A provider attempt timed out before the whole stage did.
         logger.warning("agent.timeout", agent=agent.name)
         raise RuntimeError(
             f"The reply timed out after {int(agent_timeout)} seconds. Any text already received is kept; you can try again."

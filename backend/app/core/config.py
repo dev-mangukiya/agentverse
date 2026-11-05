@@ -106,6 +106,7 @@ class Settings(BaseSettings):
 
     # ── Agent limits ─────────────────────────────────────
     routing_timeout_seconds: float = Field(default=25, gt=0)
+    model_attempt_timeout_seconds: float = Field(default=30, gt=0, le=120)
     tool_timeout_seconds: float = Field(default=25, gt=0)
     max_parallel_tools: int = Field(default=4, ge=1, le=8)
     max_retries: int = Field(default=2, ge=0, le=3)

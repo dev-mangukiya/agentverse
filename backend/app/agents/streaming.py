@@ -1,5 +1,6 @@
 """Deliver provider text as it arrives while retaining complete tool-call messages."""
 
+import asyncio
 from collections.abc import Awaitable, Callable
 
 from langchain_core.messages import AIMessage
@@ -49,13 +50,20 @@ async def stream_model_response(
     directives = ("DELEGATE:", "PARALLEL:")
     try:
         from app.services.provider_limits import model_slot
+        from app.agents.base import model_attempt_timeout
 
-        async with model_slot(llm):
+        # The stage deadline cannot trigger recovery because it cancels this
+        # whole coroutine. Bound silence here so fallback gets its own attempt.
+        async with (
+            asyncio.timeout(model_attempt_timeout(routing)) as waiting,
+            model_slot(llm),
+        ):
             async for chunk in llm.astream(messages):
                 response = chunk if response is None else response + chunk
-                if getattr(chunk, "tool_call_chunks", None) or getattr(
+                tool_progress = getattr(chunk, "tool_call_chunks", None) or getattr(
                     chunk, "tool_calls", None
-                ):
+                )
+                if tool_progress:
                     tool_call = True
                     if started:
                         await emit({"type": "stream_reset", "agent": agent})
@@ -79,6 +87,13 @@ async def stream_model_response(
                         await emit({"type": "stream_start", "agent": agent})
                         started = True
                     await emit({"type": "stream_token", "agent": agent, "token": text})
+                if text.strip() or tool_progress:
+                    # Once an answer is visible it may take longer to finish.
+                    # Empty/thinking-only chunks must not keep a silent call alive.
+                    waiting.reschedule(
+                        asyncio.get_running_loop().time()
+                        + model_attempt_timeout(routing and not started)
+                    )
     except Exception as exc:
         used_fallback = True
         if started or tool_call:

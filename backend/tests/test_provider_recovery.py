@@ -1,5 +1,6 @@
 """Production regressions: unavailable hosted models and strict memory filters."""
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -10,6 +11,196 @@ from langchain_core.messages import AIMessage, AIMessageChunk
 from app.agents import base
 from app.agents.streaming import stream_model_response
 from app.memory import vector_store
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("streaming", [True, False])
+async def test_stopping_a_silent_request_cancels_it_without_fallback(
+    monkeypatch, streaming
+):
+    entered = asyncio.Event()
+    stopped = asyncio.Event()
+
+    class Model:
+        async def ainvoke(self, messages):
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                stopped.set()
+
+        async def astream(self, messages):
+            await self.ainvoke(messages)
+            yield
+
+    monkeypatch.setattr(
+        base,
+        "_get_fallback_llm",
+        lambda **kwargs: pytest.fail("A cancelled turn must not retry"),
+    )
+    model = Model()
+    call = (
+        stream_model_response(
+            model, [], AsyncMock(), "orchestrator", base._invoke_with_retry
+        )
+        if streaming
+        else base._invoke_with_retry(model, [])
+    )
+    task = asyncio.create_task(call)
+    await asyncio.wait_for(entered.wait(), 1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert stopped.is_set()
+
+
+@pytest.mark.asyncio
+async def test_silence_after_visible_text_keeps_partial_answer_without_replaying(
+    monkeypatch,
+):
+    monkeypatch.setattr(base.get_settings(), "model_attempt_timeout_seconds", 0.05)
+
+    class Model:
+        async def astream(self, messages):
+            yield AIMessageChunk(content="Already received text")
+            while True:
+                await asyncio.sleep(0.01)
+                yield AIMessageChunk(content="")
+
+    emit, fallback = AsyncMock(), AsyncMock()
+    with pytest.raises(TimeoutError):
+        await stream_model_response(Model(), [], emit, "writer", fallback)
+    fallback.assert_not_called()
+    assert [
+        c.args[0]["token"]
+        for c in emit.await_args_list
+        if c.args[0]["type"] == "stream_token"
+    ] == ["Already received text"]
+
+
+@pytest.mark.asyncio
+async def test_silent_router_and_silent_fallback_recover_before_routing_deadline(
+    monkeypatch,
+):
+    from app.api.routes import chat
+    from app.agents.orchestrator import OrchestratorAgent
+
+    monkeypatch.setattr(base.get_settings(), "routing_timeout_seconds", 0.3)
+    cancelled = []
+
+    class SilentStream:
+        async def astream(self, messages):
+            try:
+                yield AIMessageChunk(content="")  # Metadata is not an answer.
+                await asyncio.Event().wait()
+            finally:
+                cancelled.append("stream")
+
+    async def silent_invoke(messages):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.append("invoke")
+
+    slow = SimpleNamespace(ainvoke=AsyncMock(side_effect=silent_invoke))
+    healthy = SimpleNamespace(
+        ainvoke=AsyncMock(
+            return_value=AIMessage(content="What would you like to know about Jo?")
+        )
+    )
+    replacements = iter([slow, healthy])
+    monkeypatch.setattr(base, "_get_fallback_llm", lambda **kwargs: next(replacements))
+    agent = OrchestratorAgent()
+    monkeypatch.setattr(agent, "_get_routing_llm", lambda: SilentStream())
+    socket = SimpleNamespace(send_json=AsyncMock())
+
+    reply = await chat._run_agent_with_streaming(
+        agent, "jo", "The user is choosing a research topic.", socket, routing=True
+    )
+
+    assert reply == "What would you like to know about Jo?"
+    assert cancelled == ["stream", "invoke"]
+    healthy.ainvoke.assert_awaited_once()
+    assert [c.args[0]["type"] for c in socket.send_json.await_args_list] == [
+        "stream_start",
+        "stream_token",
+        "stream_end",
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [httpx.ReadTimeout(""), httpx.ConnectError("")])
+async def test_sdk_transport_failures_recover_even_without_error_text(
+    monkeypatch, failure
+):
+    healthy = SimpleNamespace(
+        ainvoke=AsyncMock(return_value=AIMessage(content="Recovered"))
+    )
+    monkeypatch.setattr(base, "_get_fallback_llm", lambda **kwargs: healthy)
+    reply = await base._invoke_with_retry(SimpleNamespace(), [], initial_error=failure)
+    assert reply.content == "Recovered"
+    healthy.ainvoke.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_switch_to_google_applies_fast_routing_settings(
+    exhausted_hf, monkeypatch
+):
+    from app.api.routes import chat
+    from app.agents.orchestrator import OrchestratorAgent
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    primary, _ = exhausted_hf
+    google = ChatGoogleGenerativeAI(
+        model="gemini-2.5-flash", google_api_key="unit-test-key"
+    )
+    called = []
+
+    async def answer(self, messages, config=None, **kwargs):
+        called.append(kwargs)
+        return AIMessage(content="Could you clarify your topic?")
+
+    monkeypatch.setattr(ChatGoogleGenerativeAI, "ainvoke", answer)
+    monkeypatch.setattr(base, "_get_fallback_llm", lambda **kwargs: google)
+    agent = OrchestratorAgent()
+    monkeypatch.setattr(agent, "_get_routing_llm", lambda: primary)
+
+    assert (
+        await chat._run_agent_with_streaming(
+            agent, "jo", "", SimpleNamespace(send_json=AsyncMock()), routing=True
+        )
+        == "Could you clarify your topic?"
+    )
+    assert called[0]["thinking_budget"] == 0
+
+
+@pytest.mark.asyncio
+async def test_direct_answer_can_keep_streaming_after_routing_deadline(monkeypatch):
+    from app.api.routes import chat
+    from app.agents.orchestrator import OrchestratorAgent
+
+    monkeypatch.setattr(base.get_settings(), "routing_timeout_seconds", 0.1)
+
+    class Answer:
+        async def astream(self, messages):
+            yield AIMessageChunk(content="The answer ")
+            await asyncio.sleep(0.15)
+            yield AIMessageChunk(content="is complete.")
+
+    agent = OrchestratorAgent()
+    monkeypatch.setattr(agent, "_get_routing_llm", lambda: Answer())
+    socket = SimpleNamespace(send_json=AsyncMock())
+    assert (
+        await chat._run_agent_with_streaming(
+            agent, "Explain this", "", socket, routing=True
+        )
+        == "The answer is complete."
+    )
+    assert [
+        c.args[0]["token"]
+        for c in socket.send_json.await_args_list
+        if c.args[0]["type"] == "stream_token"
+    ] == ["The answer ", "is complete."]
 
 
 @pytest.fixture
@@ -96,7 +287,11 @@ async def test_hf_billing_does_not_retry_a_different_model_on_the_same_account(
     monkeypatch.setattr(
         base,
         "get_settings",
-        lambda: SimpleNamespace(max_retries=2, huggingface_api_key="hf_test"),
+        lambda: SimpleNamespace(
+            max_retries=2,
+            huggingface_api_key="hf_test",
+            model_attempt_timeout_seconds=30,
+        ),
     )
     with pytest.raises(base.HuggingFaceCreditsExhausted) as caught:
         await base._invoke_with_retry(model, ["Explain gravity."])

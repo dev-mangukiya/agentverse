@@ -1,6 +1,6 @@
 """Choose the shortest useful execution path; synthesize only when needed."""
 
-from app.agents.base import BaseAgent, get_llm
+from app.agents.base import BaseAgent, get_llm, routing_model
 from app.tools.tools import GENERAL_TOOLS
 
 
@@ -50,14 +50,7 @@ If missing information prevents useful work, ask one focused clarification.
     def _get_routing_llm(self):
         # Routing needs no tools. Avoid thinking overhead only on models that
         # explicitly support disabling it; answer-generating agents keep theirs.
-        llm = get_llm(temperature=0)
-        model = str(getattr(llm, "model", ""))
-        if model.removeprefix("models/") in (
-            "gemini-2.5-flash",
-            "gemini-2.5-flash-lite",
-        ):
-            return llm.bind(thinking_budget=0)
-        return llm
+        return routing_model(get_llm(temperature=0))
 
 
 class SynthesisAgent(BaseAgent):
